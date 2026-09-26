@@ -4,8 +4,9 @@
  * These stories mount the same module the game uses, so what you see here is
  * what ships. Buttons log their callbacks to the Actions panel instead of
  * driving a game. Tweak classes in hudMarkup.ts, the glow/button/arrow/key
- * cap styles in style.css, the shortcut table in input/shortcuts.ts, `TOAST_MS` in hud.ts or `AVOID_RADIUS` in
- * arrivalArrows.ts, and the story hot-reloads.
+ * cap/link styles in style.css, the shortcut table in input/shortcuts.ts,
+ * `TOAST_MS` in hud.ts, `AVOID_RADIUS` in arrivalArrows.ts or the GitHub /
+ * feedback URLs in links.ts, and the story hot-reloads.
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { fn } from "storybook/test";

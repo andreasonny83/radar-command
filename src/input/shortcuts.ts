@@ -204,6 +204,9 @@ export function attachShortcuts(
   const onKeyDown = (e: KeyboardEvent) => {
     // Leave browser/OS shortcuts (Cmd+R, Ctrl+−, Alt+Tab…) alone.
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // Enter on a focused link (GitHub / feedback) follows it rather than
+    // starting a shift.
+    if (e.key === "Enter" && e.target instanceof HTMLAnchorElement) return;
 
     if (options.helpOpen()) {
       const help = ALL_SHORTCUTS.find((s) => s.action === "toggleHelp");

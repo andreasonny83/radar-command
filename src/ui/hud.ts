@@ -1,13 +1,15 @@
 /**
  * HTML HUD layered over the canvas: score, start/game-over overlay, pause
  * button, toast notices, arrival arrows, the "track plane" badge, the
- * camera buttons and the help button + panel. Markup lives in
- * hudMarkup.ts (shared with Storybook); this module injects and wires it up.
+ * camera buttons, the help button + panel and the GitHub / feedback links.
+ * Markup lives in hudMarkup.ts (shared with Storybook); this module injects
+ * and wires it up.
  */
 import type { GamePhase } from "../core/types";
 import { shortcutHint } from "../input/shortcuts";
 import { createArrivalArrows, type ArrivalMarker } from "./arrivalArrows";
 import { hudMarkup } from "./hudMarkup";
+import { feedbackIssueUrl } from "./links";
 
 export interface HudCallbacks {
   onStart: () => void;
@@ -109,6 +111,13 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     // Drop focus so a later Space/Enter doesn't re-press the button by accident.
     pauseBtn.blur();
   });
+  // Feedback links: pre-fill the issue form on click, just before the
+  // browser follows the href (so the screen size it reports is current).
+  root.querySelectorAll<HTMLAnchorElement>("a[data-feedback-link]").forEach((a) =>
+    a.addEventListener("click", () => {
+      a.href = feedbackIssueUrl();
+    }),
+  );
   byId("rotateLeftBtn").addEventListener("click", () => callbacks.onRotate(-1));
   byId("rotateRightBtn").addEventListener("click", () => callbacks.onRotate(1));
   byId("zoomInBtn").addEventListener("click", () => callbacks.onZoom(1));

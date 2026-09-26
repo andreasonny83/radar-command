@@ -15,6 +15,7 @@ import {
   overlayMarkup,
   pauseButtonMarkup,
   pausedBannerMarkup,
+  projectLinksMarkup,
   scorePanelMarkup,
   toastMarkup,
   trackingIndicatorMarkup,
@@ -98,6 +99,17 @@ export const TrackingIndicator: Story = {
 export const CameraControls: Story = { render: () => stage(cameraControlsMarkup()) };
 
 export const Overlay: Story = { render: () => stage(overlayMarkup()) };
+
+/**
+ * "GitHub · Send feedback" links, shown under the start / game-over button
+ * and at the foot of the help panel. The repo URL is `GITHUB_REPO_URL` in
+ * links.ts; in the game, hud.ts swaps the feedback href for a pre-filled
+ * new-issue form (`feedbackIssueUrl`) on click. Here it's the plain form.
+ */
+export const ProjectLinks: Story = {
+  render: () =>
+    stage(`<div class="flex h-full items-center justify-center">${projectLinksMarkup()}</div>`),
+};
 
 /** "?" button, top-right: opens the help panel from any screen. */
 export const HelpButton: Story = { render: () => stage(helpButtonMarkup()) };

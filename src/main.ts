@@ -5,6 +5,7 @@
  *   core  (state + rules, no DOM)  ←  render / input / ui  ←  main.ts
  */
 import "./style.css";
+import { inject } from "@vercel/analytics";
 import { COLOR_HEX, CRASH_OVERLAY_DELAY, MAX_DT, ROTATE_STEP, ZOOM_STEP } from "./config";
 import { startGame, step, togglePause } from "./core/simulation";
 import { createGameState, setViewAspect } from "./core/state";
@@ -18,6 +19,11 @@ import { MeshFactory } from "./render/meshes";
 import { createScene } from "./render/scene";
 import { SceneSync } from "./render/sceneSync";
 import { createHud } from "./ui/hud";
+
+// Vercel Web Analytics: the framework-agnostic equivalent of the React
+// `<Analytics/>` component. Only the game entry calls this, so Storybook
+// never reports page views. In dev it runs in debug mode (console only).
+inject({ mode: import.meta.env.DEV ? "development" : "production" });
 
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const { engine, scene, shadows } = createScene(canvas);

@@ -38,6 +38,13 @@
       transition hover:bg-slate-700 active:scale-95;
   }
 
+  /* GitHub / feedback links on the overlay and help panel (hudMarkup.ts). */
+  .hud-link {
+    @apply inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-semibold
+      text-slate-400 transition hover:bg-slate-800/80 hover:text-sky-300
+      focus-visible:outline-2 focus-visible:outline-sky-400;
+  }
+
   /* Key cap in the help panel and start screen (hudMarkup.ts). */
   .kbd {
     @apply inline-flex min-w-7 items-center justify-center rounded-md border border-b-2
