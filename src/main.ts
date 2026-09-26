@@ -11,6 +11,7 @@ import { createGameState, setViewAspect } from "./core/state";
 import type { SimEvent } from "./core/types";
 import { attachPanKeys } from "./input/keyboard";
 import { attachPointerInput } from "./input/pointer";
+import { attachShortcuts } from "./input/shortcuts";
 import { arrivalMarkers } from "./render/arrivals";
 import { CameraController, trackPlane } from "./render/camera";
 import { MeshFactory } from "./render/meshes";
@@ -45,20 +46,82 @@ function setPaused(paused: boolean): void {
   if ((state.phase === "paused") !== paused && togglePause(state)) hud.setPhase(state.phase);
 }
 
+/**
+ * Start a shift from the title or game-over screen. Ignored mid-shift, and
+ * while the crash cinematic plays before the game-over panel (so a key
+ * press can't skip it: the Enter/Space shortcut lands here too). Returns
+ * whether it started, so a shared key (Space) can fall through to pause.
+ */
+function startShift(): boolean {
+  if (state.phase === "playing" || state.phase === "paused" || gameOverIn !== null) return false;
+  // Leave the crash site: the camera glides back to the default view.
+  cameraController.release();
+  startGame(state);
+  hud.setScore(state.score);
+  hud.hideOverlay();
+  hud.setPhase(state.phase);
+  return true;
+}
+
+/** Pause / continue, mid-shift only. */
+function togglePaused(): void {
+  setPaused(state.phase !== "paused");
+}
+
+const rotate = (dir: -1 | 1) => cameraController.rotateBy(dir * ROTATE_STEP);
+const zoom = (dir: -1 | 1) => cameraController.zoomBy(dir > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
+
+/**
+ * Did opening the help panel pause the game? Then closing it continues;
+ * a player who had already paused stays paused.
+ */
+let helpPaused = false;
+
 const hud = createHud(document.body, {
-  onStart: () => {
-    // Leave the crash site: the camera glides back to the default view.
-    gameOverIn = null;
-    cameraController.release();
-    startGame(state);
-    hud.setScore(state.score);
-    hud.hideOverlay();
-    hud.setPhase(state.phase);
+  onStart: () => void startShift(),
+  onTogglePause: togglePaused,
+  onRotate: rotate,
+  onZoom: zoom,
+  onHelp: (open) => {
+    if (open && state.phase === "playing") {
+      setPaused(true);
+      helpPaused = true;
+    } else if (!open && helpPaused) {
+      helpPaused = false;
+      setPaused(false);
+    }
   },
-  onTogglePause: () => setPaused(state.phase !== "paused"),
-  onRotate: (dir) => cameraController.rotateBy(dir * ROTATE_STEP),
-  onZoom: (dir) => cameraController.zoomBy(dir > 0 ? ZOOM_STEP : 1 / ZOOM_STEP),
 });
+
+// --- Follow camera -----------------------------------------------------------
+/** Id of the plane the camera was last told to follow (see `cycleFollow`). */
+let followedId: number | null = null;
+
+function followPlane(planeId: number): void {
+  cameraController.follow(trackPlane(() => state, planeId));
+  followedId = planeId;
+}
+
+/**
+ * F / Shift+F: follow the next (+1) or previous (-1) plane, in order of
+ * arrival (plane ids count up as they spawn), wrapping round. With nothing
+ * followed yet, F picks the oldest plane and Shift+F the newest.
+ */
+function cycleFollow(dir: -1 | 1): void {
+  if (state.phase !== "playing" && state.phase !== "paused") return;
+  const ids = state.planes
+    .filter((p) => p.phase !== "landed" && p.phase !== "departed")
+    .map((p) => p.id)
+    .sort((a, b) => a - b);
+  if (ids.length === 0) return;
+  // The camera drops a subject by itself (pan, plane gone, crash): only
+  // trust `followedId` while it's still following.
+  const current = cameraController.following ? ids.indexOf(followedId ?? -1) : -1;
+  const next =
+    current < 0 ? (dir > 0 ? 0 : ids.length - 1) : (current + dir + ids.length) % ids.length;
+  const id = ids[next];
+  if (id !== undefined) followPlane(id);
+}
 
 const pointer = attachPointerInput(canvas, scene, cameraController.camera, () => state, {
   // Dragging empty ground grabs the map.
@@ -67,18 +130,34 @@ const pointer = attachPointerInput(canvas, scene, cameraController.camera, () =>
   // Right-click again (anywhere) to go back to the view from before.
   onFollow: (planeId) => {
     if (cameraController.following) cameraController.returnFromFollow();
-    else if (planeId !== null) cameraController.follow(trackPlane(() => state, planeId));
+    else if (planeId !== null) followPlane(planeId);
   },
 });
 
-// Arrow keys pan the map (held keys are polled in the render loop).
+// Arrow keys / WASD pan the map (held keys are polled in the render loop).
 const panKeys = attachPanKeys();
 
-// Keyboard shortcut: P or Esc toggles pause.
-window.addEventListener("keydown", (e) => {
-  if (e.repeat) return;
-  if (e.key === "p" || e.key === "P" || e.key === "Escape") setPaused(state.phase !== "paused");
-});
+// Every other key: one table in input/shortcuts.ts, also listed in the
+// help panel. A handler returns false when the press doesn't fit the phase
+// (Space: start on the title screen, else pause).
+attachShortcuts(
+  {
+    start: startShift,
+    togglePause: () => {
+      if (state.phase !== "playing" && state.phase !== "paused") return false;
+      togglePaused();
+    },
+    toggleHelp: () => hud.setHelpOpen(!hud.helpOpen),
+    rotateLeft: () => rotate(-1),
+    rotateRight: () => rotate(1),
+    zoomIn: () => zoom(1),
+    zoomOut: () => zoom(-1),
+    followNext: () => cycleFollow(1),
+    followPrevious: () => cycleFollow(-1),
+    stopFollow: () => cameraController.returnFromFollow(),
+  },
+  { helpOpen: () => hud.helpOpen },
+);
 
 // Auto-pause when the tab is hidden, so switching away never costs a crash.
 // Stays paused on return: the player continues when they're ready.
@@ -133,7 +212,8 @@ engine.runRenderLoop(() => {
     hud.showGameOver(state.score);
   }
 
-  cameraController.panBy(panKeys.direction(), dt);
+  // No panning behind the help panel (the keys still track, for release).
+  if (!hud.helpOpen) cameraController.panBy(panKeys.direction(), dt);
   cameraController.update(dt, aspect());
   // Badge on while following; covers every way out (right-click, pan,
   // plane gone, crash), since the camera decides those itself.

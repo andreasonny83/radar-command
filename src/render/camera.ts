@@ -1,9 +1,10 @@
 /**
- * Tilted orthographic camera with button-driven rotate/zoom and arrow-key pan.
+ * Tilted orthographic camera with button/key-driven rotate/zoom and arrow-key
+ * / WASD pan (shortcut keys: input/shortcuts.ts).
  *
  * The camera is deliberately NOT attached to pointer input: every drag on the
  * canvas draws a flight path. Rotation and zoom come from HUD buttons and the
- * mouse wheel; panning comes from the arrow keys (see input/keyboard.ts) and
+ * mouse wheel; panning comes from arrow keys / WASD (see input/keyboard.ts) and
  * from dragging empty ground (see input/pointer.ts).
  *
  * Tilt (beta) is fixed at ~52° off vertical for a strong 3D read of runways,

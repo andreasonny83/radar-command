@@ -3,13 +3,15 @@
  *
  * Useful for styling a single piece without the rest of the HUD on top.
  * Elements that start hidden in the game (pause button, paused banner,
- * toast, tracking badge) are forced visible here.
+ * toast, tracking badge, help panel) are forced visible here.
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { createArrivalArrows } from "./arrivalArrows";
 import {
   arrivalLayerMarkup,
   cameraControlsMarkup,
+  helpButtonMarkup,
+  helpPanelMarkup,
   overlayMarkup,
   pauseButtonMarkup,
   pausedBannerMarkup,
@@ -96,6 +98,22 @@ export const TrackingIndicator: Story = {
 export const CameraControls: Story = { render: () => stage(cameraControlsMarkup()) };
 
 export const Overlay: Story = { render: () => stage(overlayMarkup()) };
+
+/** "?" button, top-right: opens the help panel from any screen. */
+export const HelpButton: Story = { render: () => stage(helpButtonMarkup()) };
+
+/**
+ * Help panel: how to play, mouse/touch controls and the keyboard shortcuts.
+ * The shortcut rows come from `SHORTCUT_GROUPS` in input/shortcuts.ts and
+ * the mouse rows from `POINTER_CONTROLS`; key caps use `.kbd` in style.css.
+ */
+export const HelpPanel: Story = {
+  render: () => {
+    const root = stage(helpPanelMarkup());
+    part(root, "helpPanel").classList.replace("hidden", "flex");
+    return root;
+  },
+};
 
 /**
  * One arrival arrow (`arrivalArrowMarkup`), drawn by the real

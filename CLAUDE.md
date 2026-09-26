@@ -10,7 +10,7 @@ This project is an Air Traffic Control game, inspired by classic mobile games li
 
 - **Frontend Framework:** TypeScript (strict) client-side app, built and served by Vite. No backend.
 - **Styling:** Tailwind CSS v4 (`@tailwindcss/vite`) for the HTML HUD/overlay layered over the canvas.
-- **Rendering:** Babylon.js (`@babylonjs/core`, ES module deep imports for tree-shaking), WebGL. Tilted orthographic `ArcRotateCamera`; rotate/zoom via HUD buttons + mouse wheel; pan via arrow keys or dragging empty ground (a drag that starts on a plane always draws its flight path instead). `@babylonjs/lite` was rejected for now (WebGPU-only, young API); keep all Babylon code inside `src/render/` and `src/input/` so a later migration stays contained.
+- **Rendering:** Babylon.js (`@babylonjs/core`, ES module deep imports for tree-shaking), WebGL. Tilted orthographic `ArcRotateCamera`; rotate/zoom via HUD buttons + mouse wheel; pan via arrow keys / WASD or dragging empty ground (a drag that starts on a plane always draws its flight path instead). Every action also has a keyboard shortcut: one table in `src/input/shortcuts.ts` drives the key handler and the in-game help panel (the "?" button or H). `@babylonjs/lite` was rejected for now (WebGPU-only, young API); keep all Babylon code inside `src/render/` and `src/input/` so a later migration stays contained.
 - **Tests:** Vitest, for the pure `src/core` layer (`npm test`).
 - **Architecture:** Three layers with one-way dependencies:
   - `src/core/` — pure simulation (state, rules, `step(state, dt)`), no DOM or Babylon imports. Sim runs in 2D world units: height fixed at 100, width = 100 × aspect.

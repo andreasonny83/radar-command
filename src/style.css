@@ -38,6 +38,12 @@
       transition hover:bg-slate-700 active:scale-95;
   }
 
+  /* Key cap in the help panel and start screen (hudMarkup.ts). */
+  .kbd {
+    @apply inline-flex min-w-7 items-center justify-center rounded-md border border-b-2
+      border-slate-600 bg-slate-800 px-1.5 py-0.5 font-mono text-xs font-bold text-slate-100;
+  }
+
   /* "Track plane" badge (hudMarkup.ts): a red recording-style blinking dot. */
   .tracking-dot {
     box-shadow: 0 0 8px rgb(239 68 68 / 0.9);

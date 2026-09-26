@@ -3,8 +3,8 @@
  *
  * These stories mount the same module the game uses, so what you see here is
  * what ships. Buttons log their callbacks to the Actions panel instead of
- * driving a game. Tweak classes in hudMarkup.ts, the glow/button/arrow
- * styles in style.css, `TOAST_MS` in hud.ts or `AVOID_RADIUS` in
+ * driving a game. Tweak classes in hudMarkup.ts, the glow/button/arrow/key
+ * cap styles in style.css, the shortcut table in input/shortcuts.ts, `TOAST_MS` in hud.ts or `AVOID_RADIUS` in
  * arrivalArrows.ts, and the story hot-reloads.
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
@@ -24,6 +24,8 @@ interface HudArgs extends HudCallbacks {
   arrivals: boolean;
   /** Show the "track plane active" badge, as while following a plane. */
   tracking: boolean;
+  /** Open the help panel (the "?" button, or H / ? in the game). */
+  help: boolean;
 }
 
 /**
@@ -57,6 +59,7 @@ function applyArgs(hud: Hud, args: HudArgs): void {
   else if (args.phase !== "start") hud.hideOverlay();
   hud.setPhase(args.phase);
   hud.setTracking(args.tracking);
+  hud.setHelpOpen(args.help);
   if (args.toast) {
     hud.showToast(args.toast, args.toastColor === "none" ? undefined : COLOR_HEX[args.toastColor]);
   }
@@ -98,6 +101,7 @@ const meta: Meta<HudArgs> = {
     onTogglePause: { table: { disable: true } },
     onRotate: { table: { disable: true } },
     onZoom: { table: { disable: true } },
+    onHelp: { table: { disable: true } },
   },
   args: {
     phase: "start",
@@ -106,10 +110,12 @@ const meta: Meta<HudArgs> = {
     toastColor: "none",
     arrivals: false,
     tracking: false,
+    help: false,
     onStart: fn(),
     onTogglePause: fn(),
     onRotate: fn(),
     onZoom: fn(),
+    onHelp: fn(),
   },
 };
 export default meta;
@@ -153,3 +159,14 @@ export const Toast: Story = {
  * so the crash cinematic stays visible above it: see Scene/Gameplay/Crash.
  */
 export const GameOver: Story = { args: { phase: "gameover", score: 27 } };
+
+/**
+ * Help panel over a running shift: how to play, mouse/touch controls and
+ * every keyboard shortcut, generated from input/shortcuts.ts. In the game
+ * the "?" button (top-right, on every screen) or H / ? opens it and pauses
+ * the shift; ✕, the backdrop, H, ? or Esc close it and continue.
+ */
+export const Help: Story = { args: { phase: "playing", score: 9, help: true } };
+
+/** Help opened from the title screen: the "?" button sits above the overlay. */
+export const HelpFromStart: Story = { args: { phase: "start", help: true } };

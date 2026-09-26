@@ -7,8 +7,10 @@
  * from this file like any other source file.
  *
  * Templates are static strings: anything dynamic (score, toast text, pause
- * state) is filled in by `hud.ts` at runtime.
+ * state) is filled in by `hud.ts` at runtime. Key hints in tooltips and the
+ * help panel come from the shortcut table in input/shortcuts.ts.
  */
+import { POINTER_CONTROLS, SHORTCUT_GROUPS, shortcutHint } from "../input/shortcuts";
 
 /** "Landed" counter, top-left. */
 export function scorePanelMarkup(): string {
@@ -24,15 +26,18 @@ export function scorePanelMarkup(): string {
     </div>`;
 }
 
-/** Pause / continue, top-right. Hidden until a shift starts (see `setPhase`). */
+/**
+ * Pause / continue, top-right, left of the help button. Hidden until a
+ * shift starts (see `setPhase`).
+ */
 export function pauseButtonMarkup(): string {
   return `
-    <div class="absolute top-4 right-4 z-10">
+    <div class="absolute top-4 right-18 z-10">
       <button
         id="pauseBtn"
         data-arrow-avoid
         class="hud-button hidden"
-        title="Pause (P / Esc)"
+        title="Pause (${shortcutHint("togglePause")})"
         aria-label="Pause"
         aria-pressed="false"
       >
@@ -52,7 +57,7 @@ export function pausedBannerMarkup(): string {
         class="rounded-2xl border border-slate-700 bg-slate-900/70 px-8 py-4 text-center shadow-lg backdrop-blur-sm"
       >
         <div class="glow-text text-4xl font-black tracking-widest text-sky-400">PAUSED</div>
-        <div class="mt-1 text-sm text-slate-300">Press ▶, P or Esc to continue</div>
+        <div class="mt-1 text-sm text-slate-300">Press ▶, P, Esc or Space to continue</div>
       </div>
     </div>`;
 }
@@ -78,14 +83,38 @@ export function cameraControlsMarkup(): string {
       class="absolute right-4 bottom-4 z-10 flex gap-2"
       aria-label="Camera controls"
     >
-      <button id="rotateLeftBtn" class="hud-button" title="Rotate left" aria-label="Rotate left">
+      <button
+        id="rotateLeftBtn"
+        class="hud-button"
+        title="Rotate left (${shortcutHint("rotateLeft")})"
+        aria-label="Rotate left"
+      >
         ⟲
       </button>
-      <button id="rotateRightBtn" class="hud-button" title="Rotate right" aria-label="Rotate right">
+      <button
+        id="rotateRightBtn"
+        class="hud-button"
+        title="Rotate right (${shortcutHint("rotateRight")})"
+        aria-label="Rotate right"
+      >
         ⟳
       </button>
-      <button id="zoomOutBtn" class="hud-button" title="Zoom out" aria-label="Zoom out">−</button>
-      <button id="zoomInBtn" class="hud-button" title="Zoom in" aria-label="Zoom in">+</button>
+      <button
+        id="zoomOutBtn"
+        class="hud-button"
+        title="Zoom out (${shortcutHint("zoomOut")})"
+        aria-label="Zoom out"
+      >
+        −
+      </button>
+      <button
+        id="zoomInBtn"
+        class="hud-button"
+        title="Zoom in (${shortcutHint("zoomIn")})"
+        aria-label="Zoom in"
+      >
+        +
+      </button>
     </div>`;
 }
 
@@ -110,7 +139,7 @@ export function trackingIndicatorMarkup(): string {
           Track plane active
         </div>
         <div class="text-xs text-slate-300">
-          Right-click to return to the map · drag or arrow keys to pan away
+          Right-click or X to return to the map · F for the next plane
         </div>
       </div>
     </div>`;
@@ -171,6 +200,10 @@ export function overlayMarkup(): string {
         Drag a path from the airplanes to their matching colored runways. Land them over the colored
         threshold, following the arrow. Don't let them crash!
       </p>
+      <p class="-mt-4 mb-8 text-sm text-slate-400">
+        Press <kbd class="kbd">H</kbd> or <span class="font-bold text-slate-300">?</span> for
+        controls &amp; shortcuts
+      </p>
       <button
         id="startBtn"
         class="transform rounded-full bg-sky-500 px-8 py-4 text-xl font-bold text-slate-950 shadow-[0_0_20px_rgba(14,165,233,0.5)] transition-all hover:scale-105 hover:bg-sky-400 active:scale-95"
@@ -180,7 +213,124 @@ export function overlayMarkup(): string {
     </div>`;
 }
 
-/** The whole HUD, in stacking order (the overlay last, on top). */
+/**
+ * "?" button, top-right: opens the help panel. Stacks above the start /
+ * game-over overlay (z-30), so the controls are one click away on every
+ * screen.
+ */
+export function helpButtonMarkup(): string {
+  return `
+    <div class="absolute top-4 right-4 z-30">
+      <button
+        id="helpBtn"
+        data-arrow-avoid
+        class="hud-button"
+        title="How to play &amp; controls (${shortcutHint("toggleHelp")})"
+        aria-label="How to play and controls"
+        aria-haspopup="dialog"
+        aria-controls="helpPanel"
+        aria-expanded="false"
+      >
+        ?
+      </button>
+    </div>`;
+}
+
+/** One key cap per alternative, e.g. [P] or [Esc] or [Space]. */
+function capsMarkup(caps: readonly string[]): string {
+  return caps
+    .map((cap) => `<kbd class="kbd">${cap}</kbd>`)
+    .join(`<span class="px-1 text-xs text-slate-500">or</span>`);
+}
+
+/** A two-column list: what you press (left), what it does (right). */
+function controlRowsMarkup(rows: ReadonlyArray<{ keys: string; description: string }>): string {
+  return rows
+    .map(
+      (row) => `
+        <li class="flex items-center justify-between gap-4 py-1.5">
+          <span class="text-slate-300">${row.description}</span>
+          <span class="flex shrink-0 flex-wrap items-center justify-end">${row.keys}</span>
+        </li>`,
+    )
+    .join("");
+}
+
+/** Section heading inside the help panel. */
+function helpHeadingMarkup(title: string): string {
+  return `<h3 class="mb-1 text-xs font-bold tracking-widest text-sky-400 uppercase">${title}</h3>`;
+}
+
+/**
+ * Help panel: how to play, mouse/touch controls and every keyboard
+ * shortcut. Rows are generated from input/shortcuts.ts, so adding a
+ * shortcut there lists it here. Hidden until `hud.setHelpOpen(true)`;
+ * opening it mid-shift pauses the game (main.ts). Clicking the backdrop,
+ * the ✕ button, H, ? or Esc closes it.
+ */
+export function helpPanelMarkup(): string {
+  const keyboard = SHORTCUT_GROUPS.map(
+    (group) => `
+      <section>
+        ${helpHeadingMarkup(group.title)}
+        <ul class="divide-y divide-slate-800">
+          ${controlRowsMarkup(
+            group.shortcuts.map((s) => ({ keys: capsMarkup(s.caps), description: s.description })),
+          )}
+        </ul>
+      </section>`,
+  ).join("");
+  const pointer = controlRowsMarkup(
+    POINTER_CONTROLS.map((c) => ({
+      keys: `<span class="text-sm font-semibold text-slate-200">${c.input}</span>`,
+      description: c.description,
+    })),
+  );
+  return `
+    <div
+      id="helpPanel"
+      class="absolute inset-0 z-40 hidden items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="helpTitle"
+        class="relative flex max-h-full w-full max-w-3xl flex-col rounded-2xl border border-slate-700 bg-slate-900/95 shadow-2xl"
+      >
+        <header class="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+          <h2 id="helpTitle" class="glow-text text-2xl font-black tracking-wider text-sky-400">
+            HOW TO PLAY
+          </h2>
+          <button id="helpCloseBtn" class="hud-button h-9 w-9 text-base" title="Close (Esc)" aria-label="Close help">
+            ✕
+          </button>
+        </header>
+        <div class="overflow-y-auto px-6 py-4">
+          <ul class="mb-5 list-disc space-y-1 pl-5 text-slate-300">
+            <li>Planes fly in from the edges; an arrow on the screen edge warns where.</li>
+            <li>
+              Drag a path from each plane to the runway of its
+              <span class="font-bold text-slate-100">colour</span>.
+            </li>
+            <li>
+              It lands only if it crosses the coloured threshold in the direction of the runway
+              arrow. From the wrong end it just flies on; if the runway is busy it goes around.
+            </li>
+            <li>New runways open as your score grows. If two planes touch, the shift is over.</li>
+          </ul>
+          <div class="grid gap-x-8 gap-y-5 md:grid-cols-2">
+            <section>
+              ${helpHeadingMarkup("Mouse &amp; touch")}
+              <ul class="divide-y divide-slate-800">${pointer}</ul>
+            </section>
+            ${keyboard}
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+/** The whole HUD, in stacking order (help button and panel last, on top). */
 export function hudMarkup(): string {
   return [
     arrivalLayerMarkup(),
@@ -191,5 +341,7 @@ export function hudMarkup(): string {
     trackingIndicatorMarkup(),
     cameraControlsMarkup(),
     overlayMarkup(),
+    helpButtonMarkup(),
+    helpPanelMarkup(),
   ].join("");
 }

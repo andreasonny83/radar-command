@@ -1,10 +1,11 @@
 /**
  * HTML HUD layered over the canvas: score, start/game-over overlay, pause
- * button, toast notices, arrival arrows, the "track plane" badge and the
- * camera buttons. Markup lives in
+ * button, toast notices, arrival arrows, the "track plane" badge, the
+ * camera buttons and the help button + panel. Markup lives in
  * hudMarkup.ts (shared with Storybook); this module injects and wires it up.
  */
 import type { GamePhase } from "../core/types";
+import { shortcutHint } from "../input/shortcuts";
 import { createArrivalArrows, type ArrivalMarker } from "./arrivalArrows";
 import { hudMarkup } from "./hudMarkup";
 
@@ -16,6 +17,12 @@ export interface HudCallbacks {
   onRotate: (direction: -1 | 1) => void;
   /** +1 = zoom in, -1 = zoom out. */
   onZoom: (direction: -1 | 1) => void;
+  /**
+   * The help panel opened or closed (button, backdrop, or `setHelpOpen`),
+   * e.g. to pause the game while it's open. Optional: stories without a
+   * game behind them leave it out.
+   */
+  onHelp?: (open: boolean) => void;
 }
 
 export interface Hud {
@@ -33,6 +40,10 @@ export interface Hud {
    * plane). Cheap to call every frame: the DOM is only touched on change.
    */
   setTracking(active: boolean): void;
+  /** Is the help panel showing? */
+  readonly helpOpen: boolean;
+  /** Open or close the help panel (fires `onHelp` on change). */
+  setHelpOpen(open: boolean): void;
 }
 
 /** How long a toast stays fully visible before fading out (ms). */
@@ -77,13 +88,22 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   const toast = byId("toast");
   const tracking = byId("trackingIndicator");
   let trackingShown = false;
+  const helpBtn = byId<HTMLButtonElement>("helpBtn");
+  const helpPanel = byId("helpPanel");
+  const helpCloseBtn = byId<HTMLButtonElement>("helpCloseBtn");
+  let helpShown = false;
   const arrivals = createArrivalArrows(
     byId("arrivals"),
     Array.from(root.querySelectorAll<HTMLElement>("[data-arrow-avoid]")),
   );
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-  startBtn.addEventListener("click", callbacks.onStart);
+  startBtn.addEventListener("click", () => {
+    callbacks.onStart();
+    // The overlay fades out but keeps focus: drop it, or Space/Enter would
+    // press the invisible button again.
+    startBtn.blur();
+  });
   pauseBtn.addEventListener("click", () => {
     callbacks.onTogglePause();
     // Drop focus so a later Space/Enter doesn't re-press the button by accident.
@@ -93,6 +113,26 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   byId("rotateRightBtn").addEventListener("click", () => callbacks.onRotate(1));
   byId("zoomInBtn").addEventListener("click", () => callbacks.onZoom(1));
   byId("zoomOutBtn").addEventListener("click", () => callbacks.onZoom(-1));
+
+  const setHelpOpen = (open: boolean) => {
+    if (open === helpShown) return;
+    helpShown = open;
+    // `hidden` and `flex` both set `display`, so swap them rather than stack.
+    helpPanel.classList.toggle("hidden", !open);
+    helpPanel.classList.toggle("flex", open);
+    helpBtn.setAttribute("aria-expanded", String(open));
+    // Focus follows the dialog: onto its close button, then back to the
+    // "?" button (blurred, so Space/Enter can't reopen it by accident).
+    if (open) helpCloseBtn.focus();
+    else helpBtn.blur();
+    callbacks.onHelp?.(open);
+  };
+  helpBtn.addEventListener("click", () => setHelpOpen(!helpShown));
+  helpCloseBtn.addEventListener("click", () => setHelpOpen(false));
+  // A click on the dimmed backdrop (not the dialog itself) closes it.
+  helpPanel.addEventListener("click", (e) => {
+    if (e.target === helpPanel) setHelpOpen(false);
+  });
 
   return {
     setScore(value) {
@@ -116,7 +156,8 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       const paused = phase === "paused";
       pauseBtn.classList.toggle("hidden", !inShift);
       pauseBtn.textContent = paused ? "▶" : "⏸";
-      pauseBtn.title = paused ? "Continue (P / Esc)" : "Pause (P / Esc)";
+      const keys = shortcutHint("togglePause");
+      pauseBtn.title = paused ? `Continue (${keys})` : `Pause (${keys})`;
       pauseBtn.setAttribute("aria-label", paused ? "Continue" : "Pause");
       pauseBtn.setAttribute("aria-pressed", String(paused));
       // `hidden` and `flex` both set `display`, so swap them rather than stack.
@@ -141,5 +182,9 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       tracking.classList.toggle("hidden", !active);
       tracking.classList.toggle("flex", active);
     },
+    get helpOpen() {
+      return helpShown;
+    },
+    setHelpOpen,
   };
 }
