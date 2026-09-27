@@ -13,8 +13,13 @@
  *            though no words are ever said;
  * - pa:      public-address announcements: a soft three-note rising chime
  *            (unlike the departure cue's two falling notes, see
- *            audio/sfx.ts), then an announcer talking through a tinny
- *            ceiling speaker (a narrow band) in a big, echoing hall;
+ *            audio/sfx.ts), then an announcer speaking through a tinny
+ *            ceiling speaker (a narrow band) in a big, echoing hall. The
+ *            words (audio/announcements.ts) are spoken by a speech engine
+ *            (audio/speech.ts): boarding calls and reminders, and lines
+ *            about the game itself, like a departure the game just rolled
+ *            out (`onGameEvent`). Until the engine has loaded, or if it
+ *            can't, the announcer talks in the chatter's wordless voice;
  * - outside: now and then a jet passing far overhead, and faint radio
  *            squelch.
  *
@@ -23,7 +28,10 @@
  * audio clock, and picks up afresh after a gap.
  */
 import { mulberry32 } from "../core/math";
+import type { SimEvent } from "../core/types";
+import { departureLine, runwayOpenLine, terminalLine } from "./announcements";
 import { noiseBuffer } from "./sfx";
+import { ANNOUNCER_VOICES, loadSpeech, speak } from "./speech";
 
 // ---------------------------------------------------------------------------
 // How busy the terminal is
@@ -47,7 +55,7 @@ export const PA_SCHEDULE = {
   /** Seconds from the start of the sound to the first announcement. */
   first: 20,
   /** Distant talkers chatting in the terminal. */
-  talkers: 2,
+  talkers: 0,
 };
 
 /** Layer levels (linear gain) at full ambience volume. */
@@ -56,6 +64,18 @@ export type AmbienceLayer = keyof typeof AMBIENCE_LEVELS;
 
 /** An announcement never starts within this many seconds of a departure chime. */
 const PA_CLEAR_OF_CHIME = 7;
+
+/**
+ * Announcements start at least this many seconds apart, even when game
+ * lines (a departure, a runway opening) bring the next one forward.
+ */
+const PA_MIN_GAP = 20;
+
+/** Game lines waiting for the PA; older ones give way if more pile up. */
+const MAX_QUEUED_LINES = 2;
+
+/** Seconds from the start of the PA chime to the first word. */
+const CHIME_TO_VOICE = 1.4;
 
 /** Seconds of sound booked ahead of the audio clock. */
 const LOOKAHEAD = 1.5;
@@ -81,6 +101,12 @@ const VOWELS: readonly (readonly [number, number])[] = [
 const ROOM_LEVEL = 0.09;
 const TALKER_LEVEL = 0.05;
 const ANNOUNCER_LEVEL = 0.16;
+/**
+ * The spoken announcer (rendered speech peaks near full scale): measured
+ * through the PA chain at ~-36 dBFS RMS, clear but under the game's own
+ * cues (~-34) and well under the engines (-20).
+ */
+const SPEECH_LEVEL = 0.22;
 const PA_CHIME_LEVEL = 0.07;
 const JET_LEVEL = 0.07;
 const SQUELCH_LEVEL = 0.018;
@@ -112,8 +138,14 @@ export class Ambience {
   private readonly roomTone: AudioBufferSourceNode;
   private readonly talkers: Talker[] = [];
   private readonly announcer: Voice;
-  /** Where the PA chime plays: through the speaker and hall, like the voice. */
-  private readonly paChimeOut: AudioNode;
+  /** Into the PA: the tinny speaker and hall that the chime and voice go through. */
+  private readonly speaker: AudioNode;
+  /** True once the speech engine has loaded (see audio/speech.ts). */
+  private speechReady = false;
+  /** Game lines waiting for the next announcement (see `onGameEvent`). */
+  private readonly gameLines: string[] = [];
+  /** Audio-clock time the latest announcement started. */
+  private lastPa = -Infinity;
   /** Everything that runs continuously, stopped by `dispose`. */
   private readonly sources: AudioScheduledSourceNode[] = [];
 
@@ -186,7 +218,11 @@ export class Ambience {
     speakerHigh.connect(this.layers.pa);
     speakerHigh.connect(hall).connect(hallWet).connect(this.layers.pa);
     this.announcer = this.createVoice(150, speakerLow);
-    this.paChimeOut = speakerLow;
+    this.speaker = speakerLow;
+
+    // The speech engine is ~1 MB: fetch it now, in the background (the
+    // ambience only exists once the player has clicked, see audio/mixer.ts).
+    void loadSpeech().then((ok) => (this.speechReady = ok));
   }
 
   /** Fade a layer in or out (e.g. the story's toggles). */
@@ -205,9 +241,33 @@ export class Ambience {
     if (this.nextPa > this.booked && this.nextPa < earliest) this.nextPa = earliest;
   }
 
-  /** Make an announcement now (the "Audio/Effects" story). */
-  announce(): void {
-    this.announcement(this.ctx.currentTime + 0.05);
+  /**
+   * Something happened on the field worth announcing: queue its line for
+   * the PA and bring the next announcement forward (clear of the departure
+   * chime, and `PA_MIN_GAP` after the last one).
+   */
+  onGameEvent(event: SimEvent): void {
+    let line: string;
+    if (event.type === "departureAnnounced") line = departureLine(event.color, this.rng);
+    else if (event.type === "unlocked") line = runwayOpenLine(event.color, this.rng);
+    else return;
+    this.gameLines.push(line);
+    if (this.gameLines.length > MAX_QUEUED_LINES) this.gameLines.shift();
+    const soon = Math.max(
+      this.booked,
+      this.ctx.currentTime + 1,
+      this.lastChime + PA_CLEAR_OF_CHIME,
+      this.lastPa + PA_MIN_GAP,
+    );
+    this.nextPa = Math.min(this.nextPa, soon);
+  }
+
+  /**
+   * Make an announcement now (the "Audio/Effects" story): `text` if given,
+   * else the next queued game line or a terminal line.
+   */
+  announce(text?: string): void {
+    this.announcement(this.ctx.currentTime + 0.05, text);
   }
 
   /** Book everything due in the next `LOOKAHEAD` seconds. Call once per frame. */
@@ -312,13 +372,43 @@ export class Ambience {
 
   /**
    * A public-address announcement at `t`: the rising three-note chime, then
-   * ~5 s of the announcer (two or three phrases, measured and clear, each
-   * ending on a falling note).
+   * the announcer speaking `text` (or the next queued game line, or a
+   * terminal line). The speech renders in the background (~0.1 s) while
+   * the chime plays; without the speech engine the announcer babbles
+   * instead (see `babble`).
    */
-  private announcement(t: number): void {
+  private announcement(t: number, text?: string): void {
+    this.lastPa = t;
     // C5, E5, G5: a gentle rising arpeggio (the departure cue falls).
     [523.25, 659.25, 783.99].forEach((freq, i) => this.bell(freq, t + i * 0.3, 1.4));
-    let at = t + 1.4;
+    const words = t + CHIME_TO_VOICE;
+    if (!this.speechReady) {
+      this.babble(words);
+      return;
+    }
+    const line = text ?? this.gameLines.shift() ?? terminalLine(this.rng);
+    const voice = Math.floor(this.rng() * ANNOUNCER_VOICES.length);
+    void speak(this.ctx, line, voice).then((buffer) => {
+      const start = Math.max(words, this.ctx.currentTime + 0.02);
+      if (!buffer) {
+        this.babble(start);
+        return;
+      }
+      const src = this.ctx.createBufferSource();
+      src.buffer = buffer;
+      const gain = this.ctx.createGain();
+      gain.gain.value = SPEECH_LEVEL;
+      src.connect(gain).connect(this.speaker);
+      src.start(start);
+    });
+  }
+
+  /**
+   * The announcer without words, from `at`: two or three phrases of the
+   * chatter's synthetic voice, measured and clear, each ending on a
+   * falling note.
+   */
+  private babble(at: number): void {
     const phrases = 2 + Math.floor(this.rng() * 2);
     for (let p = 0; p < phrases; p++) {
       const syllables = 6 + Math.floor(this.rng() * 5);
@@ -340,7 +430,7 @@ export class Ambience {
     env.gain.setValueAtTime(0.0001, t);
     env.gain.exponentialRampToValueAtTime(PA_CHIME_LEVEL, t + 0.015);
     env.gain.exponentialRampToValueAtTime(0.0001, t + ring);
-    env.connect(this.paChimeOut);
+    env.connect(this.speaker);
     for (const [mult, level] of [
       [1, 1],
       [2, 0.2],

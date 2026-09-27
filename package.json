@@ -20,12 +20,14 @@
   "license": "ISC",
   "dependencies": {
     "@babylonjs/core": "^9.27.1",
-    "@vercel/analytics": "^2.0.1"
+    "@vercel/analytics": "^2.0.1",
+    "mespeak": "^2.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@storybook/html-vite": "^10.6.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.20.4",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.12.0",

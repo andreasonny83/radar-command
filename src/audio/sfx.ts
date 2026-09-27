@@ -21,7 +21,10 @@
  *   engines spooling to full power, and the radio readback when the player
  *   finishes a path.
  *
- * Everything tied to a plane is panned to where it is on screen. The audio
+ * Everything tied to a plane is panned to where it is on screen. While the
+ * camera follows a plane (`setFocus`), its sounds step forward and every
+ * other plane's drop back, so what's heard matches the close-up; the
+ * near-miss alert is the exception (it's a warning, not scenery). The audio
  * context, mute settings and pausing belong to the mixer (audio/mixer.ts),
  * which plays these effects into its effects bus.
  */
@@ -52,6 +55,14 @@ const ENGINE_SMOOTHING = 0.12;
 
 /** Loudest the rollout rumble gets (just after touchdown). */
 const ROLLOUT_VOLUME = 0.22;
+
+/**
+ * Follow mode (see `setFocus`): the followed plane's sounds are scaled by
+ * `FOCUS_LEVEL` (it's right under the zoomed-in camera), every other
+ * plane's by `BACKGROUND_LEVEL`, so they recede without vanishing.
+ */
+const FOCUS_LEVEL = 1.3;
+const BACKGROUND_LEVEL = 0.2;
 
 /** Chime notes (Hz) and their spacing / ring time (seconds). */
 const CHIME_NOTES = [880, 698.46];
@@ -115,6 +126,8 @@ export class Sfx {
   /** Audio-clock time of the last near-miss alert, overall and per plane. */
   private lastAlert = -Infinity;
   private readonly lastAlertFor = new Map<number, number>();
+  /** The plane the camera follows, whose sounds lead the mix; null for none. */
+  private focus: number | null = null;
 
   /**
    * @param ctx  the mixer's audio context
@@ -125,6 +138,25 @@ export class Sfx {
     private readonly out: AudioNode,
   ) {
     this.noise = noiseBuffer(ctx);
+  }
+
+  /**
+   * Focus the mix on one plane (the one the camera follows), or null to
+   * hear every plane alike. Continuous sounds ease over; one-shots already
+   * playing keep their level.
+   */
+  setFocus(planeId: number | null): void {
+    this.focus = planeId;
+  }
+
+  /**
+   * Level scale for a sound from plane `planeId` under the current focus:
+   * 1 with nothing followed, else `FOCUS_LEVEL` for the followed plane and
+   * `BACKGROUND_LEVEL` for the rest (and for sounds of unknown origin).
+   */
+  private focusLevel(planeId: number | undefined): number {
+    if (this.focus === null) return 1;
+    return planeId === this.focus ? FOCUS_LEVEL : BACKGROUND_LEVEL;
   }
 
   // -------------------------------------------------------------------------
@@ -143,11 +175,12 @@ export class Sfx {
 
   /**
    * A go-around: the engines spool up to full power over ~2 s, hold, and
-   * fade as the plane climbs away.
+   * fade as the plane climbs away. `planeId` is the plane going around
+   * (for the follow-mode focus).
    */
-  goAround(pan: number): void {
+  goAround(pan: number, planeId?: number): void {
     const t = this.ctx.currentTime;
-    const out = this.oneShot(pan);
+    const out = this.oneShot(pan, this.focusLevel(planeId));
     const env = out.gain;
     env.setValueAtTime(0, t);
     env.linearRampToValueAtTime(LEVELS.goAround * 0.4, t + 0.3);
@@ -179,18 +212,20 @@ export class Sfx {
   /** Play a render cue (see audio/cues.ts) now. */
   cue(cue: AudioCue): void {
     const t = this.ctx.currentTime;
+    // Stepped forward or back by the follow-mode focus (not the alert).
+    const level = this.focusLevel(cue.planeId);
     switch (cue.type) {
       case "gearMove":
-        this.gearWhine(cue.pan, t, cue.seconds, cue.down);
+        this.gearWhine(cue.pan, level, t, cue.seconds, cue.down);
         break;
       case "gearLocked":
-        this.gearClunk(cue.pan, t, cue.down);
+        this.gearClunk(cue.pan, level, t, cue.down);
         break;
       case "touchdown":
-        this.touchdown(cue.pan, t);
+        this.touchdown(cue.pan, level, t);
         break;
       case "bankWhoosh":
-        this.whoosh(cue.pan, t, cue.strength);
+        this.whoosh(cue.pan, level, t, cue.strength);
         break;
       case "warning":
         this.alert(cue.planeId, cue.pan, t);
@@ -203,10 +238,10 @@ export class Sfx {
    * rising in pitch as the pump works) with a little hiss, for exactly as
    * long as the legs swing.
    */
-  private gearWhine(pan: number, t: number, seconds: number, down: boolean): void {
+  private gearWhine(pan: number, level: number, t: number, seconds: number, down: boolean): void {
     const { ctx } = this;
     const dur = Math.max(0.2, seconds);
-    const out = this.oneShot(pan);
+    const out = this.oneShot(pan, level);
     out.gain.setValueAtTime(0, t);
     out.gain.linearRampToValueAtTime(LEVELS.gearWhine, t + 0.12);
     out.gain.setValueAtTime(LEVELS.gearWhine, t + dur - 0.12);
@@ -233,8 +268,8 @@ export class Sfx {
   }
 
   /** Gear locked: a short low thump with a metallic click (deeper going down). */
-  private gearClunk(pan: number, t: number, down: boolean): void {
-    const out = this.oneShot(pan);
+  private gearClunk(pan: number, level: number, t: number, down: boolean): void {
+    const out = this.oneShot(pan, level);
     out.gain.value = 1;
     this.thump(out, t, down ? 85 : 110, 0.14, LEVELS.gearClunk);
     this.click(out, t, 1800, 0.03, LEVELS.gearClunk * 0.35);
@@ -244,9 +279,9 @@ export class Sfx {
    * Wheels on the runway: two quick tyre chirps (a squeal gliding down)
    * over a thump, then a burst of reverse thrust swelling and dying away.
    */
-  private touchdown(pan: number, t: number): void {
+  private touchdown(pan: number, level: number, t: number): void {
     const { ctx } = this;
-    const out = this.oneShot(pan);
+    const out = this.oneShot(pan, level);
     out.gain.value = 1;
     this.thump(out, t, 60, 0.25, LEVELS.thump);
     for (const [at, level] of [
@@ -266,7 +301,7 @@ export class Sfx {
       squeal.stop(t + at + 0.12);
     }
     // Reverse thrust: the engines roar back up to slow the plane.
-    const rev = this.oneShot(pan);
+    const rev = this.oneShot(pan, level);
     rev.gain.setValueAtTime(0, t + 0.3);
     rev.gain.linearRampToValueAtTime(LEVELS.reverse, t + 1.1);
     rev.gain.linearRampToValueAtTime(0, t + 3.2);
@@ -274,10 +309,10 @@ export class Sfx {
   }
 
   /** Airflow over the wings in a hard turn: a band of noise swept up and back. */
-  private whoosh(pan: number, t: number, strength: number): void {
+  private whoosh(pan: number, level: number, t: number, strength: number): void {
     const { ctx } = this;
     const dur = 0.9;
-    const out = this.oneShot(pan);
+    const out = this.oneShot(pan, level);
     out.gain.setValueAtTime(0, t);
     out.gain.linearRampToValueAtTime(LEVELS.whoosh * Math.min(1.3, strength), t + dur * 0.4);
     out.gain.linearRampToValueAtTime(0, t + dur);
@@ -312,8 +347,9 @@ export class Sfx {
   /**
    * Give every departure between line-up and the top of its climb an
    * engine voice, and every landing plane whose wheels are down a rollout
-   * rumble, each set to its current power / speed and panned by `pan`;
-   * fade out and drop the rest. Call once per frame.
+   * rumble, each set to its current power / speed (scaled by the follow
+   * focus) and panned by `pan`; fade out and drop the rest. Call once per
+   * frame.
    */
   update(state: GameState, pan: PanLookup = () => 0): void {
     const { ctx } = this;
@@ -333,7 +369,8 @@ export class Sfx {
         }
         const { level, speed } = sound;
         const t = ENGINE_SMOOTHING;
-        voice.out.gain.setTargetAtTime(ENGINE_VOLUME * level, now, t);
+        const gain = ENGINE_VOLUME * level * this.focusLevel(plane.id);
+        voice.out.gain.setTargetAtTime(gain, now, t);
         voice.roar.frequency.setTargetAtTime(350 + 2600 * level * (0.4 + 0.6 * speed), now, t);
         const base = 42 + 38 * speed + 10 * level;
         voice.rumble[0].frequency.setTargetAtTime(base, now, t);
@@ -349,7 +386,8 @@ export class Sfx {
           voice = this.createRollout();
           this.rollouts.set(plane.id, voice);
         }
-        voice.out.gain.setTargetAtTime(ROLLOUT_VOLUME * roll, now, 0.15);
+        const gain = ROLLOUT_VOLUME * roll * this.focusLevel(plane.id);
+        voice.out.gain.setTargetAtTime(gain, now, 0.15);
         voice.tone.frequency.setTargetAtTime(120 + 380 * roll, now, 0.15);
         voice.pan.pan.setTargetAtTime(pan(plane.id), now, 0.15);
       }
@@ -440,15 +478,22 @@ export class Sfx {
   // Building blocks
   // -------------------------------------------------------------------------
 
-  /** A gain (envelope) → panner → effects bus chain for a one-shot sound. */
-  private oneShot(pan: number): GainNode {
+  /**
+   * A gain (envelope) → level → panner → effects bus chain for a one-shot
+   * sound. `level` scales the whole sound (the follow focus), so the
+   * envelopes keep their own `LEVELS`.
+   */
+  private oneShot(pan: number, level = 1): GainNode {
     const { ctx } = this;
     const panner = ctx.createStereoPanner();
     panner.pan.value = pan;
     panner.connect(this.out);
+    const trim = ctx.createGain();
+    trim.gain.value = level;
+    trim.connect(panner);
     const gain = ctx.createGain();
     gain.gain.value = 0;
-    gain.connect(panner);
+    gain.connect(trim);
     return gain;
   }
 

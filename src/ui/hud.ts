@@ -1,7 +1,8 @@
 /**
  * HTML HUD layered over the canvas: score, start/game-over overlay, pause
  * button, toast notices, arrival arrows, the "track plane" badge, the
- * sound, music and camera buttons, the help button + panel and the GitHub / feedback links.
+ * sound, music and camera buttons, the help button + panel, the GitHub /
+ * feedback / licenses links and the licenses panel.
  * Markup lives in hudMarkup.ts (shared with Storybook); this module injects
  * and wires it up.
  */
@@ -9,6 +10,7 @@ import type { GamePhase } from "../core/types";
 import { shortcutHint } from "../input/shortcuts";
 import { createArrivalArrows, type ArrivalMarker } from "./arrivalArrows";
 import { hudMarkup } from "./hudMarkup";
+import { licenseTextUrl, PROJECT_LICENSE_TEXT } from "./licenses";
 import { feedbackIssueUrl } from "./links";
 
 export interface HudCallbacks {
@@ -54,6 +56,13 @@ export interface Hud {
   readonly helpOpen: boolean;
   /** Open or close the help panel (fires `onHelp` on change). */
   setHelpOpen(open: boolean): void;
+  /** Is the licenses panel showing? */
+  readonly licensesOpen: boolean;
+  /**
+   * Open or close the licenses panel (the "Licenses" links open it). While
+   * it's open, keys don't reach the game's shortcuts; Esc closes it.
+   */
+  setLicensesOpen(open: boolean): void;
 }
 
 /** How long a toast stays fully visible before fading out (ms). */
@@ -161,6 +170,66 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     if (e.target === helpPanel) setHelpOpen(false);
   });
 
+  // Licenses panel (ui/licenses.ts): opened from the "Licenses" links on
+  // the overlay and in the help panel, on top of either.
+  const licensesPanel = byId("licensesPanel");
+  const licensesCloseBtn = byId<HTMLButtonElement>("licensesCloseBtn");
+  byId("projectLicenseText").textContent = PROJECT_LICENSE_TEXT;
+  let licensesShown = false;
+  /** The link that opened the panel, to hand focus back to on close. */
+  let licensesOpener: HTMLElement | null = null;
+  /** Fetch the full license texts (from public/licenses/) the first time they're shown. */
+  const loadLicenseTexts = () => {
+    for (const pre of licensesPanel.querySelectorAll<HTMLElement>("[data-license-text]")) {
+      const path = pre.dataset.licenseText;
+      if (!path || pre.dataset.loaded) continue;
+      pre.dataset.loaded = "1";
+      fetch(licenseTextUrl(path))
+        .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+        .then((text) => (pre.textContent = text))
+        .catch(() => {
+          pre.textContent = `Couldn't load this license text: it's also in the source repository, as public/${path}.`;
+          delete pre.dataset.loaded; // try again next time
+        });
+    }
+  };
+  const setLicensesOpen = (open: boolean) => {
+    if (open === licensesShown) return;
+    licensesShown = open;
+    licensesPanel.classList.toggle("hidden", !open);
+    licensesPanel.classList.toggle("flex", open);
+    if (open) {
+      loadLicenseTexts();
+      licensesCloseBtn.focus();
+    } else {
+      licensesOpener?.focus();
+      licensesOpener?.blur();
+      licensesOpener = null;
+    }
+  };
+  root.querySelectorAll<HTMLElement>("[data-licenses-link]").forEach((link) =>
+    link.addEventListener("click", () => {
+      licensesOpener = link;
+      setLicensesOpen(true);
+    }),
+  );
+  licensesCloseBtn.addEventListener("click", () => setLicensesOpen(false));
+  licensesPanel.addEventListener("click", (e) => {
+    if (e.target === licensesPanel) setLicensesOpen(false);
+  });
+  // While open, the panel owns the keyboard: Esc closes it, and no key
+  // reaches the game's shortcuts (input/shortcuts.ts listens on window, so
+  // stopping the event on its way down, at the document, is enough).
+  root.ownerDocument.addEventListener(
+    "keydown",
+    (e) => {
+      if (!licensesShown) return;
+      if (e.key === "Escape") setLicensesOpen(false);
+      e.stopImmediatePropagation();
+    },
+    true,
+  );
+
   return {
     setScore(value) {
       score.textContent = String(value);
@@ -225,5 +294,9 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       return helpShown;
     },
     setHelpOpen,
+    get licensesOpen() {
+      return licensesShown;
+    },
+    setLicensesOpen,
   };
 }

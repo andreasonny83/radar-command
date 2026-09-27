@@ -18,7 +18,8 @@
  *
  * main.ts feeds it three ways: game state every frame (`update`), the
  * renderer's animation-timed cues (`cue`, see audio/cues.ts), and moments
- * from the sim and input (`onSimEvent`, `readback`).
+ * from the sim and input (`onSimEvent`, `readback`). While the camera
+ * follows a plane, `setFocus` puts that plane's effects up front.
  *
  * Both settings are remembered in localStorage. Browsers only let a page
  * make sound after a user gesture, so nothing is created until the first
@@ -83,6 +84,8 @@ export class GameAudio {
   private scene: AudioScene = "title";
   /** Page in a background tab: everything suspended (see `setHidden`). */
   private hidden = false;
+  /** The followed plane whose effects lead the mix (see `setFocus`). */
+  private focus: number | null = null;
 
   constructor(private readonly storage: Storage | null = safeStorage()) {
     this.isMuted = this.storage?.getItem(MUTE_KEY) === "1";
@@ -136,6 +139,15 @@ export class GameAudio {
   }
 
   /**
+   * Focus the effects on the plane the camera follows (its sounds up, the
+   * other planes' down), or null for none. Cheap to call every frame.
+   */
+  setFocus(planeId: number | null): void {
+    this.focus = planeId;
+    this.graph?.sfx.setFocus(planeId);
+  }
+
+  /**
    * Suspend all sound while the page is hidden (another tab), and resume
    * when it's back. The render loop stops in a hidden tab, so the music's
    * scheduler would run dry anyway; this silences the rest with it.
@@ -175,6 +187,7 @@ export class GameAudio {
         ambience: new Ambience(ctx, ambienceBus, seed ^ 0x5eed),
         music: new Music(ctx, musicBus, seed),
       };
+      this.graph.sfx.setFocus(this.focus);
       this.applyLevels(0);
     }
     if (!this.hidden && this.graph.ctx.state === "suspended") void this.graph.ctx.resume();
@@ -190,7 +203,8 @@ export class GameAudio {
 
   /**
    * React to a sim event with the sound it calls for: the chime when a
-   * departure is announced, engines spooling up for a go-around. `pan`
+   * departure is announced, engines spooling up for a go-around, and a PA
+   * announcement for the ones the terminal would tell passengers about. `pan`
    * places the plane it's about (see `SceneSync.panFor`).
    */
   onSimEvent(event: SimEvent, pan: PanLookup): void {
@@ -199,11 +213,14 @@ export class GameAudio {
         this.chime();
         break;
       case "goAround":
-        this.graph?.sfx.goAround(pan(event.planeId));
+        this.graph?.sfx.goAround(pan(event.planeId), event.planeId);
         break;
       default:
         break;
     }
+    // The terminal PA may announce it (a departure, a runway opening).
+    // After the chime, so the announcement is timed clear of it.
+    this.graph?.ambience.onGameEvent(event);
   }
 
   /** Play a render cue (gear, touchdown, whoosh, warning; see audio/cues.ts). */

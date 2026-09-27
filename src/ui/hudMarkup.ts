@@ -11,6 +11,7 @@
  * help panel come from the shortcut table in input/shortcuts.ts.
  */
 import { POINTER_CONTROLS, SHORTCUT_GROUPS, shortcutHint } from "../input/shortcuts";
+import { GPL_TEXT, SOURCE_URL, THIRD_PARTY } from "./licenses";
 import { GITHUB_REPO_URL } from "./links";
 
 /** "Landed" counter, top-left. */
@@ -267,8 +268,14 @@ const FEEDBACK_ICON = `
     <path d="M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z" />
   </svg>`;
 
+/** Scales of justice (Octicons "law"), painted in currentColor. */
+const LICENSE_ICON = `
+  <svg viewBox="0 0 16 16" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+    <path d="M8.75.75V2h.985c.304 0 .603.08.867.231l1.29.736c.038.022.08.033.124.033h2.234a.75.75 0 0 1 0 1.5h-.427l2.111 4.692a.75.75 0 0 1-.154.838l-.53-.53.529.531-.001.002-.002.002-.006.006-.006.005-.01.01-.045.04c-.21.176-.441.327-.686.45C14.556 10.78 13.88 11 13 11a4.498 4.498 0 0 1-2.023-.454 3.544 3.544 0 0 1-.686-.45l-.045-.04-.016-.015-.006-.006-.004-.004v-.001a.75.75 0 0 1-.154-.838L12.178 4.5h-.162c-.305 0-.604-.079-.868-.231l-1.29-.736a.245.245 0 0 0-.124-.033H8.75V13h2.5a.75.75 0 0 1 0 1.5h-6.5a.75.75 0 0 1 0-1.5h2.5V3.5h-.984a.245.245 0 0 0-.124.033l-1.289.737c-.265.15-.564.23-.869.23h-.162l2.112 4.692a.75.75 0 0 1-.154.838l-.53-.53.529.531-.001.002-.002.002-.006.006-.016.015-.045.04c-.21.176-.441.327-.686.45C4.556 10.78 3.88 11 3 11a4.498 4.498 0 0 1-2.023-.454 3.544 3.544 0 0 1-.686-.45l-.045-.04-.016-.015-.006-.006-.004-.004v-.001a.75.75 0 0 1-.154-.838L2.178 4.5H1.75a.75.75 0 0 1 0-1.5h2.234a.249.249 0 0 0 .125-.033l1.288-.737c.265-.15.564-.23.869-.23h.984V.75a.75.75 0 0 1 1.5 0Zm2.945 8.477c.285.135.718.273 1.305.273s1.02-.138 1.305-.273L13 6.327Zm-10 0c.285.135.718.273 1.305.273s1.02-.138 1.305-.273L3 6.327Z" />
+  </svg>`;
+
 /**
- * "GitHub · Send feedback" links, on the start / game-over overlay and at
+ * "GitHub · Send feedback · Licenses" links, on the start / game-over overlay and at
  * the foot of the help panel (so they're reachable mid-shift too: opening
  * help pauses the game). Both open in a new tab, leaving the game as it
  * was. The feedback link's static href is a blank new-issue form; `hud.ts`
@@ -299,6 +306,17 @@ export function projectLinksMarkup(): string {
       >
         ${FEEDBACK_ICON}<span>Send feedback</span>
       </a>
+      <span aria-hidden="true">·</span>
+      <button
+        type="button"
+        class="hud-link"
+        data-licenses-link
+        aria-haspopup="dialog"
+        aria-controls="licensesPanel"
+        title="Open-source licenses of the game and its components"
+      >
+        ${LICENSE_ICON}<span>Licenses</span>
+      </button>
     </nav>`;
 }
 
@@ -425,6 +443,86 @@ export function helpPanelMarkup(): string {
     </div>`;
 }
 
+/**
+ * Licenses panel: how the game is licensed (the project's own code is ISC;
+ * the game as served bundles the GPL-3.0 speech engine, so the whole is
+ * conveyed under GPL-3.0), a notice per bundled component, and the full
+ * license texts. Data and reasoning in ui/licenses.ts; the texts are filled
+ * in by hud.ts (`[data-license-text]` elements, fetched when shown).
+ * Stacks above the help panel (z-50), which links to it. The ✕ button,
+ * Esc or a click on the backdrop close it.
+ */
+export function licensesPanelMarkup(): string {
+  const notices = THIRD_PARTY.map(
+    (n) => `
+      <li class="py-3">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4">
+          <a class="font-semibold text-slate-100 underline decoration-slate-600 hover:text-sky-300" href="${n.url}" target="_blank" rel="noopener noreferrer">${n.name}</a>
+          <span class="rounded-md border border-slate-600 px-1.5 font-mono text-xs text-slate-300">${n.license}</span>
+        </div>
+        <div class="text-sm text-slate-400">${n.role}</div>
+        <div class="text-xs text-slate-500">${n.copyright}</div>
+        <details class="mt-1 text-xs">
+          <summary class="cursor-pointer text-slate-400 hover:text-sky-300">License text</summary>
+          <pre data-license-text="${n.text}" class="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-950/60 p-3 whitespace-pre-wrap text-slate-400">Loading…</pre>
+        </details>
+      </li>`,
+  ).join("");
+  return `
+    <div
+      id="licensesPanel"
+      class="absolute inset-0 z-50 hidden items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="licensesTitle"
+        class="relative flex max-h-full w-full max-w-3xl flex-col rounded-2xl border border-slate-700 bg-slate-900/95 shadow-2xl"
+      >
+        <header class="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+          <h2 id="licensesTitle" class="glow-text text-2xl font-black tracking-wider text-sky-400">
+            LICENSES
+          </h2>
+          <button id="licensesCloseBtn" class="hud-button h-9 w-9 text-base" title="Close (Esc)" aria-label="Close licenses">
+            ✕
+          </button>
+        </header>
+        <div class="space-y-5 overflow-y-auto px-6 py-4 text-slate-300">
+          <section class="space-y-2">
+            <p>
+              Radar Command's own source code is free software under the
+              <span class="font-semibold text-slate-100">ISC license</span> (below).
+            </p>
+            <p>
+              The game as you're playing it also includes
+              <span class="font-semibold text-slate-100">meSpeak</span>, a build of the eSpeak
+              speech synthesiser that voices the terminal announcements. It is licensed under the
+              <span class="font-semibold text-slate-100">GNU General Public License, version 3</span>,
+              so the game as a whole is distributed under the terms of the GPL-3.0 (full text
+              below). You may copy, modify and share it under those terms.
+            </p>
+            <p>
+              Complete source code:
+              <a class="text-sky-300 underline" href="${SOURCE_URL}" target="_blank" rel="noopener noreferrer">${SOURCE_URL.replace("https://", "")}</a>.
+            </p>
+          </section>
+          <section>
+            ${helpHeadingMarkup("This project (ISC)")}
+            <pre id="projectLicenseText" class="max-h-48 overflow-auto rounded-lg bg-slate-950/60 p-3 text-xs whitespace-pre-wrap text-slate-400"></pre>
+          </section>
+          <section>
+            ${helpHeadingMarkup("Third-party components")}
+            <ul class="divide-y divide-slate-800">${notices}</ul>
+          </section>
+          <section>
+            ${helpHeadingMarkup("GNU General Public License v3.0")}
+            <pre data-license-text="${GPL_TEXT}" class="max-h-96 overflow-auto rounded-lg bg-slate-950/60 p-3 text-xs whitespace-pre-wrap text-slate-400">Loading…</pre>
+          </section>
+        </div>
+      </div>
+    </div>`;
+}
+
 /** The whole HUD, in stacking order (help button and panel last, on top). */
 export function hudMarkup(): string {
   return [
@@ -438,5 +536,6 @@ export function hudMarkup(): string {
     overlayMarkup(),
     helpButtonMarkup(),
     helpPanelMarkup(),
+    licensesPanelMarkup(),
   ].join("");
 }

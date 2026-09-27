@@ -11,5 +11,8 @@ import { defineMain } from "@storybook/html-vite/node";
 export default defineMain({
   framework: "@storybook/html-vite",
   stories: ["../src/**/*.stories.ts"],
+  // Serve public/ like the game does (the Licenses panel fetches its texts
+  // from public/licenses/).
+  staticDirs: ["../public"],
   core: { disableTelemetry: true },
 });

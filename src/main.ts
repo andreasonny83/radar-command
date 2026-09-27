@@ -272,6 +272,8 @@ engine.runRenderLoop(() => {
   // Sound: animation-timed cues from this frame's sync (gear, touchdown,
   // whoosh, warnings), engines and rollouts from state, ambience and music
   // on their own clocks (softer while paused).
+  // Following a plane, its sounds lead and the rest recede (audio/sfx.ts).
+  audio.setFocus(cameraController.following ? followedId : null);
   for (const cue of sceneSync.takeAudioCues()) audio.cue(cue);
   audio.setScene(AUDIO_SCENES[state.phase]);
   audio.update(state, panFor);

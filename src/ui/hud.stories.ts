@@ -34,6 +34,8 @@ interface HudArgs extends HudCallbacks {
   tracking: boolean;
   /** Open the help panel (the "?" button, or H / ? in the game). */
   help: boolean;
+  /** Open the licenses panel (the "Licenses" link on the overlay / in help). */
+  licenses: boolean;
 }
 
 /**
@@ -70,6 +72,7 @@ function applyArgs(hud: Hud, args: HudArgs): void {
   hud.setMuted(args.muted);
   hud.setMusicOn(args.musicOn);
   hud.setHelpOpen(args.help);
+  hud.setLicensesOpen(args.licenses);
   if (args.toast) {
     hud.showToast(args.toast, args.toastColor === "none" ? undefined : COLOR_HEX[args.toastColor]);
   }
@@ -128,6 +131,7 @@ const meta: Meta<HudArgs> = {
     muted: false,
     musicOn: true,
     help: false,
+    licenses: false,
     onStart: fn(),
     onTogglePause: fn(),
     onRotate: fn(),
@@ -203,3 +207,11 @@ export const Help: Story = { args: { phase: "playing", score: 9, help: true } };
 
 /** Help opened from the title screen: the "?" button sits above the overlay. */
 export const HelpFromStart: Story = { args: { phase: "start", help: true } };
+
+/**
+ * Licenses panel (ui/licenses.ts), opened from the "Licenses" link: the
+ * project's ISC license, why the game as served is GPL-3.0 (the bundled
+ * meSpeak voice), a notice per component and the full texts, fetched from
+ * public/licenses/.
+ */
+export const Licenses: Story = { args: { phase: "start", licenses: true } };
