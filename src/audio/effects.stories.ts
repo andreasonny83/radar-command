@@ -11,16 +11,18 @@
  * seconds. `pan` places the plane effects left or right; `focus` plays
  * them as in follow mode: from the followed plane (stepped forward) or
  * from another plane (pushed back). The ambience args
- * switch its layers (room tone, chatter, PA announcements, jets and radio
- * outside) on and off; "PA announcement" plays one straight away (a queued
+ * switch its layers (room tone, the chattering crowd, PA announcements,
+ * jets and radio outside) on and off; "PA announcement" plays one straight away (a queued
  * game line, else a terminal line), and "Speak" announces whatever is in
  * the text box. The speech engine (audio/speech.ts, ~1 MB) loads when
- * audio starts; until then announcements use the wordless voice.
+ * audio starts; until then announcements use the wordless voice, and the
+ * crowd is only its murmur (its lines render one by one over the first
+ * few seconds, then conversations start).
  *
  * Tuning loop: `LEVELS`, `ENGINE_*`, `ROLLOUT_VOLUME`, `ALERT_*`,
  * `FOCUS_LEVEL` / `BACKGROUND_LEVEL` and the builders in sfx.ts; `PA_SCHEDULE`, `AMBIENCE_LEVELS`, `VOWELS` and the
- * `*_LEVEL`s in ambience.ts; the lines in announcements.ts; the voices in
- * speech.ts; bus levels (`AMBIENCE_VOLUME`,
+ * `*_LEVEL`s in ambience.ts; `CROWD`, `CROWD_LINES` and the levels in
+ * crowd.ts; the lines in announcements.ts; the voices in speech.ts; bus levels (`AMBIENCE_VOLUME`,
  * `SCENE_LEVELS`) in mixer.ts; gear timing (`GEAR_TRAVEL`) in
  * render/sceneSync.ts. Save, reload the story, press Start again.
  */

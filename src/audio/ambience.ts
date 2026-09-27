@@ -1,16 +1,15 @@
 /**
  * Airport ambience: the terminal and field around the tower, synthesised
- * with the Web Audio API (no audio files, no real words).
+ * with the Web Audio API (no audio files).
  *
  * Four layers, each with its own level (`AMBIENCE_LEVELS`; switch them one
  * by one in the "Audio/Effects" story):
  *
  * - room:    the terminal's low, steady hum (low-passed noise);
- * - chatter: a few distant people talking. Each "talker" is a buzzy tone
- *            (the voice) through two band-pass filters set to the formants
- *            of a vowel; hopping between vowels at syllable rate, with
- *            pitch contours and pauses between phrases, reads as speech,
- *            though no words are ever said;
+ * - chatter: the crowd in the terminal (audio/crowd.ts): people chatting
+ *            in several languages, spoken by the speech engine and
+ *            played back muffled by distance in the hall's echo, over
+ *            a murmur of voices too far off to pick out;
  * - pa:      public-address announcements: a soft three-note rising chime
  *            (unlike the departure cue's two falling notes, see
  *            audio/sfx.ts), then an announcer speaking through a tinny
@@ -19,7 +18,8 @@
  *            (audio/speech.ts): boarding calls and reminders, and lines
  *            about the game itself, like a departure the game just rolled
  *            out (`onGameEvent`). Until the engine has loaded, or if it
- *            can't, the announcer talks in the chatter's wordless voice;
+ *            can't, the announcer talks in a wordless synthetic voice
+ *            (a buzz through vowel formants, see `babble`);
  * - outside: now and then a jet passing far overhead, and faint radio
  *            squelch.
  *
@@ -30,6 +30,7 @@
 import { mulberry32 } from "../core/math";
 import type { SimEvent } from "../core/types";
 import { departureLine, runwayOpenLine, terminalLine } from "./announcements";
+import { Crowd } from "./crowd";
 import { noiseBuffer } from "./sfx";
 import { ANNOUNCER_VOICES, loadSpeech, speak } from "./speech";
 
@@ -38,24 +39,21 @@ import { ANNOUNCER_VOICES, loadSpeech, speak } from "./speech";
 // ---------------------------------------------------------------------------
 
 /**
- * How often announcements come, and how many people chat in the terminal.
+ * How often announcements come. (How many people chat in the terminal is
+ * `CROWD` in audio/crowd.ts.)
  *
  * TODO(you): set how busy the airport feels. The default is a calm
- * regional field: an announcement every 1-2 minutes (the first one soon
- * after the sound starts), four quiet talkers. Things to weigh:
- *   - more frequent announcements feel busier and more "real", but every
- *     one competes with the game's own cues (the departure chime, alerts);
- *     `PA_CLEAR_OF_CHIME` keeps them apart, however often they come;
- *   - more talkers thicken the chatter into a crowd murmur, but each one
- *     costs a few audio nodes, running all the time (keep it under ~8).
+ * regional field: an announcement every 30 s to 2 minutes (the first one
+ * soon after the sound starts). More frequent announcements feel busier
+ * and more "real", but every one competes with the game's own cues (the
+ * departure chime, alerts); `PA_CLEAR_OF_CHIME` keeps them apart, however
+ * often they come.
  */
 export const PA_SCHEDULE = {
   /** Seconds between announcements (a random pick in the range each time). */
   interval: [30, 120] as const,
   /** Seconds from the start of the sound to the first announcement. */
   first: 20,
-  /** Distant talkers chatting in the terminal. */
-  talkers: 0,
 };
 
 /** Layer levels (linear gain) at full ambience volume. */
@@ -86,7 +84,8 @@ const SQUELCH_INTERVAL = [25, 60] as const;
 
 /**
  * Vowel formants (Hz): the two resonances of the mouth that tell vowels
- * apart. Hopping between them at syllable rate is the "speech".
+ * apart. Hopping between them at syllable rate is the wordless
+ * announcer's "speech" (see `babble`).
  */
 const VOWELS: readonly (readonly [number, number])[] = [
   [800, 1200], // a
@@ -99,7 +98,6 @@ const VOWELS: readonly (readonly [number, number])[] = [
 
 /** Levels inside the layers, balanced by measurement (offline render, RMS). */
 const ROOM_LEVEL = 0.09;
-const TALKER_LEVEL = 0.05;
 const ANNOUNCER_LEVEL = 0.16;
 /**
  * The spoken announcer (rendered speech peaks near full scale): measured
@@ -121,22 +119,12 @@ interface Voice {
   pitch: number;
 }
 
-/** A chatting talker: its voice and where it is in its current phrase. */
-interface Talker {
-  voice: Voice;
-  /** Audio-clock time of its next syllable. */
-  next: number;
-  /** Syllables left in the phrase (then a pause). */
-  left: number;
-  level: number;
-}
-
 export class Ambience {
   private readonly layers: Record<AmbienceLayer, GainNode>;
   private readonly noise: AudioBuffer;
   private readonly rng: () => number;
   private readonly roomTone: AudioBufferSourceNode;
-  private readonly talkers: Talker[] = [];
+  private readonly crowd: Crowd;
   private readonly announcer: Voice;
   /** Into the PA: the tinny speaker and hall that the chime and voice go through. */
   private readonly speaker: AudioNode;
@@ -182,26 +170,17 @@ export class Ambience {
 
     this.roomTone = this.startRoomTone();
 
-    // Chatter: distant, so muffled (low-passed) and in a short room echo.
-    const muffle = ctx.createBiquadFilter();
-    muffle.type = "lowpass";
-    muffle.frequency.value = 1600;
+    // Chatter: the crowd, in the terminal hall's echo. Each voice is
+    // muffled by its own distance (see audio/crowd.ts); the hall is big
+    // and hard, so the echo is long and louder than the voices.
+    const hallIn = ctx.createGain();
     const room = ctx.createConvolver();
-    room.buffer = hallImpulse(ctx, 1.4, 0xc4a7);
+    room.buffer = hallImpulse(ctx, 2.2, 0xc4a7);
     const wet = ctx.createGain();
-    wet.gain.value = 0.6;
-    muffle.connect(this.layers.chatter);
-    muffle.connect(room).connect(wet).connect(this.layers.chatter);
-    for (let i = 0; i < PA_SCHEDULE.talkers; i++) {
-      // Alternate lower and higher voices.
-      const pitch = i % 2 === 0 ? this.between([100, 135]) : this.between([180, 235]);
-      this.talkers.push({
-        voice: this.createVoice(pitch, muffle),
-        next: 0,
-        left: 0,
-        level: TALKER_LEVEL * (0.6 + 0.4 * this.rng()),
-      });
-    }
+    wet.gain.value = 0.9;
+    hallIn.connect(this.layers.chatter);
+    hallIn.connect(room).connect(wet).connect(this.layers.chatter);
+    this.crowd = new Crowd(ctx, hallIn, this.noise, this.rng);
 
     // PA: a tinny ceiling speaker (a narrow band) in a big hall.
     const speakerLow = ctx.createBiquadFilter();
@@ -276,18 +255,13 @@ export class Ambience {
     if (this.booked < now - 0.5) {
       // First call, or back after a gap: start afresh just ahead of now.
       this.booked = now;
-      for (const talker of this.talkers) {
-        talker.next = now + this.rng() * 2;
-        talker.left = 0;
-      }
+      this.crowd.restart(now);
       if (this.nextPa < now) this.nextPa = now + PA_SCHEDULE.first;
       this.nextJet = now + this.between(JET_INTERVAL) / 3;
       this.nextSquelch = now + this.between(SQUELCH_INTERVAL) / 2;
     }
     const horizon = now + LOOKAHEAD;
-    for (const talker of this.talkers) {
-      while (talker.next < horizon) this.talk(talker);
-    }
+    this.crowd.update(horizon);
     while (this.nextPa < horizon) {
       // Never over the departure chime (see `noteChime`).
       if (this.nextPa - this.lastChime < PA_CLEAR_OF_CHIME) {
@@ -312,6 +286,7 @@ export class Ambience {
   dispose(): void {
     for (const src of this.sources) src.stop();
     this.roomTone.stop();
+    this.crowd.dispose();
   }
 
   // -------------------------------------------------------------------------
@@ -355,21 +330,6 @@ export class Ambience {
     voice.env.gain.setTargetAtTime(0, t + dur * 0.7, 0.035);
   }
 
-  /** The talker's next syllable, or the pause after a phrase. */
-  private talk(talker: Talker): void {
-    if (talker.left <= 0) {
-      talker.left = 3 + Math.floor(this.rng() * 7);
-      talker.next += this.between([0.6, 2.6]); // pause between phrases
-      return;
-    }
-    const dur = this.between([0.13, 0.26]);
-    // Pitch drifts around the voice's centre, falling at the phrase's end.
-    const inflect = talker.left === 1 ? 0.88 : 0.92 + 0.2 * this.rng();
-    this.syllable(talker.voice, talker.next, dur, talker.level, inflect);
-    talker.next += dur;
-    talker.left--;
-  }
-
   /**
    * A public-address announcement at `t`: the rising three-note chime, then
    * the announcer speaking `text` (or the next queued game line, or a
@@ -404,9 +364,9 @@ export class Ambience {
   }
 
   /**
-   * The announcer without words, from `at`: two or three phrases of the
-   * chatter's synthetic voice, measured and clear, each ending on a
-   * falling note.
+   * The announcer without words, from `at`: two or three phrases of a
+   * synthetic voice (a buzz through two vowel formants, `VOWELS`),
+   * measured and clear, each ending on a falling note.
    */
   private babble(at: number): void {
     const phrases = 2 + Math.floor(this.rng() * 2);
