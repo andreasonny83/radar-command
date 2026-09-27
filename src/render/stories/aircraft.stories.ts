@@ -11,7 +11,7 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { FLIGHT_ALTITUDE, PLANE_RADIUS } from "../../config";
-import type { RunwayColor } from "../../core/types";
+import type { PlaneColor } from "../../core/types";
 import { animateAircraft, type AircraftKind, type AircraftRig } from "../aircraft";
 import { MeshFactory } from "../meshes";
 import { fitShadowsToWorld } from "../scene";
@@ -19,12 +19,13 @@ import { windEffect } from "../wind";
 import { gameCamera, groundPad, mountStage, orbitCamera, type Stage } from "./stage";
 
 const KINDS: AircraftKind[] = ["airliner", "turboprop", "light"];
-const COLORS: RunwayColor[] = ["red", "blue", "yellow"];
+/** Arrival colours, then violet: departures (core/departures.ts). */
+const COLORS: PlaneColor[] = ["red", "blue", "yellow", "violet"];
 const DEG = Math.PI / 180;
 
 interface AircraftArgs {
   kind: AircraftKind;
-  color: RunwayColor;
+  color: PlaneColor;
   /** "orbit" = drag-to-orbit close-up; "game" = the real camera and scale. */
   view: "orbit" | "game";
   /** Bank angle (degrees, + = right wing down). */

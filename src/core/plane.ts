@@ -6,6 +6,7 @@
  * many short ones trace the same curve.
  */
 import {
+  CLIMB_ACCEL,
   EXIT_LOOKAHEAD,
   FLIGHT_SUBSTEP,
   MAX_TURN_RATE,
@@ -18,9 +19,9 @@ import {
 import { angleDelta, clamp, distance, normalizeAngle } from "./math";
 import { airspaceBounds, airspaceCenter, distanceOutsideAirspace, isInAirspace } from "./layout";
 import { mapBounds } from "./scenery";
-import type { Plane, RunwayColor, Vec2, WorldSize } from "./types";
+import type { Plane, PlaneColor, Vec2, WorldSize } from "./types";
 
-export function createPlane(id: number, color: RunwayColor, pos: Vec2, heading: number): Plane {
+export function createPlane(id: number, color: PlaneColor, pos: Vec2, heading: number): Plane {
   return {
     id,
     color,
@@ -37,6 +38,7 @@ export function createPlane(id: number, color: RunwayColor, pos: Vec2, heading: 
     inbound: false,
     entry: null,
     avoidTurn: 0,
+    departure: null,
   };
 }
 
@@ -52,6 +54,9 @@ export function updatePlane(plane: Plane, dt: number, world: WorldSize): void {
       return;
     case "flying":
       updateFlying(plane, dt, world);
+      return;
+    case "climbout":
+      updateClimbout(plane, dt, world);
       return;
     default:
       return;
@@ -133,12 +138,46 @@ function updateDeparting(plane: Plane, dt: number, world: WorldSize): void {
     steer(plane, plane.heading + plane.avoidTurn, h);
     moveForward(plane, PLANE_SPEED * h);
   }
+  if (isOffMap(plane, world)) plane.phase = "departed";
+}
+
+/** True once `plane` has cleared the scenery map (and so the view). */
+function isOffMap(plane: Plane, world: WorldSize): boolean {
   const b = mapBounds(world);
   const m = PLANE_RADIUS;
   const { x, y } = plane.pos;
-  if (x < b.minX - m || x > b.maxX + m || y < b.minY - m || y > b.maxY + m) {
-    plane.phase = "departed";
+  return x < b.minX - m || x > b.maxX + m || y < b.minY - m || y > b.maxY + m;
+}
+
+/**
+ * Fly a departure after lift-off (see core/departures.ts) for `dt` seconds.
+ *
+ * Like `updateFlying`, but the game is at the controls: the plane steers
+ * along its planned (dotted) path, which the player can't redraw, and it
+ * keeps accelerating from lift-off speed up to cruise at `CLIMB_ACCEL`.
+ * `climbed` (distance since lift-off) drives the climb profile the
+ * renderer draws. Outside the airspace the automatic avoidance may bend its
+ * track; once past the map edge it is `departed` and pruned.
+ */
+function updateClimbout(plane: Plane, dt: number, world: WorldSize): void {
+  const dep = plane.departure;
+  if (!dep) return;
+  const steps = Math.max(1, Math.ceil(dt / FLIGHT_SUBSTEP));
+  const h = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    dep.speed = Math.min(PLANE_SPEED, dep.speed + CLIMB_ACCEL * h);
+    const target = nextWaypoint(plane);
+    // Mid-swerve, hold the heading and let the avoidance turn bend it (see
+    // `desiredHeading`).
+    const desired =
+      target && plane.avoidTurn === 0
+        ? Math.atan2(target.y - plane.pos.y, target.x - plane.pos.x)
+        : plane.heading;
+    steer(plane, desired + plane.avoidTurn, h);
+    moveForward(plane, dep.speed * h);
+    dep.climbed += dep.speed * h;
   }
+  if (isOffMap(plane, world)) plane.phase = "departed";
 }
 
 /**

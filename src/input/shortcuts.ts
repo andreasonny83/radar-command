@@ -15,6 +15,7 @@ export type ShortcutAction =
   | "start"
   | "togglePause"
   | "toggleHelp"
+  | "toggleSound"
   | "rotateLeft"
   | "rotateRight"
   | "zoomIn"
@@ -73,6 +74,12 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         keys: ["h", "?"],
         caps: ["H", "?"],
         description: "Show / hide this help (Esc closes it)",
+      },
+      {
+        action: "toggleSound",
+        keys: ["m"],
+        caps: ["M"],
+        description: "Sound on / off",
       },
     ],
   },

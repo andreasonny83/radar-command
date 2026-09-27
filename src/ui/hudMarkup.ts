@@ -76,14 +76,36 @@ export function toastMarkup(): string {
     </div>`;
 }
 
-/** Camera controls (buttons only: every drag on the canvas draws a path). */
+/**
+ * Sound on / off, first in the bottom-right button row (with the camera
+ * buttons). Shows the current state; `hud.setMuted` flips the icon.
+ */
+export function soundButtonMarkup(): string {
+  return `
+      <button
+        id="soundBtn"
+        class="hud-button"
+        title="Sound off (${shortcutHint("toggleSound")})"
+        aria-label="Sound"
+        aria-pressed="true"
+      >
+        🔊
+      </button>`;
+}
+
+/**
+ * Bottom-right button row: sound, then the camera controls (buttons only:
+ * every drag on the canvas draws a path).
+ */
 export function cameraControlsMarkup(): string {
   return `
     <div
       data-arrow-avoid
       class="absolute right-4 bottom-4 z-10 flex gap-2"
-      aria-label="Camera controls"
+      aria-label="Sound and camera controls"
     >
+      ${soundButtonMarkup()}
+      <span class="w-1" aria-hidden="true"></span>
       <button
         id="rotateLeftBtn"
         class="hud-button"
@@ -366,6 +388,11 @@ export function helpPanelMarkup(): string {
               arrow. From the wrong end it just flies on; if the runway is busy it goes around.
             </li>
             <li>New runways open as your score grows. If two planes touch, the shift is over.</li>
+            <li>
+              Later on, <span class="font-bold text-violet-400">violet</span> planes take off from
+              the airports, following a dotted route you can't change. While one uses a runway,
+              arrivals there go around; once airborne, keep your planes clear of it.
+            </li>
           </ul>
           <div class="grid gap-x-8 gap-y-5 md:grid-cols-2">
             <section>

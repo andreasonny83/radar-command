@@ -20,9 +20,9 @@ import { isInAirspace } from "./layout";
 import { clamp, headingVector } from "./math";
 import type { Plane, WorldSize } from "./types";
 
-/** Flying or departing: the planes that take part in avoidance at all. */
+/** Flying, departing or climbing out: the planes that take part in avoidance at all. */
 function isAirborne(plane: Plane): boolean {
-  return plane.phase === "flying" || plane.phase === "departing";
+  return plane.phase === "flying" || plane.phase === "departing" || plane.phase === "climbout";
 }
 
 /**

@@ -11,7 +11,7 @@
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { fn } from "storybook/test";
 import { COLOR_HEX } from "../config";
-import type { GamePhase, RunwayColor } from "../core/types";
+import type { GamePhase, PlaneColor, RunwayColor } from "../core/types";
 import { createHud, type Hud, type HudCallbacks } from "./hud";
 
 interface HudArgs extends HudCallbacks {
@@ -19,8 +19,13 @@ interface HudArgs extends HudCallbacks {
   score: number;
   /** Toast text; empty = no toast. */
   toast: string;
-  /** Runway colour to tint the toast with, or "none" for the default white. */
-  toastColor: RunwayColor | "none";
+  /**
+   * Colour to tint the toast with (a runway's, or violet for departure
+   * notices), or "none" for the default white.
+   */
+  toastColor: PlaneColor | "none";
+  /** Show the sound button muted (🔇), as after pressing it or M. */
+  muted: boolean;
   /** Show sample arrival arrows round the screen edge. */
   arrivals: boolean;
   /** Show the "track plane active" badge, as while following a plane. */
@@ -60,6 +65,7 @@ function applyArgs(hud: Hud, args: HudArgs): void {
   else if (args.phase !== "start") hud.hideOverlay();
   hud.setPhase(args.phase);
   hud.setTracking(args.tracking);
+  hud.setMuted(args.muted);
   hud.setHelpOpen(args.help);
   if (args.toast) {
     hud.showToast(args.toast, args.toastColor === "none" ? undefined : COLOR_HEX[args.toastColor]);
@@ -96,12 +102,16 @@ const meta: Meta<HudArgs> = {
   argTypes: {
     phase: { control: "inline-radio", options: ["start", "playing", "paused", "gameover"] },
     score: { control: { type: "number", min: 0, step: 1 } },
-    toastColor: { control: "inline-radio", options: ["none", "red", "blue", "yellow"] },
+    toastColor: {
+      control: "inline-radio",
+      options: ["none", "red", "blue", "yellow", "violet"],
+    },
     // Callbacks are wired to the Actions panel; no control needed.
     onStart: { table: { disable: true } },
     onTogglePause: { table: { disable: true } },
     onRotate: { table: { disable: true } },
     onZoom: { table: { disable: true } },
+    onToggleSound: { table: { disable: true } },
     onHelp: { table: { disable: true } },
   },
   args: {
@@ -111,11 +121,13 @@ const meta: Meta<HudArgs> = {
     toastColor: "none",
     arrivals: false,
     tracking: false,
+    muted: false,
     help: false,
     onStart: fn(),
     onTogglePause: fn(),
     onRotate: fn(),
     onZoom: fn(),
+    onToggleSound: fn(),
     onHelp: fn(),
   },
 };
@@ -154,6 +166,17 @@ export const Paused: Story = { args: { phase: "paused", score: 12 } };
 export const Toast: Story = {
   args: { phase: "playing", score: 3, toast: "BLUE runway open", toastColor: "blue" },
 };
+
+/**
+ * A departure's notice (core/departures.ts, wording in ui/eventToasts.ts):
+ * violet like the plane, naming the runway it takes off from.
+ */
+export const DepartureToast: Story = {
+  args: { phase: "playing", score: 6, toast: "Departure — RED runway", toastColor: "violet" },
+};
+
+/** Sound off: the sound button (bottom-right, or M) shows 🔇. */
+export const Muted: Story = { args: { phase: "playing", score: 5, muted: true } };
 
 /**
  * Crash overlay with the final score. See-through (CRASH_BACKDROP in hud.ts)

@@ -26,6 +26,14 @@
  *               automatic collision avoidance on or off: head-on, crossing
  *               and converging arrivals all swerve apart, then resume
  *               course. Replays on a loop.
+ *   - Departure: one violet departure (core/departures.ts) flown by the
+ *               real sim, on a loop: out of its hangar, onto the stand,
+ *               cleared, along the taxiway and connector, backtracking down
+ *               the runway, U-turn, line-up, take-off roll, rotation,
+ *               lift-off, climb and level-off along its dotted route, with
+ *               the toasts the game shows. `follow` rides along with the
+ *               camera; `sound` plays the chime and engines (click the
+ *               canvas first: browsers only start audio after a gesture).
  *   - LiveGame: the whole game (sim, input, HUD) in a story, with slow motion
  *               (`showAirspace` draws the airspace edge). Right-click a
  *               plane to follow it, with the "track plane active" badge
@@ -46,10 +54,15 @@
  * Landing: FLIGHT_ALTITUDE / OUTER_FLIGHT_ALTITUDE / ALTITUDE_TRANSITION /
  * APPROACH_DISTANCE / THRESHOLD_ALTITUDE / ALTITUDE_SCALE_PER_UNIT and
  * FLARE_DISTANCE in config.ts, MAX_VERTICAL_SPEED in sceneSync.ts.
+ * Departure: DEPARTURE_* / BACKTRACK_SPEED / LINEUP_* / TAKEOFF_ACCEL /
+ * ROTATE_SPEED / CLIMB_ACCEL / CLIMB_DISTANCE in config.ts, the route and
+ * procedure (`planDepartureRoute`) in core/departures.ts, DEPARTURE_DOT_* /
+ * ROTATION_* / CLIMB_PITCH_GAIN in sceneSync.ts, the connector in
+ * render/airfield.ts, chime and engine sound in audio/sfx.ts.
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
+import { Sfx } from "../../audio/sfx";
 import {
-  COLOR_HEX,
   CRASH_OVERLAY_DELAY,
   PATH_MIN_SPACING,
   PLANE_SPEED,
@@ -59,6 +72,7 @@ import {
   ZOOM_STEP,
 } from "../../config";
 import { headingVector, mulberry32 } from "../../core/math";
+import { createDeparture } from "../../core/departures";
 import { anchorPath, appendPathPoint } from "../../core/path";
 import { resolveOuterTraffic } from "../../core/avoidance";
 import { airspaceBounds, isInAirspace } from "../../core/layout";
@@ -66,11 +80,12 @@ import { createPlane, updatePlane } from "../../core/plane";
 import { startGame, step, togglePause } from "../../core/simulation";
 import { pickSpawn } from "../../core/spawner";
 import { createGameState } from "../../core/state";
-import type { GameState, Plane, Vec2 } from "../../core/types";
+import type { GameState, Plane, RunwayColor, Vec2 } from "../../core/types";
 import { attachPointerInput } from "../../input/pointer";
 import { createArrivalArrows } from "../../ui/arrivalArrows";
 import { createHud } from "../../ui/hud";
-import { arrivalLayerMarkup } from "../../ui/hudMarkup";
+import { toastFor } from "../../ui/eventToasts";
+import { arrivalLayerMarkup, toastMarkup } from "../../ui/hudMarkup";
 import { arrivalMarkers } from "../arrivals";
 import { MeshFactory } from "../meshes";
 import { ANCHOR_RING_FADE, ANCHOR_RING_HOLD, SceneSync } from "../sceneSync";
@@ -369,6 +384,95 @@ export const Landing: StoryObj<LandingArgs> = {
 };
 
 // ---------------------------------------------------------------------------
+// Departure (take-off from the field)
+// ---------------------------------------------------------------------------
+
+interface DepartureArgs {
+  /** Runway the departure takes off from. */
+  runway: RunwayColor;
+  /** Camera rides along with the plane (as right-clicking it in the game). */
+  follow: boolean;
+  /** Chime and engines (click the canvas once to let the browser play audio). */
+  sound: boolean;
+  /** Seconds before it replays (a new departure from the same hangar). */
+  replayAfter: number;
+  timeScale: number;
+}
+
+/**
+ * A fresh shift with nothing flying, and one departure for `color` in the
+ * first hangar it can start from. Returns its id, or null if none fits.
+ */
+function stageDeparture(state: GameState, color: RunwayColor): number | null {
+  state.planes = [];
+  state.phase = "playing";
+  state.spawnTimer = -1e9; // no arrivals
+  state.departureTimer = -1e9; // and no scheduled departures either
+  const runway = state.runways.find((r) => r.color === color) ?? state.runways[0]!;
+  const stand = runway.airfield.stands[0]!;
+  return createDeparture(state, runway, stand, mulberry32(state.nextPlaneId)).id;
+}
+
+export const Departure: StoryObj<DepartureArgs> = {
+  argTypes: {
+    runway: { control: "inline-radio", options: ["red", "blue", "yellow"] },
+    replayAfter: { control: { type: "range", min: 20, max: 90, step: 1 } },
+    timeScale: { control: { type: "range", min: 0.1, max: 3, step: 0.05 } },
+  },
+  args: { runway: "red", follow: false, sound: true, replayAfter: 55, timeScale: 1 },
+  render: (args) =>
+    mountStage((stage) => {
+      const cam = gameCamera(stage, 0, args.follow ? 1 : 1.6);
+      const state = createGameState(stage.aspect());
+      const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
+      sync.rebuildWorld(state);
+      // The game's toast, for the departure notices.
+      stage.root.insertAdjacentHTML("beforeend", toastMarkup());
+      const toast = stage.root.querySelector<HTMLElement>("#toast")!;
+      let toastLeft = 0;
+
+      const sfx = args.sound ? new Sfx(null) : null;
+      if (sfx) {
+        stage.canvas.addEventListener("pointerdown", () => sfx.unlock());
+        stage.engine.onDisposeObservable.add(() => sfx.close());
+      }
+
+      const begin = () => {
+        const id = stageDeparture(state, args.runway);
+        if (id !== null && args.follow) cam.controller.follow(trackPlane(() => state, id));
+        // The sim announces a departure the scheduler makes; this one was
+        // made by hand, so show (and chime) its notice here.
+        show(toastFor({ type: "departureAnnounced", planeId: id ?? 0, color: args.runway }));
+        sfx?.chime();
+      };
+      const show = (t: ReturnType<typeof toastFor>) => {
+        if (!t) return;
+        toast.textContent = t.text;
+        toast.style.color = t.color;
+        toast.classList.remove("opacity-0");
+        toastLeft = 2.5;
+      };
+      begin();
+
+      let time = 0;
+      let sinceStart = 0;
+      return (dt) => {
+        time += dt;
+        sinceStart += dt;
+        for (const event of step(state, dt)) show(toastFor(event));
+        if ((toastLeft -= dt) <= 0) toast.classList.add("opacity-0");
+        if (sinceStart >= args.replayAfter) {
+          sinceStart = 0;
+          begin(); // new plane id: fresh mesh
+        }
+        cam.frame(dt, time);
+        sync.syncPlanes(state, time);
+        sfx?.update(state);
+      };
+    }, args.timeScale),
+};
+
+// ---------------------------------------------------------------------------
 // Outer traffic (automatic collision avoidance outside the airspace)
 // ---------------------------------------------------------------------------
 
@@ -537,13 +641,9 @@ export const LiveGame: StoryObj<LiveArgs> = {
             if (site) cam.controller.focusOn(site);
             gameOverIn = CRASH_OVERLAY_DELAY;
             hud.setPhase(state.phase);
-          } else if (event.type === "unlocked") {
-            hud.showToast(`${event.color.toUpperCase()} runway open`, COLOR_HEX[event.color]);
-          } else if (event.type === "goAround") {
-            hud.showToast(
-              `${event.color.toUpperCase()} runway busy — go around`,
-              COLOR_HEX[event.color],
-            );
+          } else {
+            const toast = toastFor(event);
+            if (toast) hud.showToast(toast.text, toast.color);
           }
         }
         if (gameOverIn !== null && (gameOverIn -= dt) <= 0) {

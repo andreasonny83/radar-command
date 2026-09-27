@@ -2,11 +2,12 @@
  * Entry point: wires the pure simulation (core) to the Babylon renderer,
  * pointer input and HTML HUD, then runs the game loop.
  *
- *   core  (state + rules, no DOM)  ←  render / input / ui  ←  main.ts
+ *   core  (state + rules, no DOM)  ←  render / input / ui / audio  ←  main.ts
  */
 import "./style.css";
 import { inject } from "@vercel/analytics";
-import { COLOR_HEX, CRASH_OVERLAY_DELAY, MAX_DT, ROTATE_STEP, ZOOM_STEP } from "./config";
+import { Sfx } from "./audio/sfx";
+import { CRASH_OVERLAY_DELAY, MAX_DT, ROTATE_STEP, ZOOM_STEP } from "./config";
 import { startGame, step, togglePause } from "./core/simulation";
 import { createGameState, setViewAspect } from "./core/state";
 import type { SimEvent } from "./core/types";
@@ -18,6 +19,7 @@ import { CameraController, trackPlane } from "./render/camera";
 import { MeshFactory } from "./render/meshes";
 import { createScene } from "./render/scene";
 import { SceneSync } from "./render/sceneSync";
+import { toastFor } from "./ui/eventToasts";
 import { createHud } from "./ui/hud";
 
 // Vercel Web Analytics: the framework-agnostic equivalent of the React
@@ -35,6 +37,14 @@ const state = createGameState(aspect());
 // --- Rendering ---------------------------------------------------------------
 const cameraController = new CameraController(scene, canvas);
 const sceneSync = new SceneSync(scene, new MeshFactory(scene), shadows);
+
+// --- Sound ---------------------------------------------------------------------
+// Browsers only allow audio after a user gesture: start it on the first
+// press of anything (the START button counts), resume it on later ones.
+const sfx = new Sfx();
+for (const type of ["pointerdown", "keydown"] as const) {
+  window.addEventListener(type, () => sfx.unlock(), { capture: true });
+}
 
 // The world is fixed-size, so the static scene is built once. Resizing the
 // window only refits the camera (every frame, from `aspect()`).
@@ -88,6 +98,7 @@ const hud = createHud(document.body, {
   onTogglePause: togglePaused,
   onRotate: rotate,
   onZoom: zoom,
+  onToggleSound: toggleSound,
   onHelp: (open) => {
     if (open && state.phase === "playing") {
       setPaused(true);
@@ -98,6 +109,13 @@ const hud = createHud(document.body, {
     }
   },
 });
+
+hud.setMuted(sfx.muted);
+
+function toggleSound(): void {
+  sfx.setMuted(!sfx.muted);
+  hud.setMuted(sfx.muted);
+}
 
 // --- Follow camera -----------------------------------------------------------
 /** Id of the plane the camera was last told to follow (see `cycleFollow`). */
@@ -154,6 +172,7 @@ attachShortcuts(
       togglePaused();
     },
     toggleHelp: () => hud.setHelpOpen(!hud.helpOpen),
+    toggleSound,
     rotateLeft: () => rotate(-1),
     rotateRight: () => rotate(1),
     zoomIn: () => zoom(1),
@@ -178,6 +197,9 @@ window.addEventListener("resize", () => {
 });
 
 function handleEvent(event: SimEvent): void {
+  // Notices (runway open / busy / closed, departures): wording in ui/eventToasts.ts.
+  const toast = toastFor(event);
+  if (toast) hud.showToast(toast.text, toast.color);
   switch (event.type) {
     case "landed":
       hud.setScore(state.score);
@@ -191,13 +213,14 @@ function handleEvent(event: SimEvent): void {
       hud.setPhase(state.phase);
       break;
     }
-    case "unlocked":
-      hud.showToast(`${event.color.toUpperCase()} runway open`, COLOR_HEX[event.color]);
+    case "departureAnnounced":
+      // A violet plane rolls out of a hangar: the toast says where it's
+      // going, the tower chimes, and its dotted route is already drawn.
+      sfx.chime();
       break;
-    case "goAround":
-      hud.showToast(`${event.color.toUpperCase()} runway busy — go around`, COLOR_HEX[event.color]);
-      break;
-    case "spawned":
+    default:
+      // The rest only toast (above); a take-off roll is heard in the
+      // engines (audio/sfx.ts).
       break;
   }
 }
@@ -228,6 +251,9 @@ engine.runRenderLoop(() => {
   // cursor, so hover is re-checked every frame, not only on pointer moves.
   sceneSync.setHighlighted(pointer.refreshHover());
   sceneSync.syncPlanes(state, time);
+  // Engines follow the departures; everything holds while paused.
+  sfx.setRunning(state.phase === "playing");
+  sfx.update(state);
   scene.render();
   // After render, so the arrows use this frame's camera matrices.
   hud.setArrivals(arrivalMarkers(state, scene, canvas));

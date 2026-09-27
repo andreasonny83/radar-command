@@ -17,6 +17,7 @@ import {
   pausedBannerMarkup,
   projectLinksMarkup,
   scorePanelMarkup,
+  soundButtonMarkup,
   toastMarkup,
   trackingIndicatorMarkup,
 } from "./hudMarkup";
@@ -96,7 +97,21 @@ export const TrackingIndicator: Story = {
   },
 };
 
+/** Bottom-right button row: sound on / off, then the camera buttons. */
 export const CameraControls: Story = { render: () => stage(cameraControlsMarkup()) };
+
+/**
+ * Sound on / off button on its own (it sits first in the camera row).
+ * `hud.setMuted` swaps the icon and tooltip; `muted` previews that.
+ */
+export const SoundButton: StoryObj<{ muted: boolean }> = {
+  args: { muted: false },
+  render: ({ muted }) => {
+    const root = stage(`<div class="absolute right-4 bottom-4">${soundButtonMarkup()}</div>`);
+    if (muted) part(root, "soundBtn").textContent = "🔇";
+    return root;
+  },
+};
 
 export const Overlay: Story = { render: () => stage(overlayMarkup()) };
 

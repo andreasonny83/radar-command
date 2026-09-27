@@ -22,6 +22,13 @@ export interface Vec2 {
 export type RunwayColor = "red" | "blue" | "yellow";
 
 /**
+ * A plane's livery: a runway colour for arrivals, or violet for departures
+ * taking off from the field (see core/departures.ts). Violet matches no
+ * runway, so a departure can never land.
+ */
+export type PlaneColor = RunwayColor | "violet";
+
+/**
  * Lifecycle of a single plane:
  * - `flying`   : airborne, follows its path, can collide.
  * - `landing`  : touched down, rolling out along the runway centreline.
@@ -35,12 +42,32 @@ export type RunwayColor = "red" | "blue" | "yellow";
  *                it back into play (see `isSteerable` in core/path.ts).
  * - `departed` : past the scenery map edge; pruned like `landed`, no score.
  *
+ * Departures (planes taking off from the field, see core/departures.ts)
+ * have phases of their own. The game flies them; the player can't steer
+ * them:
+ * - `outbound` : out of a hangar, along the taxiway, onto the runway's far
+ *                end, back down the runway and round to line up.
+ * - `takeoff`  : the take-off roll, accelerating down the runway until it
+ *                lifts off.
+ * - `climbout` : airborne on its planned route, climbing and speeding up;
+ *                collides like a `flying` plane inside the airspace. Ends
+ *                as `departed` past the map edge.
+ *
  * Every phase from `landing` to `landed` is "on the ground" (see
  * `isOnGround`): no collisions, no player control, and movement is driven
  * by `Plane.ground` instead of the drawn path.
  */
 export type PlanePhase =
-  "flying" | "landing" | "taxiing" | "stowing" | "landed" | "departing" | "departed";
+  | "flying"
+  | "landing"
+  | "taxiing"
+  | "stowing"
+  | "landed"
+  | "departing"
+  | "departed"
+  | "outbound"
+  | "takeoff"
+  | "climbout";
 
 /**
  * Top-level game phase, drives which overlay the UI shows. `step` only
@@ -57,7 +84,7 @@ export interface WorldSize {
 export interface Plane {
   /** Stable id, used by the render layer to match meshes to planes. */
   id: number;
-  color: RunwayColor;
+  color: PlaneColor;
   pos: Vec2;
   /** Direction of travel in radians (see file header for convention). */
   heading: number;
@@ -112,6 +139,39 @@ export interface Plane {
    * outside the airspace get one (see core/avoidance.ts); 0 otherwise.
    */
   avoidTurn: number;
+  /** Take-off state for departures (see core/departures.ts); null for arrivals. */
+  departure: DepartureState | null;
+}
+
+/**
+ * Per-plane state of a departure, from leaving its hangar until it flies
+ * off the map. On the ground the plane moves along `Plane.ground` like any
+ * taxiing plane; these fields add the take-off rules on top.
+ */
+export interface DepartureState {
+  /** Runway it takes off from (the plane itself is violet). */
+  runway: RunwayColor;
+  /** Hangar stand it rolled out of; kept reserved until it's clear of it. */
+  standId: number;
+  /** Route distance where the plane leaves the stand for the taxiway. */
+  leaveStandS: number;
+  /** Route distance of the hold-short point: no further until `cleared`. */
+  holdS: number;
+  /** Route distance where the line-up U-turn starts (slow down for it). */
+  uTurnS: number;
+  /**
+   * Cleared onto the runway. From then until lift-off the runway is
+   * closed to arrivals (they go around, see `isTouchdownZoneClear`).
+   */
+  cleared: boolean;
+  /** Seconds spent waiting on the stand for clearance. */
+  waited: number;
+  /** Seconds spent lined up at the end of the runway, spooling up. */
+  lineupTime: number;
+  /** Airspeed after lift-off (units / second); 0 on the ground. */
+  speed: number;
+  /** Distance flown since lift-off; drives the climb profile (render). */
+  climbed: number;
 }
 
 /**
@@ -127,8 +187,12 @@ export interface GroundRoute {
   dist: number[];
 }
 
-/** What waits at the end of a plane's current ground route. */
-export type RouteEnd = "hold" | "hangar";
+/**
+ * What waits at the end of a plane's current ground route: the hold point
+ * (arrivals waiting for a stand), a hangar (arrivals parking), or the
+ * runway (departures lining up, see core/departures.ts).
+ */
+export type RouteEnd = "hold" | "hangar" | "runway";
 
 /** Per-plane ground movement, see core/ground.ts. */
 export interface GroundState {
@@ -198,6 +262,13 @@ export interface Airfield {
   hold: Vec2;
   /** Far end of the parallel taxiway. */
   taxiwayEnd: Vec2;
+  /**
+   * Where departures leave the taxiway for the runway (on the taxiway
+   * centreline), and where they join the runway centreline, near its far
+   * end: a U-shaped connector between the two (see core/departures.ts).
+   */
+  departureEntry: Vec2;
+  departureJoin: Vec2;
   stands: Stand[];
   /** Paved area holding the stands (drawn, and kept clear of trees). */
   apron: OrientedRect;
@@ -231,6 +302,10 @@ export interface GameState {
   spawnTimer: number;
   /** Seconds between spawns; shrinks as difficulty ramps up. */
   spawnInterval: number;
+  /** Seconds accumulated towards the next departure (see core/departures.ts). */
+  departureTimer: number;
+  /** Seconds until the next departure is due, once departures have begun. */
+  departureInterval: number;
   /** Next id handed out by `createPlane`. */
   nextPlaneId: number;
   /** Next touchdown sequence number (see `GroundState.seq`). */
@@ -254,7 +329,15 @@ export type SimEvent =
   /** A landing pushed the score far enough to open another runway colour. */
   | { type: "unlocked"; color: RunwayColor }
   /** A plane reached its threshold with the runway blocked, and flew on. */
-  | { type: "goAround"; planeId: number; color: RunwayColor };
+  | { type: "goAround"; planeId: number; color: RunwayColor }
+  /** A departure rolled out of its hangar, bound for `color`'s runway. */
+  | { type: "departureAnnounced"; planeId: number; color: RunwayColor }
+  /** A departure was cleared onto `color`'s runway: closed to arrivals. */
+  | { type: "runwayClosed"; planeId: number; color: RunwayColor }
+  /** A departure started its take-off roll. */
+  | { type: "takeoffRoll"; planeId: number; color: RunwayColor }
+  /** A departure lifted off: `color`'s runway is open to arrivals again. */
+  | { type: "liftoff"; planeId: number; color: RunwayColor };
 
 /** Random source in `[0, 1)`. Injected so tests can be deterministic. */
 export type Rng = () => number;

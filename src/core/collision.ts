@@ -28,6 +28,9 @@ export interface CollisionResult {
  *   overhead never collide with them, and they keep their own spacing
  *   (core/ground.ts).
  * - Departing planes are ignored: they are on their way off the world.
+ *   Departures climbing out from the field (`climbout`) are not: they're
+ *   airborne in the airspace, and the player has to keep arrivals clear of
+ *   them (see core/departures.ts).
  * - Planes outside the airspace are ignored. That covers inbound planes
  *   still flying in (they only stop being inbound once they cross the
  *   edge, see core/plane.ts) and any plane the player has routed out past
@@ -38,7 +41,7 @@ export interface CollisionResult {
  * is what makes a plane the player's responsibility.
  */
 function isInPlay(plane: Plane, world: WorldSize): boolean {
-  return plane.phase === "flying" && isInAirspace(plane.pos, world);
+  return (plane.phase === "flying" || plane.phase === "climbout") && isInAirspace(plane.pos, world);
 }
 
 /**

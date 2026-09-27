@@ -33,7 +33,7 @@ import "@babylonjs/core/Particles/particleSystemComponent"; // side effect: part
 import type { Scene } from "@babylonjs/core/scene";
 import { COLOR_HEX } from "../config";
 import { lerp, mulberry32 } from "../core/math";
-import type { Rng, RunwayColor } from "../core/types";
+import type { PlaneColor, Rng } from "../core/types";
 import type { AircraftRig } from "./aircraft";
 import { OVERLAY_GROUP } from "./scene";
 
@@ -84,7 +84,7 @@ export const SMOKE_DRIFT = new Vector3(1.2, 0.5, 0.7);
 /** One plane caught in the crash. */
 export interface WreckSource {
   rig: AircraftRig;
-  color: RunwayColor;
+  color: PlaneColor;
 }
 
 interface Wreck {

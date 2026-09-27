@@ -2,7 +2,7 @@
  * Game state construction. The state object is plain data: the simulation
  * mutates it, the renderer and UI only read it.
  */
-import { SPAWN_INTERVAL_START, WORLD_ASPECT } from "../config";
+import { DEPARTURE_INTERVAL_MIN, SPAWN_INTERVAL_START, WORLD_ASPECT } from "../config";
 import { computeWorldSize, layoutRunways, safeViewAspect } from "./layout";
 import type { GameState } from "./types";
 
@@ -18,6 +18,8 @@ export function createGameState(viewAspect = WORLD_ASPECT): GameState {
     elapsed: 0,
     spawnTimer: 0,
     spawnInterval: SPAWN_INTERVAL_START,
+    departureTimer: 0,
+    departureInterval: DEPARTURE_INTERVAL_MIN,
     nextPlaneId: 1,
     nextGroundSeq: 0,
     world,
@@ -34,6 +36,8 @@ export function resetGameState(state: GameState): void {
   state.elapsed = 0;
   state.spawnTimer = 0;
   state.spawnInterval = SPAWN_INTERVAL_START;
+  state.departureTimer = 0;
+  state.departureInterval = DEPARTURE_INTERVAL_MIN;
   state.nextGroundSeq = 0;
   state.planes = [];
 }

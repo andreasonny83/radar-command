@@ -1,11 +1,13 @@
 /**
- * Static world pieces at real game scale: a single runway with its taxiway
- * and hangars, blue and yellow's crossing runways, the whole airfield
+ * Static world pieces at real game scale: a single runway with its taxiway,
+ * the departures' U-shaped connector onto the runway's far end (with its
+ * hold-short bars; see core/departures.ts) and hangars, blue and yellow's
+ * crossing runways, the whole airfield
  * layout, and the landscape around it.
  *
  * Tuning loop: runway markings/lights live in runway.ts, taxiways and
  * hangars in airfield.ts, the layout and sizes in config.ts (RUNWAY_*,
- * CROSSING_*, TAXIWAY_*, STAND_*, HANGAR_*, STREAM_*, TREE_*, AIRSPACE_MARGIN,
+ * CROSSING_*, TAXIWAY_*, STAND_*, HANGAR_*, DEPARTURE_ENTRY_U, STREAM_*, TREE_*, AIRSPACE_MARGIN,
  * VIEW_MARGIN, MAP_MARGIN, ZOOM_MIN), colours in landscape.ts. Save and the
  * story rebuilds. The magenta dashed outline (`showBoundary`) is the
  * airspace edge, for tuning AIRSPACE_MARGIN. Boats have their own stories

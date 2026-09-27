@@ -15,18 +15,21 @@ import type { Scene } from "@babylonjs/core/scene";
 import {
   ALTITUDE_SCALE_PER_UNIT,
   APPROACH_DISTANCE,
+  CLIMB_DISTANCE,
   COLOR_HEX,
   DEBUG_SHOW_AIRSPACE,
+  DEPARTURE_ROUTE_SPACING,
   FLARE_DISTANCE,
   FLIGHT_ALTITUDE,
   LANDING_SPEED_START,
   MAX_TURN_RATE,
   PLANE_SPEED,
+  ROTATE_SPEED,
   THRESHOLD_ALTITUDE,
 } from "../config";
 import { cruiseAltitude } from "../core/layout";
 import { angleDelta, distance, lerp, normalizeAngle } from "../core/math";
-import type { GameState, Plane, RunwayColor, WorldSize } from "../core/types";
+import type { GameState, Plane, PlaneColor, WorldSize } from "../core/types";
 import { aircraftKindFor, animateAircraft, type AircraftRig } from "./aircraft";
 import { AirfieldFactory, type AirfieldView } from "./airfield";
 import { AirspaceBoundary } from "./boundary";
@@ -52,6 +55,36 @@ const PATH_ALTITUDE = 0.15;
 const PATH_WIDTH = 0.5;
 /** Path line opacity: solid enough to read, still showing the ground below. */
 const PATH_ALPHA = 0.85;
+/**
+ * Departures (core/departures.ts) draw their planned route as a dotted
+ * line: one dot every `DEPARTURE_DOT_SPACING` world units, each dot
+ * `DEPARTURE_DOT_RATIO` of that long, on a slightly thinner line. Dotted
+ * reads as "the game is flying this one": the player's own paths are solid.
+ * The spacing divides the route's point spacing (`DEPARTURE_ROUTE_SPACING`)
+ * and the line starts at a route point, so the dots stay put on the ground
+ * as the plane eats its way along the line.
+ */
+export const DEPARTURE_DOT_SPACING = DEPARTURE_ROUTE_SPACING / 2;
+export const DEPARTURE_DOT_RATIO = 0.45;
+const DEPARTURE_PATH_WIDTH = 0.45;
+/**
+ * Take-off attitude. The nose comes up by `ROTATION_PITCH` (radians) over
+ * the last stretch of the take-off roll, from `ROTATION_START` × the
+ * lift-off speed; once airborne the pitch follows the climb gradient,
+ * exaggerated `CLIMB_PITCH_GAIN` times so it reads from the tilted camera,
+ * and eases level again as the climb flattens out. `PITCH_EASE` (seconds)
+ * smooths every change.
+ */
+export const ROTATION_PITCH = 0.16;
+export const ROTATION_START = 0.8;
+export const CLIMB_PITCH_GAIN = 2.2;
+const PITCH_EASE = 0.25;
+/**
+ * A climbing departure moves back to the overlay rendering group (drawn
+ * over trees, like every airborne plane) once this high: clear of the
+ * hangar roofs it's hidden behind on the ground.
+ */
+const OVERLAY_ALTITUDE = 3;
 /** Height of the green anchor ring: on the ground, just over the runway paint. */
 const ANCHOR_RING_ALTITUDE = 0.2;
 /**
@@ -102,6 +135,44 @@ function airborneAltitude(plane: Plane, world: WorldSize): number {
   return lerp(THRESHOLD_ALTITUDE, cruise, Math.min(1, left / APPROACH_DISTANCE));
 }
 
+/**
+ * Climb profile of a departure after lift-off (see core/departures.ts):
+ * from the runway up to the cruise altitude over its position, along a
+ * smoothstep of the distance flown (`CLIMB_DISTANCE` to the top). The
+ * smoothstep starts and ends flat, so the plane rotates gently off the
+ * runway, climbs steepest midway, then levels off smoothly.
+ *
+ * @returns the height, and the climb gradient (height per unit flown).
+ */
+export function departureAltitude(
+  plane: Plane,
+  world: WorldSize,
+): { altitude: number; gradient: number } {
+  const climbed = plane.departure?.climbed ?? CLIMB_DISTANCE;
+  const t = Math.min(1, climbed / CLIMB_DISTANCE);
+  const rise = cruiseAltitude(plane.pos, world) - RUNWAY_ALTITUDE;
+  return {
+    altitude: RUNWAY_ALTITUDE + rise * t * t * (3 - 2 * t),
+    gradient: (rise * 6 * t * (1 - t)) / CLIMB_DISTANCE,
+  };
+}
+
+/**
+ * Planes whose path is drawn: flying ones (the player's path) and
+ * departures until they leave (their planned route).
+ */
+function hasPathLine(plane: Plane): boolean {
+  switch (plane.phase) {
+    case "flying":
+    case "outbound":
+    case "takeoff":
+    case "climbout":
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** Fraction of the way to a target that exponential easing covers in `dt`. */
 function ease(dt: number, tau: number): number {
   return 1 - Math.exp(-dt / tau);
@@ -110,7 +181,7 @@ function ease(dt: number, tau: number): number {
 interface PlaneView {
   /** The plane's model: root mesh plus its animated parts. */
   aircraft: AircraftRig;
-  color: RunwayColor;
+  color: PlaneColor;
   ring: Mesh;
   /** White ring around the plane while it's hovered or held. */
   hoverRing: Mesh;
@@ -127,6 +198,8 @@ interface PlaneView {
   yaw: number | null;
   /** Displayed bank angle (radians, positive = right wing down). */
   bank: number;
+  /** Displayed nose-up pitch (radians), for the take-off and climb. */
+  pitch: number;
   /** True once moved to the default rendering group on touchdown. */
   grounded: boolean;
   /** Displayed height while airborne (null until first sync). */
@@ -233,6 +306,7 @@ export class SceneSync {
           pathVersion: -1,
           yaw: null,
           bank: 0,
+          pitch: 0,
           grounded: false,
           altitude: null,
           touchdownAltitude: null,
@@ -306,14 +380,26 @@ export class SceneSync {
     dt: number,
   ): void {
     const ground = plane.ground;
+    const departure = plane.departure;
 
     // Altitude: cruise (higher outside the airspace) and glide down an
     // anchored approach, rate-limited so a new target never makes the plane
     // jump. After touchdown, settle onto the runway over the first few units
-    // rolled.
+    // rolled. Departures sit on the runway until lift-off, then follow
+    // their climb profile (see `departureAltitude`).
     const descent = ground ? Math.min(1, ground.travelled / FLARE_DISTANCE) : 0;
     let altitude: number;
-    if (ground) {
+    let climbGradient = 0;
+    if (departure) {
+      if (ground) {
+        altitude = RUNWAY_ALTITUDE;
+      } else {
+        const climb = departureAltitude(plane, world);
+        altitude = climb.altitude;
+        climbGradient = climb.gradient;
+      }
+      view.altitude = altitude;
+    } else if (ground) {
       view.touchdownAltitude ??= view.altitude ?? RUNWAY_ALTITUDE;
       altitude = lerp(view.touchdownAltitude, RUNWAY_ALTITUDE, descent);
     } else {
@@ -332,10 +418,21 @@ export class SceneSync {
       view.grounded = true;
       for (const mesh of view.aircraft.all) mesh.renderingGroupId = 0;
     }
+    // A departure climbing clear of the rooftops draws over the scenery again.
+    if (!ground && view.grounded && altitude > OVERLAY_ALTITUDE) {
+      view.grounded = false;
+      for (const mesh of view.aircraft.all) mesh.renderingGroupId = OVERLAY_GROUP;
+    }
 
-    // Visual-only wind, fading out as the wheels touch the runway. The
-    // offset is applied to the mesh only: the sim position never moves.
-    const wind = windEffect(time, plane.id, plane.heading, 1 - descent);
+    // Visual-only wind, fading out as the wheels touch the runway (and in
+    // again as a departure climbs away). The offset is applied to the mesh
+    // only: the sim position never moves.
+    const windAmount = departure
+      ? ground
+        ? 0
+        : Math.min(1, departure.climbed / CLIMB_DISTANCE)
+      : 1 - descent;
+    const wind = windEffect(time, plane.id, plane.heading, windAmount);
     const root = view.aircraft.root;
     this.placeOverTrack(plane, world, altitude, root.position);
     // Fake perspective (the camera is orthographic): higher planes look a
@@ -366,10 +463,21 @@ export class SceneSync {
     // down is a negative rotation about the nose (+x) axis.
     const targetBank = (plane.turnRate / MAX_TURN_RATE) * flightTuning.maxBank;
     view.bank += (targetBank - view.bank) * ease(dt, flightTuning.bankEase);
+    // Pitch: nose up for the rotation at the end of a take-off roll, then
+    // with the climb gradient, levelling off as the climb flattens.
+    let targetPitch = 0;
+    if (departure && ground && plane.phase === "takeoff") {
+      const from = ROTATE_SPEED * ROTATION_START;
+      targetPitch =
+        ROTATION_PITCH * Math.max(0, Math.min(1, (ground.speed - from) / (ROTATE_SPEED - from)));
+    } else if (departure) {
+      targetPitch = Math.atan(climbGradient * CLIMB_PITCH_GAIN);
+    }
+    view.pitch += (targetPitch - view.pitch) * ease(dt, PITCH_EASE);
     root.rotation.set(
       -(view.bank + wind.roll), // roll about the nose
       headingToRotationY(view.yaw),
-      wind.pitch,
+      wind.pitch + view.pitch, // positive: nose (+x) up
     );
     // Moving parts: wing flex, prop spin, strobes. Props wind down as the
     // plane slows, to an idle on the stand.
@@ -383,7 +491,7 @@ export class SceneSync {
     });
 
     // Proximity warning ring, pulsing.
-    const warn = plane.warning && plane.phase === "flying";
+    const warn = plane.warning && (plane.phase === "flying" || plane.phase === "climbout");
     view.ring.setEnabled(warn);
     if (warn) {
       this.placeOverTrack(plane, world, altitude, view.ring.position);
@@ -459,6 +567,11 @@ export class SceneSync {
    * Rebuild the path line. Only runs when the path changes (point added or
    * waypoint consumed), not every frame. The line starts at the plane's
    * position at rebuild time, which is at most one path spacing stale.
+   *
+   * A departure's planned route is dotted (see `DEPARTURE_DOT_SPACING`),
+   * and shows from the moment it rolls out of its hangar. It starts at the
+   * next route point rather than at the plane (on the ground, that's the
+   * line-up point), so the dots don't crawl as it's rebuilt.
    */
   private rebuildPath(view: PlaneView, plane: Plane, world: WorldSize): void {
     // Each greased line gets its own material: dispose it too, or every
@@ -466,17 +579,22 @@ export class SceneSync {
     view.path?.dispose(false, true);
     view.path = null;
     view.pathVersion = plane.pathVersion;
-    if (plane.path.length === 0 || plane.phase !== "flying") return;
+    if (plane.path.length === 0 || !hasPathLine(plane)) return;
 
-    const points = [plane.pos, ...plane.path].map((p) => toScene(p, world, PATH_ALTITUDE));
+    const dotted = plane.departure !== null;
+    const track = dotted ? plane.path : [plane.pos, ...plane.path];
+    const points = track.map((p) => toScene(p, world, PATH_ALTITUDE));
+    let length = 0;
+    for (let i = 1; i < track.length; i++) length += distance(track[i - 1]!, track[i]!);
     const line = CreateGreasedLine(
       `path-${plane.id}`,
       { points, updatable: true },
       {
         color: Color3.FromHexString(COLOR_HEX[plane.color]),
-        width: PATH_WIDTH,
-        dashCount: 1,
-        dashRatio: 0.5,
+        width: dotted ? DEPARTURE_PATH_WIDTH : PATH_WIDTH,
+        useDash: dotted,
+        dashCount: dotted ? Math.max(1, Math.round(length / DEPARTURE_DOT_SPACING)) : 1,
+        dashRatio: dotted ? DEPARTURE_DOT_RATIO : 0.5,
       },
       this.scene,
     );

@@ -9,6 +9,7 @@
  *   v: sideways, towards the side the apron is on (`apronSide`).
  */
 import {
+  DEPARTURE_ENTRY_U,
   HANGAR_DEPTH,
   HANGAR_DOOR_V,
   HANGAR_WIDTH,
@@ -113,6 +114,9 @@ export function layoutAirfield(
     turnoff: at(exitU + TAXIWAY_OFFSET, TAXIWAY_OFFSET),
     hold: at(HOLD_U + shift, TAXIWAY_OFFSET),
     taxiwayEnd: at(lastU, TAXIWAY_OFFSET),
+    // Departures cross from the taxiway onto the runway's far end here.
+    departureEntry: at(DEPARTURE_ENTRY_U, TAXIWAY_OFFSET),
+    departureJoin: at(DEPARTURE_ENTRY_U, 0),
     stands,
     apron: {
       center: at(apronCenterU, apronCenterV),

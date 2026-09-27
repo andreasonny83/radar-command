@@ -122,6 +122,18 @@ export class AirfieldFactory {
       [runwayLead, airfield.exit, airfield.turnoff, airfield.taxiwayEnd],
       TAXI_TURN_RADIUS,
     );
+    // Departures' connector (core/departures.ts): a U from the taxiway onto
+    // the far end of the runway, rounded like the departure route itself.
+    const { departureEntry: entry, departureJoin: join } = airfield;
+    const connectorLine = filletPath(
+      [
+        { x: entry.x - along.x * 4, y: entry.y - along.y * 4 },
+        entry,
+        join,
+        { x: join.x - along.x * 4, y: join.y - along.y * 4 },
+      ],
+      TAXI_TURN_RADIUS,
+    );
     const standLines = airfield.stands.map((stand) => {
       const before = {
         x: stand.leadIn.x - along.x * STAND_TURN_RADIUS * 1.5,
@@ -133,16 +145,19 @@ export class AirfieldFactory {
     // Pavement: taxiway strip + apron slab.
     const strip = this.ribbon("taxiway", taxiLine, TAXIWAY_WIDTH, PAVE_Y, world);
     strip.material = this.pavement;
+    const connector = this.ribbon("connector", connectorLine, TAXIWAY_WIDTH, PAVE_Y, world);
+    connector.material = this.pavement;
     const apron = this.rect("apron", airfield.apron, APRON_Y, world);
     apron.material = this.apron;
-    nodes.push(strip, apron);
+    nodes.push(strip, connector, apron);
 
     // Paint: centrelines, lead-in lines, hold-short bars (yellow), and a
     // stop bar per stand in the runway's colour.
     const paintParts = [
       this.ribbon("taxiLine", taxiLine, LINE_WIDTH, PAINT_Y, world),
+      this.ribbon("connectorLine", connectorLine, LINE_WIDTH, PAINT_Y, world),
       ...standLines.map((line) => this.ribbon("leadIn", line, LINE_WIDTH, PAINT_Y, world)),
-      ...this.holdShortBars(runway, world),
+      ...this.holdShortBars(runway, connectorLine, world),
     ];
     const paint = Mesh.MergeMeshes(paintParts, true);
     if (paint) {
@@ -161,8 +176,10 @@ export class AirfieldFactory {
     }
 
     // Blue edge lights along both sides of the taxi route, off the runway.
-    const lights = this.edgeLights(taxiLine, runway, world);
-    if (lights) nodes.push(lights);
+    for (const line of [taxiLine, connectorLine]) {
+      const lights = this.edgeLights(line, runway, world);
+      if (lights) nodes.push(lights);
+    }
 
     for (const node of nodes) {
       if (node instanceof Mesh) {
@@ -225,19 +242,43 @@ export class AirfieldFactory {
   }
 
   /**
-   * Hold-short marking across the turnoff, just clear of the runway: two
-   * solid bars on the taxiway side, two dashed on the runway side, as on a
-   * real airfield. Placed on the straight 45° part of the turnoff.
+   * Hold-short markings, just clear of the runway, across the turnoff (on
+   * its straight 45° part) and across the departures' connector (on its
+   * curve, square to it).
    */
-  private holdShortBars(runway: Runway, world: WorldSize): Mesh[] {
+  private holdShortBars(runway: Runway, connector: readonly Sample[], world: WorldSize): Mesh[] {
     const { exit, turnoff } = runway.airfield;
+    const clear = runway.width / 2 + 1.6; // sideways from the centreline
     const heading = Math.atan2(turnoff.y - exit.y, turnoff.x - exit.x);
     const dir = headingVector(heading);
     // Distance along the turnoff where it's `v` sideways from the centreline.
     const alongFor = (v: number) =>
       (v / TAXIWAY_OFFSET) * Math.hypot(turnoff.x - exit.x, turnoff.y - exit.y);
+    const base = alongFor(clear);
+    const bars = this.holdBarSet(
+      { x: exit.x + dir.x * base, y: exit.y + dir.y * base },
+      heading,
+      world,
+    );
+
+    // The connector runs from the taxiway to the runway: the first point on
+    // it that close to the centreline, facing away from the runway.
+    const rdir = headingVector(runway.heading);
+    const lateral = (p: Vec2) =>
+      Math.abs(-(p.x - runway.center.x) * rdir.y + (p.y - runway.center.y) * rdir.x);
+    const hit = connector.find((s) => lateral(s.p) <= clear);
+    if (hit) bars.push(...this.holdBarSet(hit.p, hit.heading + Math.PI, world));
+    return bars;
+  }
+
+  /**
+   * One hold-short marking centred on `c`: two solid bars on the taxiway
+   * side, two dashed on the runway side, as on a real airfield. `heading`
+   * points along the taxiway, away from the runway.
+   */
+  private holdBarSet(c0: Vec2, heading: number, world: WorldSize): Mesh[] {
+    const dir = headingVector(heading);
     const bars: Mesh[] = [];
-    const base = alongFor(runway.width / 2 + 1.6);
     const across = TAXIWAY_WIDTH - 0.4;
     // Offsets along the turnoff: solid bars further from the runway, dashed
     // ones nearer it.
@@ -247,7 +288,7 @@ export class AirfieldFactory {
       [0.05, true],
       [-0.25, true],
     ] as const) {
-      const c = { x: exit.x + dir.x * (base + offset), y: exit.y + dir.y * (base + offset) };
+      const c = { x: c0.x + dir.x * offset, y: c0.y + dir.y * offset };
       const pieces = dashed ? 4 : 1;
       const len = dashed ? across / (pieces * 2 - 1) : across;
       for (let i = 0; i < pieces; i++) {

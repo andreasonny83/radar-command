@@ -3,19 +3,25 @@
  *
  * Order matters:
  *   1. spawn   – new planes appear at the edges, but only while fewer are
- *                flying than the progression cap allows (core/progression.ts)
+ *                flying than the progression cap allows (core/progression.ts);
+ *                later in the shift, departures roll out of the hangars
+ *                (core/departures.ts)
  *   2. move    – every plane advances by dt: airborne ones along their
  *                paths, ones on the ground along their taxi routes. First,
  *                planes outside the airspace pick their avoidance turns
- *                (core/avoidance.ts), so they keep clear of each other
+ *                (core/avoidance.ts), so they keep clear of each other.
+ *                Then departures move on a stage: cleared onto the runway,
+ *                lined up, rolling, or lifting off
  *   3. land    – planes over a matching threshold touch down and get a
- *                ground route; a landing may open a new runway colour
+ *                ground route; a landing may open a new runway colour. A
+ *                runway closed for a departure sends arrivals around
  *   4. collide – any remaining flying planes that overlap inside the
  *                airspace end the game (outside it they never collide)
  *   5. prune   – planes stowed in a hangar, or flown off the world, are
  *                removed
  */
 import { resolveOuterTraffic } from "./avoidance";
+import { advanceDepartures, isRunwayClosed, scheduleDepartures } from "./departures";
 import { checkLanding } from "./landing";
 import { detectCollisions } from "./collision";
 import { isTouchdownZoneClear, touchDown, updateGround } from "./ground";
@@ -71,14 +77,18 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
       state.spawnTimer = state.spawnInterval;
     }
   }
+  scheduleDepartures(state, dt, rng, events);
 
   // 2. Move. Avoidance first, from where everyone is at the start of the step.
   resolveOuterTraffic(state.planes, state.world);
   for (const plane of state.planes) updatePlane(plane, dt, state.world);
   updateGround(state, dt);
+  advanceDepartures(state, dt, events);
 
-  // 3. Land (or go around, if the touchdown zone is blocked).
-  const isClear = (r: Runway) => isTouchdownZoneClear(r, state.planes);
+  // 3. Land (or go around, if the touchdown zone is blocked or the runway
+  // is closed for a departure).
+  const isClear = (r: Runway) =>
+    isTouchdownZoneClear(r, state.planes) && !isRunwayClosed(r, state.planes);
   for (const plane of state.planes) {
     const result = checkLanding(plane, state.runways, isClear);
     if (result?.type === "goAround") {

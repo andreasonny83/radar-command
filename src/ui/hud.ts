@@ -1,7 +1,7 @@
 /**
  * HTML HUD layered over the canvas: score, start/game-over overlay, pause
  * button, toast notices, arrival arrows, the "track plane" badge, the
- * camera buttons, the help button + panel and the GitHub / feedback links.
+ * sound and camera buttons, the help button + panel and the GitHub / feedback links.
  * Markup lives in hudMarkup.ts (shared with Storybook); this module injects
  * and wires it up.
  */
@@ -19,6 +19,8 @@ export interface HudCallbacks {
   onRotate: (direction: -1 | 1) => void;
   /** +1 = zoom in, -1 = zoom out. */
   onZoom: (direction: -1 | 1) => void;
+  /** Sound button pressed: toggle mute. Optional (stories without sound). */
+  onToggleSound?: () => void;
   /**
    * The help panel opened or closed (button, backdrop, or `setHelpOpen`),
    * e.g. to pause the game while it's open. Optional: stories without a
@@ -42,6 +44,8 @@ export interface Hud {
    * plane). Cheap to call every frame: the DOM is only touched on change.
    */
   setTracking(active: boolean): void;
+  /** Show the sound button as muted (🔇) or on (🔊). */
+  setMuted(muted: boolean): void;
   /** Is the help panel showing? */
   readonly helpOpen: boolean;
   /** Open or close the help panel (fires `onHelp` on change). */
@@ -122,6 +126,11 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   byId("rotateRightBtn").addEventListener("click", () => callbacks.onRotate(1));
   byId("zoomInBtn").addEventListener("click", () => callbacks.onZoom(1));
   byId("zoomOutBtn").addEventListener("click", () => callbacks.onZoom(-1));
+  const soundBtn = byId<HTMLButtonElement>("soundBtn");
+  soundBtn.addEventListener("click", () => {
+    callbacks.onToggleSound?.();
+    soundBtn.blur();
+  });
 
   const setHelpOpen = (open: boolean) => {
     if (open === helpShown) return;
@@ -183,6 +192,12 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     },
     setArrivals(markers) {
       arrivals.update(markers);
+    },
+    setMuted(muted) {
+      soundBtn.textContent = muted ? "🔇" : "🔊";
+      const keys = shortcutHint("toggleSound");
+      soundBtn.title = muted ? `Sound on (${keys})` : `Sound off (${keys})`;
+      soundBtn.setAttribute("aria-pressed", String(!muted));
     },
     setTracking(active) {
       if (active === trackingShown) return;

@@ -21,17 +21,20 @@
  * waits; its route is extended to a stand as soon as one frees up.
  */
 import {
+  BACKTRACK_SPEED,
   CENTERLINE_MERGE_DISTANCE,
   GROUND_ACCEL,
   GROUND_LOOKAHEAD,
   GROUND_SEPARATION,
   GROUND_STOP_BUFFER,
   LANDING_SPEED_START,
+  LINEUP_TURN_SPEED,
   MAX_GROUND_BRAKE,
   PLANE_SPEED,
   ROLLOUT_BRAKE,
   STAND_TURN_RADIUS,
   STOW_SPEED,
+  TAKEOFF_ACCEL,
   TAXI_BRAKE,
   TAXI_SPEED,
   TAXI_TURN_RADIUS,
@@ -308,10 +311,28 @@ function targetSpeed(
     case "stowing":
       target = STOW_SPEED;
       break;
+    case "outbound": {
+      // A departure (core/departures.ts): creep out of the hangar and stop
+      // on the stand until cleared; then taxi briskly, slowing for the
+      // line-up U-turn.
+      const dep = plane.departure;
+      if (!dep) return 0;
+      target = dep.cleared
+        ? Math.min(BACKTRACK_SPEED, brakingLimit(dep.uTurnS - g.s, LINEUP_TURN_SPEED, TAXI_BRAKE))
+        : Math.min(STOW_SPEED, brakingLimit(dep.holdS - g.s, 0, TAXI_BRAKE));
+      break;
+    }
+    case "takeoff":
+      // Full power: acceleration alone limits it, until it lifts off
+      // (core/departures.ts). Only traffic ahead could still stop it.
+      target = Infinity;
+      break;
     default:
       return 0;
   }
-  target = Math.min(target, brakingLimit(routeLength(g.route) - g.s, 0, TAXI_BRAKE));
+  if (plane.phase !== "takeoff") {
+    target = Math.min(target, brakingLimit(routeLength(g.route) - g.s, 0, TAXI_BRAKE));
+  }
   if (conflictAt !== undefined) {
     const room = conflictAt - GROUND_STOP_BUFFER - g.s;
     target = Math.min(target, brakingLimit(room, 0, TRAFFIC_BRAKE));
@@ -332,12 +353,14 @@ export function updateGround(state: GameState, dt: number): void {
     const g = plane.ground;
     if (plane.phase === "landed") continue;
 
-    // Ease towards the target speed: gentle acceleration, firmer braking.
+    // Ease towards the target speed: gentle acceleration (full power on a
+    // take-off roll), firmer braking.
     const target = targetSpeed(plane, conflicts.get(plane.id));
+    const accel = plane.phase === "takeoff" ? TAKEOFF_ACCEL : GROUND_ACCEL;
     g.speed =
       target < g.speed
         ? Math.max(target, g.speed - MAX_GROUND_BRAKE * dt)
-        : Math.min(target, g.speed + GROUND_ACCEL * dt);
+        : Math.min(target, g.speed + accel * dt);
 
     const length = routeLength(g.route);
     const before = g.s;

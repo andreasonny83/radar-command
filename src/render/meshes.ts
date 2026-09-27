@@ -15,7 +15,7 @@ import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { ANCHOR_RADIUS, COLOR_HEX, PLANE_RADIUS } from "../config";
-import type { RunwayColor } from "../core/types";
+import type { PlaneColor } from "../core/types";
 import {
   buildAircraftTemplate,
   rigFromClone,
@@ -26,7 +26,7 @@ import {
 import { OVERLAY_GROUP } from "./scene";
 
 export class MeshFactory {
-  private readonly colorMaterials = new Map<RunwayColor, StandardMaterial>();
+  private readonly colorMaterials = new Map<PlaneColor, StandardMaterial>();
   private readonly aircraftTemplates = new Map<string, Mesh>();
   private readonly aircraftMaterials: AircraftMaterials;
   /** Soft halo around nav lights and strobes; only lights are included. */
@@ -65,7 +65,7 @@ export class MeshFactory {
   }
 
   /** Shared material for a runway/plane colour. */
-  material(color: RunwayColor): StandardMaterial {
+  material(color: PlaneColor): StandardMaterial {
     let mat = this.colorMaterials.get(color);
     if (!mat) {
       mat = this.makeMaterial(`color-${color}`, COLOR_HEX[color], 0.35);
@@ -78,7 +78,7 @@ export class MeshFactory {
    * New aircraft of `kind` in `color` (nose along +x, centred on the
    * origin), with its animated parts sorted into a rig.
    */
-  createAircraft(kind: AircraftKind, color: RunwayColor, id: number, name: string): AircraftRig {
+  createAircraft(kind: AircraftKind, color: PlaneColor, id: number, name: string): AircraftRig {
     const key = `${kind}-${color}`;
     let template = this.aircraftTemplates.get(key);
     if (!template) {

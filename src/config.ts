@@ -6,7 +6,7 @@
  * plane crosses the full height of the screen in ~12.5 seconds regardless of
  * the device resolution.
  */
-import type { RunwayColor } from "./core/types";
+import type { PlaneColor, RunwayColor } from "./core/types";
 
 // ---------------------------------------------------------------------------
 // World
@@ -426,6 +426,79 @@ export const SPAWN_HEADING_JITTER = 0.5;
 export const ARRIVAL_WARNING = 2.5;
 
 // ---------------------------------------------------------------------------
+// Departures (planes taking off from the field — see core/departures.ts)
+// ---------------------------------------------------------------------------
+//
+//   hangar ─► taxiway ─► connector ─► backtrack ─► U-turn ─► line up ─► roll ─► climb out
+//
+// A departure rolls out of a hangar, taxis the same way as arrivals to the
+// far end of the taxiway, crosses a short U-shaped connector onto the far
+// end of the runway, backtracks down it, turns round at the threshold and
+// takes off in the landing direction (into the prevailing wind), over the
+// whole length of the strip.
+
+/** Departures begin once this many planes have landed this shift. */
+export const DEPARTURE_START_SCORE = 4;
+
+/**
+ * Seconds between departures (a random pick in this range each time). The
+ * first one is due `DEPARTURE_INTERVAL_MIN` after the start score is hit.
+ */
+export const DEPARTURE_INTERVAL_MIN = 22;
+export const DEPARTURE_INTERVAL_MAX = 38;
+
+/**
+ * `u` (runway frame, see the airfield diagram above) of the connector
+ * from the taxiway onto the runway: near the far end, leaving the paved
+ * turn inside the strip.
+ */
+export const DEPARTURE_ENTRY_U = RUNWAY_LENGTH / 2 - 2.5;
+
+/**
+ * A departure waits short of the runway until no plane of the runway's
+ * colour is rolling out on it, and no arrival on an anchored approach is
+ * within this distance of the threshold.
+ */
+export const DEPARTURE_ARRIVAL_CLEARANCE = 30;
+
+/** Speed backtracking down the runway (units / second). */
+export const BACKTRACK_SPEED = 4.5;
+
+/** Speed through the U-turn that lines the plane up. */
+export const LINEUP_TURN_SPEED = 2.6;
+
+/** Radius of the line-up U-turn (fits inside the runway's paved width). */
+export const LINEUP_TURN_RADIUS = 2.2;
+
+/** Seconds lined up, engines spooling up, before the take-off roll. */
+export const LINEUP_HOLD = 2;
+
+/** Acceleration down the runway on the take-off roll (units / second²). */
+export const TAKEOFF_ACCEL = 1.0;
+
+/** Lift-off ("rotate") speed: the plane leaves the ground at this speed. */
+export const ROTATE_SPEED = PLANE_SPEED * 0.85;
+
+/** After lift-off the plane keeps accelerating, up to cruise speed. */
+export const CLIMB_ACCEL = 0.35;
+
+/**
+ * Distance flown after lift-off to reach cruise altitude. The climb follows
+ * a smoothstep: a gentle rotation, the steepest climb midway, then a
+ * gradual level-off (see `departureAltitude` in render/sceneSync.ts).
+ */
+export const CLIMB_DISTANCE = 34;
+
+/** Departures fly straight out along the runway this far before turning. */
+export const DEPARTURE_STRAIGHT_OUT = 18;
+
+/** Largest turn off the runway heading on the way out (radians, either side). */
+export const DEPARTURE_MAX_TURN = (60 * Math.PI) / 180;
+
+/** Spacing of the points on a departure's planned route (its dotted line). */
+export const DEPARTURE_ROUTE_SPACING = 2;
+
+// ---------------------------------------------------------------------------
 // Progression (onboarding ramp — see core/progression.ts)
 // ---------------------------------------------------------------------------
 
@@ -690,10 +763,12 @@ export const MAX_DT = 0.1;
 // Colours (render + UI)
 // ---------------------------------------------------------------------------
 
-export const COLOR_HEX: Record<RunwayColor, string> = {
+export const COLOR_HEX: Record<PlaneColor, string> = {
   red: "#ef4444",
   blue: "#3b82f6",
   yellow: "#eab308",
+  // Departures: matches no runway, and stays clear of the green anchor ring.
+  violet: "#a855f7",
 };
 
 // ---------------------------------------------------------------------------
