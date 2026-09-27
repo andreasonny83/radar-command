@@ -1,7 +1,7 @@
 /**
  * HTML HUD layered over the canvas: score, start/game-over overlay, pause
  * button, toast notices, arrival arrows, the "track plane" badge, the
- * sound and camera buttons, the help button + panel and the GitHub / feedback links.
+ * sound, music and camera buttons, the help button + panel and the GitHub / feedback links.
  * Markup lives in hudMarkup.ts (shared with Storybook); this module injects
  * and wires it up.
  */
@@ -21,6 +21,8 @@ export interface HudCallbacks {
   onZoom: (direction: -1 | 1) => void;
   /** Sound button pressed: toggle mute. Optional (stories without sound). */
   onToggleSound?: () => void;
+  /** Music button pressed: toggle the music. Optional, like `onToggleSound`. */
+  onToggleMusic?: () => void;
   /**
    * The help panel opened or closed (button, backdrop, or `setHelpOpen`),
    * e.g. to pause the game while it's open. Optional: stories without a
@@ -46,6 +48,8 @@ export interface Hud {
   setTracking(active: boolean): void;
   /** Show the sound button as muted (🔇) or on (🔊). */
   setMuted(muted: boolean): void;
+  /** Show the music button as on (lit) or off (dimmed). */
+  setMusicOn(on: boolean): void;
   /** Is the help panel showing? */
   readonly helpOpen: boolean;
   /** Open or close the help panel (fires `onHelp` on change). */
@@ -131,6 +135,11 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     callbacks.onToggleSound?.();
     soundBtn.blur();
   });
+  const musicBtn = byId<HTMLButtonElement>("musicBtn");
+  musicBtn.addEventListener("click", () => {
+    callbacks.onToggleMusic?.();
+    musicBtn.blur();
+  });
 
   const setHelpOpen = (open: boolean) => {
     if (open === helpShown) return;
@@ -198,6 +207,12 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       const keys = shortcutHint("toggleSound");
       soundBtn.title = muted ? `Sound on (${keys})` : `Sound off (${keys})`;
       soundBtn.setAttribute("aria-pressed", String(!muted));
+    },
+    setMusicOn(on) {
+      musicBtn.classList.toggle("hud-button-off", !on);
+      const keys = shortcutHint("toggleMusic");
+      musicBtn.title = on ? `Music off (${keys})` : `Music on (${keys})`;
+      musicBtn.setAttribute("aria-pressed", String(on));
     },
     setTracking(active) {
       if (active === trackingShown) return;

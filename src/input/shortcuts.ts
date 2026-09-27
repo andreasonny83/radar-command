@@ -16,6 +16,7 @@ export type ShortcutAction =
   | "togglePause"
   | "toggleHelp"
   | "toggleSound"
+  | "toggleMusic"
   | "rotateLeft"
   | "rotateRight"
   | "zoomIn"
@@ -79,7 +80,13 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         action: "toggleSound",
         keys: ["m"],
         caps: ["M"],
-        description: "Sound on / off",
+        description: "Sound on / off (everything)",
+      },
+      {
+        action: "toggleMusic",
+        keys: ["n"],
+        caps: ["N"],
+        description: "Music on / off",
       },
     ],
   },

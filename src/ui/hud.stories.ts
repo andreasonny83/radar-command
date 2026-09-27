@@ -26,6 +26,8 @@ interface HudArgs extends HudCallbacks {
   toastColor: PlaneColor | "none";
   /** Show the sound button muted (🔇), as after pressing it or M. */
   muted: boolean;
+  /** Show the music button on (lit) or off (dimmed), as after ♪ or N. */
+  musicOn: boolean;
   /** Show sample arrival arrows round the screen edge. */
   arrivals: boolean;
   /** Show the "track plane active" badge, as while following a plane. */
@@ -66,6 +68,7 @@ function applyArgs(hud: Hud, args: HudArgs): void {
   hud.setPhase(args.phase);
   hud.setTracking(args.tracking);
   hud.setMuted(args.muted);
+  hud.setMusicOn(args.musicOn);
   hud.setHelpOpen(args.help);
   if (args.toast) {
     hud.showToast(args.toast, args.toastColor === "none" ? undefined : COLOR_HEX[args.toastColor]);
@@ -112,6 +115,7 @@ const meta: Meta<HudArgs> = {
     onRotate: { table: { disable: true } },
     onZoom: { table: { disable: true } },
     onToggleSound: { table: { disable: true } },
+    onToggleMusic: { table: { disable: true } },
     onHelp: { table: { disable: true } },
   },
   args: {
@@ -122,12 +126,14 @@ const meta: Meta<HudArgs> = {
     arrivals: false,
     tracking: false,
     muted: false,
+    musicOn: true,
     help: false,
     onStart: fn(),
     onTogglePause: fn(),
     onRotate: fn(),
     onZoom: fn(),
     onToggleSound: fn(),
+    onToggleMusic: fn(),
     onHelp: fn(),
   },
 };
@@ -177,6 +183,9 @@ export const DepartureToast: Story = {
 
 /** Sound off: the sound button (bottom-right, or M) shows 🔇. */
 export const Muted: Story = { args: { phase: "playing", score: 5, muted: true } };
+
+/** Music off: the ♪ button (or N) is dimmed and struck through; effects play on. */
+export const MusicOff: Story = { args: { phase: "playing", score: 5, musicOn: false } };
 
 /**
  * Crash overlay with the final score. See-through (CRASH_BACKDROP in hud.ts)

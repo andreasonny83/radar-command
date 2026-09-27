@@ -9,7 +9,11 @@
  *   - wings:  hinged at the fuselage, flex up under load and in turbulence;
  *   - props:  spin about the nose axis, with a faint blur disc behind them;
  *   - lights: steady red/green nav lights on the wingtips, white strobes and
- *             a red beacon that flash (these feed the glow layer).
+ *             a red beacon that flash (these feed the glow layer);
+ *   - gear:   tricycle landing gear (a strut and a wheel per leg). The
+ *             airliner's main legs fold inward and its nose leg forward; the
+ *             turboprop's legs all fold forward; the light plane's gear is
+ *             fixed. Driven by `AircraftMotion.gear` (see `animateAircraft`).
  *
  * Detail comes from per-vertex colours rather than bitmap textures: a plane
  * is ~40 px long at game zoom, where a painted cheatline, dark windscreen and
@@ -78,13 +82,29 @@ const DARK = Color3.FromHexString("#1e293b");
 const GLASS = Color3.FromHexString("#1d3557");
 
 /** Roles of child meshes, stored in `metadata` (copied by reference on clone). */
-type PartRole = "wing" | "prop" | "disc" | "nav" | "strobe" | "beacon";
+type PartRole = "wing" | "prop" | "disc" | "nav" | "strobe" | "beacon" | "gear";
+
+/**
+ * How a landing-gear leg retracts: swinging in towards the centreline
+ * (about the fore-aft axis), forward (about the side-to-side axis), or not
+ * at all.
+ */
+export type GearFold = "inward" | "forward" | "fixed";
 
 interface PartMeta {
   role: PartRole;
-  /** Wings: +1 for the left wing (+z), -1 for the right. */
+  /** Wings and gear legs: +1 for the left side (+z), -1 for the right (0: centreline). */
   side?: 1 | -1;
+  /** Gear legs: how the leg retracts. */
+  fold?: GearFold;
 }
+
+/**
+ * How far below the root (the fuselage axis) the wheels reach, as a share
+ * of the model's size `r`. Every model sits on its wheels at this depth
+ * (see `wheelDepth`).
+ */
+const GEAR_BOTTOM = 0.27;
 
 /** Shared materials the builders assign to parts. */
 export interface AircraftMaterials {
@@ -107,6 +127,8 @@ export interface AircraftRig {
   props: Mesh[];
   strobes: Mesh[];
   beacons: Mesh[];
+  /** Landing-gear legs, each hinged where it meets the airframe. */
+  gear: { mesh: Mesh; side: 1 | -1; fold: GearFold }[];
   /** Root + every child, for fading the whole plane out together. */
   all: Mesh[];
   /** Solid parts that should cast a shadow (no discs or lights). */
@@ -426,6 +448,61 @@ function propeller(
   return prop;
 }
 
+/**
+ * One landing-gear leg hinged at `pivot` (model space): a grey strut down
+ * to a dark wheel whose bottom sits `GEAR_BOTTOM` below the fuselage axis.
+ * `side` is +1 / -1 for a left / right main leg, and ignored (0) for a
+ * leg on the centreline.
+ */
+function gearLeg(
+  scene: Scene,
+  mats: AircraftMaterials,
+  root: Mesh,
+  r: number,
+  pivot: Vector3,
+  wheel: number,
+  side: 1 | -1,
+  fold: GearFold,
+): Mesh {
+  const bottom = -GEAR_BOTTOM * r;
+  const axle = bottom + wheel / 2;
+  const len = pivot.y - axle;
+  const strut = block(
+    scene,
+    wheel * 0.3,
+    len,
+    wheel * 0.3,
+    pivot.x,
+    pivot.y - len / 2,
+    pivot.z,
+    GREY,
+  );
+  const tyre = CreateCylinder(
+    "wheel",
+    { diameter: wheel, height: wheel * 0.55, tessellation: 10 },
+    scene,
+  );
+  tyre.rotation.x = Math.PI / 2; // axle across the plane (z)
+  tyre.position.set(pivot.x, axle, pivot.z);
+  paint(tyre, DARK);
+  return attach(
+    [strut, tyre],
+    root,
+    Vector3.Zero(),
+    pivot,
+    { role: "gear", side, fold },
+    mats.paint,
+  );
+}
+
+/**
+ * How far below its root a model's wheels reach (world units, before the
+ * sync layer's altitude scaling): the height to sit it at on the ground.
+ */
+export function wheelDepth(kind: AircraftKind): number {
+  return GEAR_BOTTOM * PLANE_RADIUS * KIND_SIZE[kind];
+}
+
 // ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
@@ -572,6 +649,22 @@ const buildAirliner: Builder = (scene, root, r, team, teamDark, mats) => {
     light(scene, wing, pivot, tip, s(0.08), "nav", side === 1 ? mats.navRed : mats.navGreen);
     light(scene, wing, pivot, tip.add(new Vector3(s(-0.1), 0, 0)), s(0.06), "strobe", mats.strobe);
   }
+
+  // Gear: nose leg folding forward, main legs under the wing roots folding
+  // inward into the belly.
+  gearLeg(scene, mats, root, r, new Vector3(s(0.62), s(-0.12), 0), s(0.08), 1, "forward");
+  for (const side of [1, -1] as const) {
+    gearLeg(
+      scene,
+      mats,
+      root,
+      r,
+      new Vector3(s(-0.12), s(-0.08), side * s(0.24)),
+      s(0.1),
+      side,
+      "inward",
+    );
+  }
 };
 
 /** Regional turboprop: white fuselage, team high wing, T-tail, twin props. */
@@ -636,6 +729,22 @@ const buildTurboprop: Builder = (scene, root, r, team, teamDark, mats) => {
     propeller(scene, mats, wing, pivot, new Vector3(s(0.34), wingY - s(0.06), z(0.4)), s(0.22), 4);
     const tip = new Vector3(s(0.04), wingY, z(1.22));
     light(scene, wing, pivot, tip, s(0.08), "nav", side === 1 ? mats.navRed : mats.navGreen);
+  }
+
+  // Gear: all three legs fold forward, the mains into sponsons low on the
+  // fuselage sides.
+  gearLeg(scene, mats, root, r, new Vector3(s(0.6), s(-0.11), 0), s(0.08), 1, "forward");
+  for (const side of [1, -1] as const) {
+    gearLeg(
+      scene,
+      mats,
+      root,
+      r,
+      new Vector3(s(-0.05), s(-0.1), side * s(0.17)),
+      s(0.1),
+      side,
+      "forward",
+    );
   }
 };
 
@@ -735,6 +844,21 @@ const buildLight: Builder = (scene, root, r, team, teamDark, mats) => {
     const tip = new Vector3(s(0.22), wingY, z(1.27));
     light(scene, wing, pivot, tip, s(0.09), "nav", side === 1 ? mats.navRed : mats.navGreen);
   }
+
+  // Fixed tricycle gear: always down.
+  gearLeg(scene, mats, root, r, new Vector3(s(0.5), s(-0.1), 0), s(0.09), 1, "fixed");
+  for (const side of [1, -1] as const) {
+    gearLeg(
+      scene,
+      mats,
+      root,
+      r,
+      new Vector3(s(0.02), s(-0.1), side * s(0.26)),
+      s(0.1),
+      side,
+      "fixed",
+    );
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -750,6 +874,7 @@ export function rigFromClone(kind: AircraftKind, root: Mesh, id: number): Aircra
     props: [],
     strobes: [],
     beacons: [],
+    gear: [],
     all: [root],
     shadowCasters: [root],
     lights: [],
@@ -780,6 +905,10 @@ export function rigFromClone(kind: AircraftKind, root: Mesh, id: number): Aircra
       case "nav":
         rig.lights.push(mesh);
         break;
+      case "gear":
+        rig.gear.push({ mesh, side: meta.side ?? 1, fold: meta.fold ?? "fixed" });
+        rig.shadowCasters.push(mesh);
+        break;
       default:
         break; // blur discs: no shadow, no glow
     }
@@ -797,6 +926,12 @@ export interface AircraftMotion {
   chop: number;
   /** Landing rollout progress 0..1 (0 while airborne). */
   rollout: number;
+  /**
+   * Landing gear: 0 = retracted, 1 = down and locked. Eased by the caller
+   * (render/sceneSync.ts), so in between is the legs mid-swing. Fixed gear
+   * ignores it.
+   */
+  gear: number;
 }
 
 /** Advance a plane's moving parts: wing flex, prop spin and light flashes. */
@@ -820,6 +955,18 @@ export function animateAircraft(rig: AircraftRig, m: AircraftMotion): void {
   for (const strobe of rig.strobes) strobe.setEnabled(strobeOn);
   const tb = (m.time / t.beaconPeriod + rig.phase * 1.7) % 1;
   for (const beacon of rig.beacons) beacon.setEnabled(tb < 0.12);
+
+  // Gear: each leg swings up to 90° from down. A retracted leg is hidden:
+  // folded, it would poke through the skin of these simple bodies.
+  const fold = (1 - m.gear) * (Math.PI / 2);
+  for (const leg of rig.gear) {
+    if (leg.fold === "fixed") continue;
+    leg.mesh.setEnabled(m.gear > 0.02);
+    // Positive rotation about +x swings a hanging leg towards -z: inward
+    // for the left leg (+z, side +1). About +z it swings towards +x (forward).
+    if (leg.fold === "inward") leg.mesh.rotation.x = leg.side * fold;
+    else leg.mesh.rotation.z = fold;
+  }
 }
 
 /** Fade the whole plane, children included (Babylon doesn't inherit it). */

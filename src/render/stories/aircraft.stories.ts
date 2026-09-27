@@ -1,6 +1,8 @@
 /**
  * Aircraft models (aircraft.ts) through the real MeshFactory: paint
- * material, glow layer, wing flex, props, strobes and the visual wind.
+ * material, glow layer, wing flex, props, strobes, landing gear (`gear`,
+ * or `gearCycle` to watch it fold; GEAR_TRAVEL in sceneSync.ts) and the
+ * visual wind.
  *
  * Tuning loop: edit the models / KIND_SIZE in aircraft.ts, the paint
  * material in meshes.ts or PLANE_RADIUS in config.ts, and the story
@@ -15,6 +17,7 @@ import type { PlaneColor } from "../../core/types";
 import { animateAircraft, type AircraftKind, type AircraftRig } from "../aircraft";
 import { MeshFactory } from "../meshes";
 import { fitShadowsToWorld } from "../scene";
+import { GEAR_TRAVEL } from "../sceneSync";
 import { windEffect } from "../wind";
 import { gameCamera, groundPad, mountStage, orbitCamera, type Stage } from "./stage";
 
@@ -34,6 +37,10 @@ interface AircraftArgs {
   chop: number;
   /** Landing rollout progress 0..1 (winds the props down). */
   rollout: number;
+  /** Landing gear, 0 = retracted to 1 = down (the light plane's is fixed). */
+  gear: number;
+  /** Cycle the gear up and down (every `GEAR_TRAVEL` + a pause) instead of `gear`. */
+  gearCycle: boolean;
   /** 0..1 strength of the visual wind (drift, crab, bumps). */
   windExposure: number;
   /** Degrees per second the plane yaws on its stand; 0 = still. */
@@ -50,15 +57,42 @@ function posePlane(
   rig: AircraftRig,
   id: number,
   pos: Vector3,
-  p: { heading: number; bank: number; exposure: number; chop: number; rollout: number },
+  p: {
+    heading: number;
+    bank: number;
+    exposure: number;
+    chop: number;
+    rollout: number;
+    gear: number;
+  },
   time: number,
   dt: number,
 ): void {
-  const { heading, bank, exposure, chop, rollout } = p;
+  const { heading, bank, exposure, chop, rollout, gear } = p;
   const wind = windEffect(time, id, heading, exposure);
   rig.root.position.set(pos.x + wind.drift.x, pos.y + wind.lift, pos.z - wind.drift.y);
   rig.root.rotation.set(-(bank + wind.roll), heading + wind.crab, wind.pitch);
-  animateAircraft(rig, { time, dt, bank, chop: chop + wind.chop, rollout });
+  animateAircraft(rig, { time, dt, bank, chop: chop + wind.chop, rollout, gear });
+}
+
+/**
+ * Gear position for the story: `args.gear`, or with `gearCycle` a loop of
+ * down → retracting → up → extending, eased like sceneSync.ts draws it.
+ */
+function gearAt(args: AircraftArgs, time: number): number {
+  if (!args.gearCycle) return args.gear;
+  const hold = 1.2;
+  const period = 2 * (GEAR_TRAVEL + hold);
+  const t = time % period;
+  const g =
+    t < hold
+      ? 1
+      : t < hold + GEAR_TRAVEL
+        ? 1 - (t - hold) / GEAR_TRAVEL
+        : t < 2 * hold + GEAR_TRAVEL
+          ? 0
+          : (t - 2 * hold - GEAR_TRAVEL) / GEAR_TRAVEL;
+  return g * g * (3 - 2 * g);
 }
 
 /** Camera for the chosen view; returns its per-frame update (if any). */
@@ -84,6 +118,7 @@ const meta: Meta<AircraftArgs> = {
     },
     chop: { control: { type: "range", min: -1, max: 1, step: 0.05 } },
     rollout: { control: { type: "range", min: 0, max: 1, step: 0.05 } },
+    gear: { control: { type: "range", min: 0, max: 1, step: 0.05 } },
     windExposure: { control: { type: "range", min: 0, max: 1, step: 0.05 } },
     turntable: { control: { type: "range", min: 0, max: 90, step: 5 } },
     timeScale: { control: { type: "range", min: 0, max: 2, step: 0.05 } },
@@ -95,6 +130,8 @@ const meta: Meta<AircraftArgs> = {
     bankDeg: 0,
     chop: 0,
     rollout: 0,
+    gear: 1,
+    gearCycle: false,
     windExposure: 0,
     turntable: 15,
     timeScale: 1,
@@ -120,7 +157,8 @@ export const Single: Story = {
         const heading = time * args.turntable * DEG;
         const bank = args.bankDeg * DEG;
         const { windExposure: exposure, chop, rollout } = args;
-        posePlane(rig, 1, pos, { heading, bank, exposure, chop, rollout }, time, dt);
+        const gear = gearAt(args, time);
+        posePlane(rig, 1, pos, { heading, bank, exposure, chop, rollout, gear }, time, dt);
       };
     }, args.timeScale),
 };
@@ -150,8 +188,9 @@ export const Fleet: Story = {
         const heading = Math.PI / 2 + time * args.turntable * DEG;
         const bank = args.bankDeg * DEG;
         const { windExposure: exposure, chop, rollout } = args;
+        const gear = gearAt(args, time);
         for (const { rig, id, pos } of planes) {
-          posePlane(rig, id, pos, { heading, bank, exposure, chop, rollout }, time, dt);
+          posePlane(rig, id, pos, { heading, bank, exposure, chop, rollout, gear }, time, dt);
         }
       };
     }, args.timeScale),

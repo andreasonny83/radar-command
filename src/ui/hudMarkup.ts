@@ -94,17 +94,35 @@ export function soundButtonMarkup(): string {
 }
 
 /**
- * Bottom-right button row: sound, then the camera controls (buttons only:
- * every drag on the canvas draws a path).
+ * Music on / off, next to the sound button. `hud.setMusicOn` dims it
+ * (`.hud-button-off` in style.css) while the music is off.
+ */
+export function musicButtonMarkup(): string {
+  return `
+      <button
+        id="musicBtn"
+        class="hud-button"
+        title="Music off (${shortcutHint("toggleMusic")})"
+        aria-label="Music"
+        aria-pressed="true"
+      >
+        ♪
+      </button>`;
+}
+
+/**
+ * Bottom-right button row: sound and music, then the camera controls
+ * (buttons only: every drag on the canvas draws a path).
  */
 export function cameraControlsMarkup(): string {
   return `
     <div
       data-arrow-avoid
       class="absolute right-4 bottom-4 z-10 flex gap-2"
-      aria-label="Sound and camera controls"
+      aria-label="Sound, music and camera controls"
     >
       ${soundButtonMarkup()}
+      ${musicButtonMarkup()}
       <span class="w-1" aria-hidden="true"></span>
       <button
         id="rotateLeftBtn"

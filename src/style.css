@@ -37,6 +37,21 @@
       bg-slate-800/80 text-xl font-bold text-slate-200 shadow-lg backdrop-blur-sm
       transition hover:bg-slate-700 active:scale-95;
   }
+  /* A toggle button switched off (the music button, hud.ts `setMusicOn`):
+     dimmed, with a diagonal strike through the icon. */
+  .hud-button-off {
+    @apply text-slate-500;
+    background-image: linear-gradient(
+      135deg,
+      transparent 46%,
+      rgb(148 163 184 / 0.85) 47%,
+      rgb(148 163 184 / 0.85) 53%,
+      transparent 54%
+    );
+    background-size: 60% 60%;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
 
   /* GitHub / feedback links on the overlay and help panel (hudMarkup.ts). */
   .hud-link {

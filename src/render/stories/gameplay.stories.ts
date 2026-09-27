@@ -20,7 +20,10 @@
  *               OUTER_FLIGHT_ALTITUDE as it crosses the edge, glides down
  *               the approach, flares, taxis to a stand. Its model scales
  *               with height (ALTITUDE_SCALE_PER_UNIT), so it shrinks on
- *               the way down and is smallest on the ground.
+ *               the way down and is smallest on the ground. The gear
+ *               extends on final (GEAR_DOWN_DISTANCE); with `sound` (click
+ *               the canvas first) the gear whine and clunk, touchdown chirp,
+ *               reverse thrust and rollout rumble play in step with it.
  *   - OuterTraffic: planes crossing paths outside the airspace (magenta
  *               dashed edge), flown by the real flight model with the
  *               automatic collision avoidance on or off: head-on, crossing
@@ -38,7 +41,8 @@
  *               (`showAirspace` draws the airspace edge). Right-click a
  *               plane to follow it, with the "track plane active" badge
  *               bottom-left; right-click again to return (`autoFollow`
- *               follows the first plane). Follow: FOLLOW_ZOOM in
+ *               follows the first plane; `sound` plays all the game's audio
+ *               after a click on the canvas). Follow: FOLLOW_ZOOM in
  *               config.ts, `follow` / `returnFromFollow` / `trackPlane` in
  *               camera.ts, the badge in ui/hudMarkup.ts + style.css.
  *
@@ -58,10 +62,11 @@
  * ROTATE_SPEED / CLIMB_ACCEL / CLIMB_DISTANCE in config.ts, the route and
  * procedure (`planDepartureRoute`) in core/departures.ts, DEPARTURE_DOT_* /
  * ROTATION_* / CLIMB_PITCH_GAIN in sceneSync.ts, the connector in
- * render/airfield.ts, chime and engine sound in audio/sfx.ts.
+ * render/airfield.ts, chime and engine sound in audio/sfx.ts (mixed by
+ * audio/mixer.ts; the background music has its own story, "Audio/Music").
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
-import { Sfx } from "../../audio/sfx";
+import { GameAudio } from "../../audio/mixer";
 import {
   CRASH_OVERLAY_DELAY,
   PATH_MIN_SPACING,
@@ -90,9 +95,35 @@ import { arrivalMarkers } from "../arrivals";
 import { MeshFactory } from "../meshes";
 import { ANCHOR_RING_FADE, ANCHOR_RING_HOLD, SceneSync } from "../sceneSync";
 import { trackPlane } from "../camera";
-import { gameCamera, mountStage } from "./stage";
+import { gameCamera, mountStage, type Stage } from "./stage";
 
 const DEG = Math.PI / 180;
+
+/**
+ * The game's audio for a story, or null when `enabled` is off. Sound starts
+ * on the first click on the canvas (browsers only allow audio after a
+ * gesture) and stops with the stage. No storage: the story's args decide,
+ * not the player's saved settings.
+ */
+function storyAudio(stage: Stage, enabled: boolean, music = false): GameAudio | null {
+  if (!enabled) return null;
+  const audio = new GameAudio(null);
+  audio.setMusicOn(music);
+  audio.setScene("playing");
+  stage.canvas.addEventListener("pointerdown", () => audio.unlock());
+  stage.engine.onDisposeObservable.add(() => audio.close());
+  return audio;
+}
+
+/**
+ * Per frame, after `sync.syncPlanes`: play this frame's animation cues and
+ * let the engines, rollouts and ambience follow `state` (as main.ts does).
+ */
+function playFrame(audio: GameAudio | null, sync: SceneSync, state: GameState): void {
+  if (!audio) return;
+  for (const cue of sync.takeAudioCues()) audio.cue(cue);
+  audio.update(state, (id) => sync.panFor(id));
+}
 
 const meta: Meta = { title: "Scene/Gameplay" };
 export default meta;
@@ -318,6 +349,11 @@ interface LandingArgs {
   startOutside: number;
   /** Seconds before the approach replays (the plane may still be taxiing). */
   replayAfter: number;
+  /**
+   * Sound (click the canvas once to start it): gear whine and clunk on
+   * final, the touchdown chirp and reverse thrust, the rollout rumble.
+   */
+  sound: boolean;
   timeScale: number;
 }
 
@@ -358,7 +394,7 @@ export const Landing: StoryObj<LandingArgs> = {
     replayAfter: { control: { type: "range", min: 10, max: 60, step: 1 } },
     timeScale: { control: { type: "range", min: 0.1, max: 3, step: 0.05 } },
   },
-  args: { startOutside: 18, replayAfter: 34, timeScale: 1 },
+  args: { startOutside: 18, replayAfter: 34, sound: true, timeScale: 1 },
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage);
@@ -366,6 +402,7 @@ export const Landing: StoryObj<LandingArgs> = {
       const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
       sync.rebuildWorld(state);
       stageLanding(state, args.startOutside);
+      const audio = storyAudio(stage, args.sound);
 
       let time = 0;
       let sinceStart = 0;
@@ -379,6 +416,7 @@ export const Landing: StoryObj<LandingArgs> = {
         }
         cam.frame(dt, time);
         sync.syncPlanes(state, time);
+        playFrame(audio, sync, state);
       };
     }, args.timeScale),
 };
@@ -394,6 +432,8 @@ interface DepartureArgs {
   follow: boolean;
   /** Chime and engines (click the canvas once to let the browser play audio). */
   sound: boolean;
+  /** Background music under the effects too (audio/music.ts). */
+  music: boolean;
   /** Seconds before it replays (a new departure from the same hangar). */
   replayAfter: number;
   timeScale: number;
@@ -419,7 +459,14 @@ export const Departure: StoryObj<DepartureArgs> = {
     replayAfter: { control: { type: "range", min: 20, max: 90, step: 1 } },
     timeScale: { control: { type: "range", min: 0.1, max: 3, step: 0.05 } },
   },
-  args: { runway: "red", follow: false, sound: true, replayAfter: 55, timeScale: 1 },
+  args: {
+    runway: "red",
+    follow: false,
+    sound: true,
+    music: false,
+    replayAfter: 55,
+    timeScale: 1,
+  },
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage, 0, args.follow ? 1 : 1.6);
@@ -431,11 +478,7 @@ export const Departure: StoryObj<DepartureArgs> = {
       const toast = stage.root.querySelector<HTMLElement>("#toast")!;
       let toastLeft = 0;
 
-      const sfx = args.sound ? new Sfx(null) : null;
-      if (sfx) {
-        stage.canvas.addEventListener("pointerdown", () => sfx.unlock());
-        stage.engine.onDisposeObservable.add(() => sfx.close());
-      }
+      const sfx = storyAudio(stage, args.sound, args.music);
 
       const begin = () => {
         const id = stageDeparture(state, args.runway);
@@ -467,7 +510,7 @@ export const Departure: StoryObj<DepartureArgs> = {
         }
         cam.frame(dt, time);
         sync.syncPlanes(state, time);
-        sfx?.update(state);
+        playFrame(sfx, sync, state);
       };
     }, args.timeScale),
 };
@@ -578,6 +621,8 @@ interface LiveArgs {
   showAirspace: boolean;
   /** Follow the shift's first plane, as right-clicking it would. */
   autoFollow: boolean;
+  /** All the game's sound: effects, ambience and music (click the canvas to start it). */
+  sound: boolean;
 }
 
 /**
@@ -587,7 +632,7 @@ interface LiveArgs {
  */
 export const LiveGame: StoryObj<LiveArgs> = {
   argTypes: { timeScale: { control: { type: "range", min: 0.1, max: 2, step: 0.05 } } },
-  args: { autoStart: true, timeScale: 1, showAirspace: false, autoFollow: false },
+  args: { autoStart: true, timeScale: 1, showAirspace: false, autoFollow: false, sound: false },
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage);
@@ -620,8 +665,10 @@ export const LiveGame: StoryObj<LiveArgs> = {
         {
           onPan: (dx, dy) => cam.controller.dragBy(dx, dy),
           onFollow: (planeId) => follow(planeId),
+          onPathDrawn: (_planeId, anchored) => audio?.readback(anchored),
         },
       );
+      const audio = storyAudio(stage, args.sound, true);
       /** Same as main.ts: follow a plane, or right-click again to return. */
       const follow = (planeId: number | null) => {
         if (cam.controller.following) cam.controller.returnFromFollow();
@@ -635,6 +682,7 @@ export const LiveGame: StoryObj<LiveArgs> = {
       return (dt) => {
         if (state.phase !== "paused") time += dt;
         for (const event of step(state, dt)) {
+          audio?.onSimEvent(event, (id) => sync.panFor(id));
           if (event.type === "landed") hud.setScore(state.score);
           else if (event.type === "crash") {
             const site = sync.crash(event.planeIds);
@@ -658,6 +706,10 @@ export const LiveGame: StoryObj<LiveArgs> = {
         hud.setTracking(cam.controller.following);
         sync.setHighlighted(pointer.refreshHover());
         sync.syncPlanes(state, time);
+        audio?.setScene(
+          state.phase === "gameover" ? "crash" : state.phase === "paused" ? "paused" : "playing",
+        );
+        playFrame(audio, sync, state);
         hud.setArrivals(arrivalMarkers(state, stage.scene, stage.canvas));
       };
     }, args.timeScale),

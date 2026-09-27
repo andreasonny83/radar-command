@@ -12,6 +12,7 @@ import {
   cameraControlsMarkup,
   helpButtonMarkup,
   helpPanelMarkup,
+  musicButtonMarkup,
   overlayMarkup,
   pauseButtonMarkup,
   pausedBannerMarkup,
@@ -97,7 +98,7 @@ export const TrackingIndicator: Story = {
   },
 };
 
-/** Bottom-right button row: sound on / off, then the camera buttons. */
+/** Bottom-right button row: sound and music on / off, then the camera buttons. */
 export const CameraControls: Story = { render: () => stage(cameraControlsMarkup()) };
 
 /**
@@ -109,6 +110,19 @@ export const SoundButton: StoryObj<{ muted: boolean }> = {
   render: ({ muted }) => {
     const root = stage(`<div class="absolute right-4 bottom-4">${soundButtonMarkup()}</div>`);
     if (muted) part(root, "soundBtn").textContent = "🔇";
+    return root;
+  },
+};
+
+/**
+ * Music on / off button on its own (second in the camera row).
+ * `hud.setMusicOn` adds `.hud-button-off` (style.css) while it's off.
+ */
+export const MusicButton: StoryObj<{ on: boolean }> = {
+  args: { on: true },
+  render: ({ on }) => {
+    const root = stage(`<div class="absolute right-4 bottom-4">${musicButtonMarkup()}</div>`);
+    part(root, "musicBtn").classList.toggle("hud-button-off", !on);
     return root;
   },
 };

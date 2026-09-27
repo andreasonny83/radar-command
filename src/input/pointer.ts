@@ -90,6 +90,12 @@ export interface PointerFeedback {
    * when it missed every plane. Works while playing or paused.
    */
   onFollow?: (planeId: number | null) => void;
+  /**
+   * The player finished giving `planeId` a path: the drag ended with a
+   * path drawn, or the path locked onto the plane's runway (`anchored`),
+   * which ends the drag by itself. For the tower's radio readback.
+   */
+  onPathDrawn?: (planeId: number, anchored: boolean) => void;
 }
 
 /** Planes a right-click may pick to follow: any still visible in the game. */
@@ -207,7 +213,10 @@ export function attachPointerInput(
     if (!appendPathPoint(plane, point)) return;
     // Reached the runway from the right direction: the path snaps onto the
     // threshold and is finished, so this pointer stops routing the plane.
-    if (anchorPath(plane, state.runways, state.world)) release(e.pointerId);
+    if (anchorPath(plane, state.runways, state.world)) {
+      release(e.pointerId);
+      feedback.onPathDrawn?.(plane.id, true);
+    }
   };
 
   const onUp = (e: PointerEvent) => {
@@ -215,7 +224,15 @@ export function attachPointerInput(
       pan = null;
       canvas.style.cursor = "";
     }
+    // Let go of a plane with a path drawn: the route is given. (A tap with
+    // no drag leaves no path, and gets no readback.)
+    const planeId = active.get(e.pointerId);
+    const plane =
+      planeId === undefined ? undefined : getState().planes.find((p) => p.id === planeId);
     release(e.pointerId);
+    if (plane && isSteerable(plane) && plane.path.length > 0) {
+      feedback.onPathDrawn?.(plane.id, plane.pathAnchored);
+    }
   };
 
   const onLeave = () => {

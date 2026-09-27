@@ -9,6 +9,7 @@ import { Material } from "@babylonjs/core/Materials/material";
 import { Axis } from "@babylonjs/core/Maths/math.axis";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import type { AudioCue } from "../audio/cues";
 import { CreateGreasedLine } from "@babylonjs/core/Meshes/Builders/greasedLineBuilder";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
@@ -30,7 +31,13 @@ import {
 import { cruiseAltitude } from "../core/layout";
 import { angleDelta, distance, lerp, normalizeAngle } from "../core/math";
 import type { GameState, Plane, PlaneColor, WorldSize } from "../core/types";
-import { aircraftKindFor, animateAircraft, type AircraftRig } from "./aircraft";
+import {
+  aircraftKindFor,
+  animateAircraft,
+  wheelDepth,
+  type AircraftKind,
+  type AircraftRig,
+} from "./aircraft";
 import { AirfieldFactory, type AirfieldView } from "./airfield";
 import { AirspaceBoundary } from "./boundary";
 import { CrashEffect, type WreckSource } from "./crash";
@@ -106,8 +113,33 @@ export const HOVER_SCALE = 0.1;
 /** Hover ring opacity at full highlight, and how deep its slow pulse dips. */
 const HOVER_RING_ALPHA = 0.85;
 const HOVER_RING_PULSE = 0.2;
-/** Height of a plane on the ground (sitting on its wheels on the runway). */
-const RUNWAY_ALTITUDE = 0.35;
+/**
+ * Height of a plane of `kind` on the ground: its root sits its wheels'
+ * depth (`wheelDepth`) up, scaled like the model is at that height (the
+ * fake perspective below, which itself depends on the height: solved for
+ * the fixed point h = d · (1 + (h − FLIGHT_ALTITUDE) · k)).
+ */
+function groundAltitude(kind: AircraftKind): number {
+  const d = wheelDepth(kind);
+  const k = ALTITUDE_SCALE_PER_UNIT;
+  return (d * (1 - FLIGHT_ALTITUDE * k)) / (1 - d * k);
+}
+/**
+ * Landing gear (see `AircraftMotion.gear`): it goes down once a plane on
+ * an anchored approach is `GEAR_DOWN_DISTANCE` (path length) from the
+ * threshold, stays down on the ground, and a departure raises it once
+ * `GEAR_UP_CLIMB` past lift-off. The legs take `GEAR_TRAVEL` seconds to
+ * swing, eased at both ends like a hydraulic ram.
+ */
+export const GEAR_DOWN_DISTANCE = APPROACH_DISTANCE;
+export const GEAR_UP_CLIMB = 5;
+export const GEAR_TRAVEL = 1.8;
+/**
+ * A plane rolling past this share of the maximum bank raises a
+ * `bankWhoosh` cue, at most once every `WHOOSH_GAP` seconds.
+ */
+const WHOOSH_BANK = 0.7;
+const WHOOSH_GAP = 2.5;
 /**
  * Fastest a plane climbs or descends (scene units / second). Faster than the
  * glide slope and the climb out of the airspace, so those are followed
@@ -124,15 +156,34 @@ const MAX_VERTICAL_SPEED = 4;
  */
 function airborneAltitude(plane: Plane, world: WorldSize): number {
   const cruise = cruiseAltitude(plane.pos, world);
+  const left = approachLeft(plane, APPROACH_DISTANCE);
+  if (left === null) return cruise;
+  return lerp(THRESHOLD_ALTITUDE, cruise, Math.min(1, left / APPROACH_DISTANCE));
+}
+
+/**
+ * Path length `plane` has left to fly to its threshold, on an anchored
+ * path; null otherwise. Summed back from the threshold and stopped once
+ * past `limit` (only the last stretch ever matters), so long paths stay
+ * cheap.
+ */
+function approachLeft(plane: Plane, limit: number): number | null {
   const path = plane.path;
-  if (!plane.pathAnchored || path.length === 0) return cruise;
-  // Path length left to fly, summed back from the threshold; only the last
-  // `APPROACH_DISTANCE` matters, so long paths stop early.
+  if (!plane.pathAnchored || path.length === 0) return null;
   let left = 0;
-  for (let i = path.length - 1; i >= 0 && left < APPROACH_DISTANCE; i--) {
+  for (let i = path.length - 1; i >= 0 && left < limit; i--) {
     left += distance(path[i]!, i > 0 ? path[i - 1]! : plane.pos);
   }
-  return lerp(THRESHOLD_ALTITUDE, cruise, Math.min(1, left / APPROACH_DISTANCE));
+  return left;
+}
+
+/** Should `plane`'s landing gear be down now? (See `GEAR_DOWN_DISTANCE`.) */
+function wantsGearDown(plane: Plane): boolean {
+  if (plane.ground) return true;
+  if (plane.phase === "climbout") return (plane.departure?.climbed ?? Infinity) < GEAR_UP_CLIMB;
+  if (plane.phase !== "flying") return false;
+  const left = approachLeft(plane, GEAR_DOWN_DISTANCE);
+  return left !== null && left < GEAR_DOWN_DISTANCE;
 }
 
 /**
@@ -142,17 +193,19 @@ function airborneAltitude(plane: Plane, world: WorldSize): number {
  * smoothstep starts and ends flat, so the plane rotates gently off the
  * runway, climbs steepest midway, then levels off smoothly.
  *
+ * @param runway  the plane's height on the ground (see `groundAltitude`)
  * @returns the height, and the climb gradient (height per unit flown).
  */
 export function departureAltitude(
   plane: Plane,
   world: WorldSize,
+  runway: number,
 ): { altitude: number; gradient: number } {
   const climbed = plane.departure?.climbed ?? CLIMB_DISTANCE;
   const t = Math.min(1, climbed / CLIMB_DISTANCE);
-  const rise = cruiseAltitude(plane.pos, world) - RUNWAY_ALTITUDE;
+  const rise = cruiseAltitude(plane.pos, world) - runway;
   return {
-    altitude: RUNWAY_ALTITUDE + rise * t * t * (3 - 2 * t),
+    altitude: runway + rise * t * t * (3 - 2 * t),
     gradient: (rise * 6 * t * (1 - t)) / CLIMB_DISTANCE,
   };
 }
@@ -200,6 +253,21 @@ interface PlaneView {
   bank: number;
   /** Displayed nose-up pitch (radians), for the take-off and climb. */
   pitch: number;
+  /** Its model, and the height it sits at on the ground (see `groundAltitude`). */
+  kind: AircraftKind;
+  groundAltitude: number;
+  /** Landing gear travel, 0 = up to 1 = down (linear; eased when drawn). */
+  gear: number;
+  /** Where the gear is heading (null until the first sync sets it). */
+  gearDown: boolean | null;
+  /** True once the wheels have touched the runway (the `touchdown` cue). */
+  touchedDown: boolean;
+  /** Seconds since the last `bankWhoosh` cue. */
+  sinceWhoosh: number;
+  /** Warning ring shown last frame (the `warning` cue fires as it comes on). */
+  warned: boolean;
+  /** Stereo position on screen, -1 to 1 (see `panFor`). */
+  pan: number;
   /** True once moved to the default rendering group on touchdown. */
   grounded: boolean;
   /** Displayed height while airborne (null until first sync). */
@@ -228,6 +296,9 @@ export class SceneSync {
   private readonly wreckIds = new Set<number>();
   /** Ids of planes to highlight as interactive (see `setHighlighted`). */
   private highlighted: ReadonlySet<number> = new Set();
+  /** Sound cues raised since the last `takeAudioCues` (see audio/cues.ts). */
+  private cues: AudioCue[] = [];
+  private readonly scratch = new Vector3();
 
   constructor(
     private readonly scene: Scene,
@@ -258,6 +329,27 @@ export class SceneSync {
     this.highlighted = ids;
   }
 
+  /**
+   * Sound cues raised by the last `syncPlanes` (gear, touchdown, bank
+   * whoosh, warning), in the order they happened; the queue is emptied.
+   * main.ts hands them to the audio mixer every frame, right after the
+   * sync. Each sync starts a fresh queue, so a caller without sound (most
+   * stories) never has to drain it.
+   */
+  takeAudioCues(): AudioCue[] {
+    const cues = this.cues;
+    this.cues = [];
+    return cues;
+  }
+
+  /**
+   * Where plane `planeId` is across the screen, -1 (left edge) to 1 (right
+   * edge), as drawn last frame; 0 if it has no mesh. For stereo panning.
+   */
+  panFor(planeId: number): number {
+    return this.views.get(planeId)?.pan ?? 0;
+  }
+
   /** Build static geometry (landscape, runways, taxiways, hangars) for the world. */
   rebuildWorld(state: GameState): void {
     fitShadowsToWorld(this.shadows, state.world);
@@ -275,6 +367,7 @@ export class SceneSync {
 
   /** Create/update/dispose plane meshes to match `state.planes`. */
   syncPlanes(state: GameState, time: number): void {
+    this.cues = [];
     this.landscape.update(time);
     for (const runway of this.runwayViews) runway.update(time);
     this.scene.activeCamera?.getDirectionToRef(Axis.Z, this.viewDir);
@@ -288,8 +381,9 @@ export class SceneSync {
       if (this.wreckIds.has(plane.id)) continue;
       let view = this.views.get(plane.id);
       if (!view) {
+        const kind = aircraftKindFor(plane.id);
         const aircraft = this.factory.createAircraft(
-          aircraftKindFor(plane.id),
+          kind,
           plane.color,
           plane.id,
           `plane-${plane.id}`,
@@ -307,6 +401,15 @@ export class SceneSync {
           yaw: null,
           bank: 0,
           pitch: 0,
+          kind,
+          groundAltitude: groundAltitude(kind),
+          gear: 0,
+          gearDown: null,
+          // Already down (a departure starts on its wheels): no touchdown.
+          touchedDown: plane.ground !== null,
+          sinceWhoosh: Infinity,
+          warned: false,
+          pan: 0,
           grounded: false,
           altitude: null,
           touchdownAltitude: null,
@@ -392,16 +495,16 @@ export class SceneSync {
     let climbGradient = 0;
     if (departure) {
       if (ground) {
-        altitude = RUNWAY_ALTITUDE;
+        altitude = view.groundAltitude;
       } else {
-        const climb = departureAltitude(plane, world);
+        const climb = departureAltitude(plane, world, view.groundAltitude);
         altitude = climb.altitude;
         climbGradient = climb.gradient;
       }
       view.altitude = altitude;
     } else if (ground) {
-      view.touchdownAltitude ??= view.altitude ?? RUNWAY_ALTITUDE;
-      altitude = lerp(view.touchdownAltitude, RUNWAY_ALTITUDE, descent);
+      view.touchdownAltitude ??= view.altitude ?? view.groundAltitude;
+      altitude = lerp(view.touchdownAltitude, view.groundAltitude, descent);
     } else {
       const target = airborneAltitude(plane, world);
       const step = MAX_VERTICAL_SPEED * dt;
@@ -488,10 +591,26 @@ export class SceneSync {
       bank: view.bank,
       chop: wind.chop,
       rollout: ground ? 1 - Math.min(1, ground.speed / touchdownSpeed) : 0,
+      gear: this.updateGear(view, plane, dt),
     });
+
+    // Sound cues timed to what's drawn (see audio/cues.ts).
+    view.pan = this.screenPan(root.position);
+    if (ground && !view.touchedDown && descent >= 1) {
+      view.touchedDown = true;
+      this.cues.push({ type: "touchdown", planeId: plane.id, pan: view.pan });
+    }
+    view.sinceWhoosh += dt;
+    const bankShare = Math.abs(view.bank) / flightTuning.maxBank;
+    if (!ground && bankShare > WHOOSH_BANK && view.sinceWhoosh > WHOOSH_GAP && dt > 0) {
+      view.sinceWhoosh = 0;
+      this.cues.push({ type: "bankWhoosh", planeId: plane.id, strength: bankShare, pan: view.pan });
+    }
 
     // Proximity warning ring, pulsing.
     const warn = plane.warning && (plane.phase === "flying" || plane.phase === "climbout");
+    if (warn && !view.warned) this.cues.push({ type: "warning", planeId: plane.id, pan: view.pan });
+    view.warned = warn;
     view.ring.setEnabled(warn);
     if (warn) {
       this.placeOverTrack(plane, world, altitude, view.ring.position);
@@ -535,6 +654,42 @@ export class SceneSync {
     }
 
     if (view.pathVersion !== plane.pathVersion) this.rebuildPath(view, plane, world);
+  }
+
+  /**
+   * Move the landing gear towards up or down (see `wantsGearDown`) and
+   * return the drawn position, 0 (up) to 1 (down), smoothstepped so the
+   * legs start and stop gently. Raises `gearMove` as the legs set off and
+   * `gearLocked` as they arrive. Fixed gear is always down, silently.
+   */
+  private updateGear(view: PlaneView, plane: Plane, dt: number): number {
+    if (view.kind === "light") return 1;
+    const down = wantsGearDown(plane);
+    if (view.gearDown === null) {
+      // First sight of this plane: already where it should be.
+      view.gearDown = down;
+      view.gear = down ? 1 : 0;
+    } else if (down !== view.gearDown) {
+      view.gearDown = down;
+      const seconds = GEAR_TRAVEL * (down ? 1 - view.gear : view.gear);
+      this.cues.push({ type: "gearMove", planeId: plane.id, down, seconds, pan: view.pan });
+    }
+    const target = down ? 1 : 0;
+    if (view.gear !== target && dt > 0) {
+      const step = dt / GEAR_TRAVEL;
+      view.gear = down ? Math.min(1, view.gear + step) : Math.max(0, view.gear - step);
+      if (view.gear === target) {
+        this.cues.push({ type: "gearLocked", planeId: plane.id, down, pan: view.pan });
+      }
+    }
+    const g = view.gear;
+    return g * g * (3 - 2 * g);
+  }
+
+  /** Screen position of a scene point across the view, -1 (left) to 1 (right). */
+  private screenPan(p: Vector3): number {
+    Vector3.TransformCoordinatesToRef(p, this.scene.getTransformMatrix(), this.scratch);
+    return Math.max(-1, Math.min(1, this.scratch.x));
   }
 
   /**

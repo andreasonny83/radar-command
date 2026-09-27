@@ -6,7 +6,7 @@
  */
 import "./style.css";
 import { inject } from "@vercel/analytics";
-import { Sfx } from "./audio/sfx";
+import { GameAudio, type AudioScene } from "./audio/mixer";
 import { CRASH_OVERLAY_DELAY, MAX_DT, ROTATE_STEP, ZOOM_STEP } from "./config";
 import { startGame, step, togglePause } from "./core/simulation";
 import { createGameState, setViewAspect } from "./core/state";
@@ -39,12 +39,20 @@ const cameraController = new CameraController(scene, canvas);
 const sceneSync = new SceneSync(scene, new MeshFactory(scene), shadows);
 
 // --- Sound ---------------------------------------------------------------------
-// Browsers only allow audio after a user gesture: start it on the first
-// press of anything (the START button counts), resume it on later ones.
-const sfx = new Sfx();
+// Effects and background music (audio/mixer.ts). Browsers only allow audio
+// after a user gesture: start it on the first press of anything (the START
+// button counts), resume it on later ones.
+const audio = new GameAudio();
 for (const type of ["pointerdown", "keydown"] as const) {
-  window.addEventListener(type, () => sfx.unlock(), { capture: true });
+  window.addEventListener(type, () => audio.unlock(), { capture: true });
 }
+/** The mix for each game phase: music dips while paused, fades after a crash. */
+const AUDIO_SCENES: Record<typeof state.phase, AudioScene> = {
+  start: "title",
+  playing: "playing",
+  paused: "paused",
+  gameover: "crash",
+};
 
 // The world is fixed-size, so the static scene is built once. Resizing the
 // window only refits the camera (every frame, from `aspect()`).
@@ -99,6 +107,7 @@ const hud = createHud(document.body, {
   onRotate: rotate,
   onZoom: zoom,
   onToggleSound: toggleSound,
+  onToggleMusic: toggleMusic,
   onHelp: (open) => {
     if (open && state.phase === "playing") {
       setPaused(true);
@@ -110,11 +119,17 @@ const hud = createHud(document.body, {
   },
 });
 
-hud.setMuted(sfx.muted);
+hud.setMuted(audio.muted);
+hud.setMusicOn(audio.musicOn);
 
 function toggleSound(): void {
-  sfx.setMuted(!sfx.muted);
-  hud.setMuted(sfx.muted);
+  audio.setMuted(!audio.muted);
+  hud.setMuted(audio.muted);
+}
+
+function toggleMusic(): void {
+  audio.setMusicOn(!audio.musicOn);
+  hud.setMusicOn(audio.musicOn);
 }
 
 // --- Follow camera -----------------------------------------------------------
@@ -156,6 +171,8 @@ const pointer = attachPointerInput(canvas, scene, cameraController.camera, () =>
     if (cameraController.following) cameraController.returnFromFollow();
     else if (planeId !== null) followPlane(planeId);
   },
+  // The tower reads the new route back over the radio.
+  onPathDrawn: (_planeId, anchored) => audio.readback(anchored),
 });
 
 // Arrow keys / WASD pan the map (held keys are polled in the render loop).
@@ -173,6 +190,7 @@ attachShortcuts(
     },
     toggleHelp: () => hud.setHelpOpen(!hud.helpOpen),
     toggleSound,
+    toggleMusic,
     rotateLeft: () => rotate(-1),
     rotateRight: () => rotate(1),
     zoomIn: () => zoom(1),
@@ -188,6 +206,7 @@ attachShortcuts(
 // Stays paused on return: the player continues when they're ready.
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) setPaused(true);
+  audio.setHidden(document.hidden);
 });
 
 // Resize: new canvas size and camera frustum only. The map stays put.
@@ -196,10 +215,15 @@ window.addEventListener("resize", () => {
   setViewAspect(state, aspect());
 });
 
+/** Where a plane is across the screen, for stereo placement (see audio/cues.ts). */
+const panFor = (planeId: number) => sceneSync.panFor(planeId);
+
 function handleEvent(event: SimEvent): void {
   // Notices (runway open / busy / closed, departures): wording in ui/eventToasts.ts.
   const toast = toastFor(event);
   if (toast) hud.showToast(toast.text, toast.color);
+  // Sounds for moments: the departure chime, a go-around's engines.
+  audio.onSimEvent(event, panFor);
   switch (event.type) {
     case "landed":
       hud.setScore(state.score);
@@ -213,14 +237,8 @@ function handleEvent(event: SimEvent): void {
       hud.setPhase(state.phase);
       break;
     }
-    case "departureAnnounced":
-      // A violet plane rolls out of a hangar: the toast says where it's
-      // going, the tower chimes, and its dotted route is already drawn.
-      sfx.chime();
-      break;
     default:
-      // The rest only toast (above); a take-off roll is heard in the
-      // engines (audio/sfx.ts).
+      // The rest only toast and sound (above).
       break;
   }
 }
@@ -251,9 +269,12 @@ engine.runRenderLoop(() => {
   // cursor, so hover is re-checked every frame, not only on pointer moves.
   sceneSync.setHighlighted(pointer.refreshHover());
   sceneSync.syncPlanes(state, time);
-  // Engines follow the departures; everything holds while paused.
-  sfx.setRunning(state.phase === "playing");
-  sfx.update(state);
+  // Sound: animation-timed cues from this frame's sync (gear, touchdown,
+  // whoosh, warnings), engines and rollouts from state, ambience and music
+  // on their own clocks (softer while paused).
+  for (const cue of sceneSync.takeAudioCues()) audio.cue(cue);
+  audio.setScene(AUDIO_SCENES[state.phase]);
+  audio.update(state, panFor);
   scene.render();
   // After render, so the arrows use this frame's camera matrices.
   hud.setArrivals(arrivalMarkers(state, scene, canvas));
@@ -261,5 +282,5 @@ engine.runRenderLoop(() => {
 
 // Expose state for debugging / automated browser checks in dev builds only.
 if (import.meta.env.DEV) {
-  (window as unknown as { __game: unknown }).__game = { state, cameraController };
+  (window as unknown as { __game: unknown }).__game = { state, cameraController, audio, sceneSync };
 }
