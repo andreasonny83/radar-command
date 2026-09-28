@@ -30,6 +30,7 @@ import type { GameState, SimEvent } from "../core/types";
 import { Ambience, type AmbienceLayer } from "./ambience";
 import type { AudioCue, PanLookup } from "./cues";
 import { Music, type MusicLayer } from "./music";
+import { Samples } from "./samples";
 import { Sfx } from "./sfx";
 
 /** What the game is showing, for the mix (see `SCENE_LEVELS`). */
@@ -72,6 +73,8 @@ interface Graph {
   sfxBus: GainNode;
   ambienceBus: GainNode;
   musicBus: GainNode;
+  /** The recorded sounds (audio/samples.ts), loading from the first unlock. */
+  samples: Samples;
   sfx: Sfx;
   ambience: Ambience;
   music: Music;
@@ -115,6 +118,11 @@ export class GameAudio {
   /** The airport ambience, once audio has started (for the Storybook soundboard). */
   get ambience(): Ambience | null {
     return this.graph?.ambience ?? null;
+  }
+
+  /** The recorded sounds, once audio has started (for the Storybook stories). */
+  get samples(): Samples | null {
+    return this.graph?.samples ?? null;
   }
 
   /** All sound on or off (remembered across visits). */
@@ -177,12 +185,16 @@ export class GameAudio {
       const musicBus = ctx.createGain();
       musicBus.connect(master);
       const seed = Date.now() >>> 0;
+      // The recordings (~1.5 MB) load in the background; each sound plays
+      // from the moment its file has decoded.
+      const samples = new Samples(ctx);
       this.graph = {
         ctx,
         master,
         sfxBus,
         ambienceBus,
         musicBus,
+        samples,
         sfx: new Sfx(ctx, sfxBus),
         ambience: new Ambience(ctx, ambienceBus, seed ^ 0x5eed),
         music: new Music(ctx, musicBus, seed),
