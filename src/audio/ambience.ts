@@ -1,15 +1,14 @@
 /**
- * Airport ambience: the terminal and field around the tower, synthesised
- * with the Web Audio API (no audio files).
+ * Airport ambience: the terminal and field around the tower.
  *
- * Four layers, each with its own level (`AMBIENCE_LEVELS`; switch them one
+ * Three layers, each with its own level (`AMBIENCE_LEVELS`; switch them one
  * by one in the "Audio/Effects" story):
  *
- * - room:    the terminal's low, steady hum (low-passed noise);
- * - chatter: the crowd in the terminal (audio/crowd.ts): people chatting
- *            in several languages, spoken by the speech engine and
- *            played back muffled by distance in the hall's echo, over
- *            a murmur of voices too far off to pick out;
+ * - terminal: a real recording of a busy terminal (Stuttgart, CC0: see
+ *            audio/samples.ts and CREDITS.md), people, footsteps and hum,
+ *            a little muffled as heard from the tower. It's 60 s long and
+ *            loops by crossfading two copies (`BED_CROSSFADE`), so the
+ *            restart is never heard. Silent until the file has loaded;
  * - pa:      public-address announcements: a soft three-note rising chime
  *            (unlike the departure cue's two falling notes, see
  *            audio/sfx.ts), then an announcer speaking through a tinny
@@ -21,7 +20,7 @@
  *            can't, the announcer talks in a wordless synthetic voice
  *            (a buzz through vowel formants, see `babble`);
  * - outside: now and then a jet passing far overhead, and faint radio
- *            squelch.
+ *            squelch (synthesised).
  *
  * Timing uses a look-ahead scheduler like the music (audio/music.ts):
  * `update()` books everything due in the next `LOOKAHEAD` seconds on the
@@ -30,7 +29,7 @@
 import { mulberry32 } from "../core/math";
 import type { SimEvent } from "../core/types";
 import { departureLine, runwayOpenLine, terminalLine } from "./announcements";
-import { Crowd } from "./crowd";
+import type { Samples } from "./samples";
 import { noiseBuffer } from "./sfx";
 import { ANNOUNCER_VOICES, loadSpeech, speak } from "./speech";
 
@@ -39,8 +38,7 @@ import { ANNOUNCER_VOICES, loadSpeech, speak } from "./speech";
 // ---------------------------------------------------------------------------
 
 /**
- * How often announcements come. (How many people chat in the terminal is
- * `CROWD` in audio/crowd.ts.)
+ * How often announcements come.
  *
  * TODO(you): set how busy the airport feels. The default is a calm
  * regional field: an announcement every 30 s to 2 minutes (the first one
@@ -57,7 +55,7 @@ export const PA_SCHEDULE = {
 };
 
 /** Layer levels (linear gain) at full ambience volume. */
-export const AMBIENCE_LEVELS = { room: 1, chatter: 1, pa: 1, outside: 1 };
+export const AMBIENCE_LEVELS = { terminal: 1, pa: 1, outside: 1 };
 export type AmbienceLayer = keyof typeof AMBIENCE_LEVELS;
 
 /** An announcement never starts within this many seconds of a departure chime. */
@@ -78,6 +76,15 @@ const CHIME_TO_VOICE = 1.4;
 /** Seconds of sound booked ahead of the audio clock. */
 const LOOKAHEAD = 1.5;
 
+/**
+ * The terminal recording loops as overlapping copies: each fades in over
+ * `BED_CROSSFADE` seconds while the one before fades out, so the join is
+ * a blend of two moments, never a cut.
+ */
+const BED_CROSSFADE = 3;
+/** Low-pass (Hz) on the terminal: the hall heard through the tower's glass. */
+const BED_CUTOFF = 5000;
+
 /** Seconds between distant jet flyovers, and between radio squelches. */
 const JET_INTERVAL = [40, 90] as const;
 const SQUELCH_INTERVAL = [25, 60] as const;
@@ -96,8 +103,13 @@ const VOWELS: readonly (readonly [number, number])[] = [
   [600, 1700], // æ
 ];
 
-/** Levels inside the layers, balanced by measurement (offline render, RMS). */
-const ROOM_LEVEL = 0.09;
+/**
+ * Levels inside the layers, balanced by measurement (offline render, RMS).
+ * The terminal sits about where the old synthesised hum and crowd did
+ * (~-38 dBFS RMS), just under the announcer (~-36) so every word stays
+ * clear, and under the game's own cues.
+ */
+const TERMINAL_LEVEL = 0.19;
 const ANNOUNCER_LEVEL = 0.16;
 /**
  * The spoken announcer (rendered speech peaks near full scale): measured
@@ -123,8 +135,8 @@ export class Ambience {
   private readonly layers: Record<AmbienceLayer, GainNode>;
   private readonly noise: AudioBuffer;
   private readonly rng: () => number;
-  private readonly roomTone: AudioBufferSourceNode;
-  private readonly crowd: Crowd;
+  /** Into the terminal layer, through its low-pass. */
+  private readonly bed: AudioNode;
   private readonly announcer: Voice;
   /** Into the PA: the tinny speaker and hall that the chime and voice go through. */
   private readonly speaker: AudioNode;
@@ -140,6 +152,8 @@ export class Ambience {
   /** Audio-clock time the scheduler has booked up to (-1 before the first update). */
   private booked = -1;
   private nextPa = 0;
+  /** Audio-clock time the next copy of the terminal recording starts. */
+  private nextBed = 0;
   private nextJet = 0;
   private nextSquelch = 0;
   /** Latest departure chime (audio-clock time), to keep announcements clear of it. */
@@ -148,18 +162,19 @@ export class Ambience {
   /**
    * @param ctx   the mixer's audio context
    * @param out   where the ambience plays (the mixer's ambience bus)
-   * @param seed  seeds the chatter, announcements and timing
+   * @param samples  the recorded sounds (audio/samples.ts): the terminal
+   * @param seed  seeds the announcements and timing
    */
   constructor(
     private readonly ctx: AudioContext,
     out: AudioNode,
+    private readonly samples: Samples,
     seed = 1,
   ) {
     this.rng = mulberry32(seed);
     this.noise = noiseBuffer(ctx);
     this.layers = {
-      room: ctx.createGain(),
-      chatter: ctx.createGain(),
+      terminal: ctx.createGain(),
       pa: ctx.createGain(),
       outside: ctx.createGain(),
     };
@@ -168,19 +183,13 @@ export class Ambience {
       gain.connect(out);
     }
 
-    this.roomTone = this.startRoomTone();
-
-    // Chatter: the crowd, in the terminal hall's echo. Each voice is
-    // muffled by its own distance (see audio/crowd.ts); the hall is big
-    // and hard, so the echo is long and louder than the voices.
-    const hallIn = ctx.createGain();
-    const room = ctx.createConvolver();
-    room.buffer = hallImpulse(ctx, 2.2, 0xc4a7);
-    const wet = ctx.createGain();
-    wet.gain.value = 0.9;
-    hallIn.connect(this.layers.chatter);
-    hallIn.connect(room).connect(wet).connect(this.layers.chatter);
-    this.crowd = new Crowd(ctx, hallIn, this.noise, this.rng);
+    // Terminal: the recording (already full of the hall's own echo),
+    // softened a little on its way through the tower's glass.
+    const glass = ctx.createBiquadFilter();
+    glass.type = "lowpass";
+    glass.frequency.value = BED_CUTOFF;
+    glass.connect(this.layers.terminal);
+    this.bed = glass;
 
     // PA: a tinny ceiling speaker (a narrow band) in a big hall.
     const speakerLow = ctx.createBiquadFilter();
@@ -199,7 +208,7 @@ export class Ambience {
     this.announcer = this.createVoice(150, speakerLow);
     this.speaker = speakerLow;
 
-    // The speech engine is ~1 MB: fetch it now, in the background (the
+    // The speech engine is ~2 MB: fetch it now, in the background (the
     // ambience only exists once the player has clicked, see audio/mixer.ts).
     void loadSpeech().then((ok) => (this.speechReady = ok));
   }
@@ -255,13 +264,15 @@ export class Ambience {
     if (this.booked < now - 0.5) {
       // First call, or back after a gap: start afresh just ahead of now.
       this.booked = now;
-      this.crowd.restart(now);
+      // The copy of the terminal booked before the gap may still be
+      // playing: carry on from where it hands over (else start now).
+      this.nextBed = Math.max(this.nextBed, now);
       if (this.nextPa < now) this.nextPa = now + PA_SCHEDULE.first;
       this.nextJet = now + this.between(JET_INTERVAL) / 3;
       this.nextSquelch = now + this.between(SQUELCH_INTERVAL) / 2;
     }
     const horizon = now + LOOKAHEAD;
-    this.crowd.update(horizon);
+    this.bookBed(horizon);
     while (this.nextPa < horizon) {
       // Never over the departure chime (see `noteChime`).
       if (this.nextPa - this.lastChime < PA_CLEAR_OF_CHIME) {
@@ -285,8 +296,6 @@ export class Ambience {
   /** Stop everything that runs continuously (scheduled sounds end by themselves). */
   dispose(): void {
     for (const src of this.sources) src.stop();
-    this.roomTone.stop();
-    this.crowd.dispose();
   }
 
   // -------------------------------------------------------------------------
@@ -409,20 +418,40 @@ export class Ambience {
   // Room and outside
   // -------------------------------------------------------------------------
 
-  /** The terminal's low, steady hum: noise, well low-passed. */
-  private startRoomTone(): AudioBufferSourceNode {
+  /**
+   * Book the copies of the terminal recording that start before `horizon`:
+   * each fades in over `BED_CROSSFADE` as the previous one fades out, and
+   * the next starts `BED_CROSSFADE` before this one ends. Nothing until
+   * the recording has loaded (then it fades in from the next booking).
+   */
+  private bookBed(horizon: number): void {
+    const buffer = this.samples.get("terminal");
+    if (!buffer) {
+      this.nextBed = horizon;
+      return;
+    }
     const { ctx } = this;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    src.loop = true;
-    const low = ctx.createBiquadFilter();
-    low.type = "lowpass";
-    low.frequency.value = 280;
-    const gain = ctx.createGain();
-    gain.gain.value = ROOM_LEVEL;
-    src.connect(low).connect(gain).connect(this.layers.room);
-    src.start();
-    return src;
+    const length = buffer.duration;
+    while (this.nextBed < horizon) {
+      const t = this.nextBed;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(TERMINAL_LEVEL, t + BED_CROSSFADE);
+      env.gain.setValueAtTime(TERMINAL_LEVEL, t + length - BED_CROSSFADE);
+      env.gain.linearRampToValueAtTime(0, t + length);
+      src.connect(env).connect(this.bed);
+      src.start(t);
+      src.stop(t + length);
+      // Stopped by `dispose` if still playing; forgotten once it ends.
+      this.sources.push(src);
+      src.addEventListener("ended", () => {
+        const i = this.sources.indexOf(src);
+        if (i >= 0) this.sources.splice(i, 1);
+      });
+      this.nextBed = t + length - BED_CROSSFADE;
+    }
   }
 
   /**

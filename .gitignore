@@ -6,3 +6,4 @@ dist
 .playwright-mcp
 storybook-static
 *storybook.log
+.cache

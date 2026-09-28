@@ -8,26 +8,29 @@
  * touchdown, whoosh, warning) as `SceneSync` raises them, moments as the sim
  * and input do, and the continuous sounds (take-off engines, landing
  * rollout) by running a stand-in plane through their state for a few
- * seconds. `pan` places the plane effects left or right; `focus` plays
+ * seconds. `aircraft` picks the plane's type (its engines, chirp and
+ * loudness); `pan` places the plane effects left or right; `focus` plays
  * them as in follow mode: from the followed plane (stepped forward) or
- * from another plane (pushed back). The ambience args
- * switch its layers (room tone, the chattering crowd, PA announcements,
- * jets and radio outside) on and off; "PA announcement" plays one straight away (a queued
- * game line, else a terminal line), and "Speak" announces whatever is in
- * the text box. The speech engine (audio/speech.ts, ~1 MB) loads when
- * audio starts; until then announcements use the wordless voice, and the
- * crowd is only its murmur (its lines render one by one over the first
- * few seconds, then conversations start).
+ * from another plane (pushed back). The ambience args switch its layers
+ * (the terminal recording, PA announcements, jets and radio outside) on
+ * and off; "PA announcement" plays one straight away (a queued game line,
+ * else a terminal line), and "Speak" announces whatever is in the text
+ * box. The recordings (audio/samples.ts, ~1.5 MB) and the speech engine
+ * (audio/speech.ts) load when audio starts: until then the terminal is
+ * quiet and announcements use the wordless voice.
  *
  * Tuning loop: `LEVELS`, `ENGINE_*`, `ROLLOUT_VOLUME`, `ALERT_*`,
- * `FOCUS_LEVEL` / `BACKGROUND_LEVEL` and the builders in sfx.ts; `PA_SCHEDULE`, `AMBIENCE_LEVELS`, `VOWELS` and the
- * `*_LEVEL`s in ambience.ts; `CROWD`, `CROWD_LINES` and the levels in
- * crowd.ts; the lines in announcements.ts; the voices in speech.ts; bus levels (`AMBIENCE_VOLUME`,
- * `SCENE_LEVELS`) in mixer.ts; gear timing (`GEAR_TRAVEL`) in
- * render/sceneSync.ts. Save, reload the story, press Start again.
+ * `FOCUS_LEVEL` / `BACKGROUND_LEVEL` and the builders in sfx.ts;
+ * `PA_SCHEDULE`, `AMBIENCE_LEVELS`, `BED_*`, `VOWELS` and the `*_LEVEL`s
+ * in ambience.ts; the lines in announcements.ts; the voices in speech.ts;
+ * bus levels (`AMBIENCE_VOLUME`, `SCENE_LEVELS`) in mixer.ts; gear timing
+ * (`GEAR_TRAVEL`) in render/sceneSync.ts. The recordings themselves are
+ * cut in scripts/audio/sources.json (hear them raw in "Audio/Samples").
+ * Save, reload the story, press Start again.
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { FLARE_DISTANCE, LANDING_SPEED_START, PLANE_SPEED, ROTATE_SPEED } from "../config";
+import { aircraftKindFor, type AircraftKind } from "../core/fleet";
 import { createPlane } from "../core/plane";
 import { createGameState } from "../core/state";
 import type { GameState, Plane } from "../core/types";
@@ -35,22 +38,24 @@ import { GEAR_TRAVEL as GEAR_SECONDS } from "../render/sceneSync";
 import type { AmbienceLayer } from "./ambience";
 import { loadSpeech } from "./speech";
 import { GameAudio } from "./mixer";
+import { SAMPLE_URLS } from "./samples";
 
 /** Follow mode for the plane effects (see `Sfx.setFocus`). */
 type Focus = "no plane followed" | "followed plane" | "another plane";
 
 interface EffectsArgs {
+  /** The type of the stand-in plane (its engines, tyre chirp and loudness). */
+  aircraft: AircraftKind;
   /** Stereo position of the plane effects, -1 (left) to 1 (right). */
   pan: number;
   /** Play the plane effects as if the camera followed this plane, or another. */
   focus: Focus;
-  room: boolean;
-  chatter: boolean;
+  terminal: boolean;
   pa: boolean;
   outside: boolean;
 }
 
-const AMBIENCE: AmbienceLayer[] = ["room", "chatter", "pa", "outside"];
+const AMBIENCE: AmbienceLayer[] = ["terminal", "pa", "outside"];
 
 /** The audio of the story on screen; closed when the next one mounts. */
 let active: GameAudio | null = null;
@@ -58,6 +63,10 @@ let active: GameAudio | null = null;
 const meta: Meta<EffectsArgs> = {
   title: "Audio/Effects",
   argTypes: {
+    aircraft: {
+      control: { type: "inline-radio" },
+      options: ["airliner", "turboprop", "light"] satisfies AircraftKind[],
+    },
     pan: { control: { type: "range", min: -1, max: 1, step: 0.1 } },
     focus: {
       control: { type: "inline-radio" },
@@ -65,10 +74,10 @@ const meta: Meta<EffectsArgs> = {
     },
   },
   args: {
+    aircraft: "airliner",
     pan: 0,
     focus: "no plane followed",
-    room: true,
-    chatter: true,
+    terminal: true,
     pa: true,
     outside: true,
   },
@@ -241,21 +250,24 @@ export const Effects: StoryObj<EffectsArgs> = {
       b.textContent = label;
       b.addEventListener("click", () => {
         audio.unlock();
-        const id = state.nextPlaneId++;
+        // A fresh plane of the chosen type (the type follows from the id).
+        let id = state.nextPlaneId++;
+        while (aircraftKindFor(id) !== args.aircraft) id = state.nextPlaneId++;
         focusOn(id);
         play(id);
-        status.textContent = `Played: ${label}`;
+        status.textContent = `Played: ${label} (${args.aircraft})`;
       });
       grid.append(b);
     }
     start.addEventListener("click", () => {
       audio.unlock();
       for (const layer of AMBIENCE) audio.setAmbienceLayer(layer, args[layer]);
-      status.textContent = "Playing: ambience on. Loading the PA voice…";
-      void loadSpeech().then((ok) => {
+      status.textContent = "Playing: ambience on. Loading the recordings and the PA voice…";
+      void Promise.all([loadSpeech(), audio.samples?.ready]).then(([ok]) => {
+        const loaded = `${audio.samples?.loaded ?? 0}/${Object.keys(SAMPLE_URLS).length} recordings`;
         status.textContent = ok
-          ? "Playing: ambience on, PA voice ready."
-          : "Playing: ambience on (PA voice unavailable: wordless announcements).";
+          ? `Playing: ambience on, ${loaded}, PA voice ready.`
+          : `Playing: ambience on, ${loaded} (PA voice unavailable: wordless announcements).`;
       });
     });
     // Speak any line through the PA.
