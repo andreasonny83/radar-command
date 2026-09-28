@@ -6,16 +6,18 @@
  */
 import "./style.css";
 import { inject } from "@vercel/analytics";
+import { injectSpeedInsights } from "@vercel/speed-insights";
 import { GameAudio, type AudioScene } from "./audio/mixer";
 import { CRASH_OVERLAY_DELAY, MAX_DT, ROTATE_STEP, ZOOM_STEP } from "./config";
 import { startGame, step, togglePause } from "./core/simulation";
-import { createGameState, setViewAspect } from "./core/state";
+import { createGameState, setLiveView, setViewAspect } from "./core/state";
 import type { SimEvent } from "./core/types";
 import { attachPanKeys } from "./input/keyboard";
 import { attachPointerInput } from "./input/pointer";
 import { attachShortcuts } from "./input/shortcuts";
 import { arrivalMarkers } from "./render/arrivals";
 import { CameraController, trackPlane } from "./render/camera";
+import { DayCycle } from "./render/dayCycle";
 import { MeshFactory } from "./render/meshes";
 import { createScene } from "./render/scene";
 import { SceneSync } from "./render/sceneSync";
@@ -26,9 +28,9 @@ import { createHud } from "./ui/hud";
 // `<Analytics/>` component. Only the game entry calls this, so Storybook
 // never reports page views. In dev it runs in debug mode (console only).
 inject({ mode: import.meta.env.DEV ? "development" : "production" });
-
+injectSpeedInsights();
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
-const { engine, scene, shadows } = createScene(canvas);
+const { engine, scene, shadows, fill, key } = createScene(canvas);
 const aspect = () => engine.getRenderWidth() / engine.getRenderHeight();
 
 // --- State (pure data, advanced only by `step`) ----------------------------
@@ -37,6 +39,12 @@ const state = createGameState(aspect());
 // --- Rendering ---------------------------------------------------------------
 const cameraController = new CameraController(scene, canvas);
 const sceneSync = new SceneSync(scene, new MeshFactory(scene), shadows);
+// Time of day: moves the sun/moon, sky fill and shadows through the shift
+// (render/dayCycle.ts); the same `night` value drives the night lights,
+// the music and ambience, and the HUD clock (render loop below).
+const dayCycle = new DayCycle({ scene, fill, key, shadows });
+/** Page background last written (mirrors the scene clear colour). */
+let bodyColor = "";
 
 // --- Sound ---------------------------------------------------------------------
 // Effects and background music (audio/mixer.ts). Browsers only allow audio
@@ -57,6 +65,9 @@ const AUDIO_SCENES: Record<typeof state.phase, AudioScene> = {
 // The world is fixed-size, so the static scene is built once. Resizing the
 // window only refits the camera (every frame, from `aspect()`).
 cameraController.setWorld(state.world);
+// A shift starts with the red runway alone; the others are built as their
+// colours open (see core/progression.ts).
+sceneSync.setRunwayProgression(true);
 sceneSync.rebuildWorld(state);
 
 /**
@@ -173,6 +184,12 @@ const pointer = attachPointerInput(canvas, scene, cameraController.camera, () =>
   },
   // The tower reads the new route back over the radio.
   onPathDrawn: (_planeId, anchored) => audio.readback(anchored),
+  // Let go on a runway without locking on: that landing won't happen. A red
+  // X where the path ends (not the green ring) and the "denied" buzz.
+  onLandingRejected: (_planeId, at) => {
+    sceneSync.showRejectMark(at, state.world);
+    audio.reject();
+  },
 });
 
 // Arrow keys / WASD pan the map (held keys are polled in the render loop).
@@ -228,6 +245,13 @@ function handleEvent(event: SimEvent): void {
     case "landed":
       hud.setScore(state.score);
       break;
+    case "goAround": {
+      // The runway turned the approach away: the red X on its threshold
+      // (the buzz comes with the go-around sound, see audio/mixer.ts).
+      const runway = state.runways.find((r) => r.color === event.color);
+      if (runway) sceneSync.showRejectMark(runway.threshold, state.world);
+      break;
+    }
     case "crash": {
       // Wreck the planes, fly the camera over and start the slow orbit. The
       // game-over panel waits, so nothing covers the fireball.
@@ -262,11 +286,25 @@ engine.runRenderLoop(() => {
   // No panning behind the help panel (the keys still track, for release).
   if (!hud.helpOpen) cameraController.panBy(panKeys.direction(), dt);
   cameraController.update(dt, aspect());
+  // Arrivals start beyond whatever the camera shows now (zoomed out,
+  // rotated or panned), so none pops up on screen (core/spawner.ts).
+  setLiveView(state, cameraController.groundView(aspect()));
   // Badge on while following; covers every way out (right-click, pan,
   // plane gone, crash), since the camera decides those itself.
   hud.setTracking(cameraController.following);
   // Light up the plane under the mouse (or held): planes move under a still
   // cursor, so hover is re-checked every frame, not only on pointer moves.
+  // Time of day follows the sim clock (frozen while paused or after a
+  // crash); `dt` is real time so a new shift's catch-up still plays.
+  dayCycle.update(state.elapsed, dt);
+  // The page behind the canvas matches the edge-of-map colour at any hour.
+  if (dayCycle.clearColor !== bodyColor) {
+    bodyColor = dayCycle.clearColor;
+    document.body.style.backgroundColor = bodyColor;
+  }
+  sceneSync.setNight(dayCycle.night);
+  audio.setNight(dayCycle.night);
+  hud.setClock(dayCycle.hours, dayCycle.night);
   sceneSync.setHighlighted(pointer.refreshHover());
   sceneSync.syncPlanes(state, time);
   // Sound: animation-timed cues from this frame's sync (gear, touchdown,
@@ -284,5 +322,11 @@ engine.runRenderLoop(() => {
 
 // Expose state for debugging / automated browser checks in dev builds only.
 if (import.meta.env.DEV) {
-  (window as unknown as { __game: unknown }).__game = { state, cameraController, audio, sceneSync };
+  (window as unknown as { __game: unknown }).__game = {
+    state,
+    cameraController,
+    audio,
+    sceneSync,
+    dayCycle,
+  };
 }

@@ -2,7 +2,8 @@
  * Gameplay visuals through the real SceneSync, so everything draws exactly
  * as in the game:
  *
- *   - Markers:  a frozen moment staged by hand: drawn path lines, a pair of
+ *   - Markers:  a frozen moment staged by hand: drawn path lines (smoothed
+ *               and translucent, see render/pathLine.ts), a pair of
  *               planes close enough for warning rings, a path anchored
  *               onto a runway threshold (green ring, re-anchored on a loop
  *               so its hold-and-fade replays), the free-path plane
@@ -24,6 +25,11 @@
  *               extends on final (GEAR_DOWN_DISTANCE); with `sound` (click
  *               the canvas first) the gear whine and clunk, touchdown chirp,
  *               reverse thrust and rollout rumble play in step with it.
+ *   - InvalidApproach: the red "no landing" ring and X (with `sound`, the
+ *               "denied" buzz) where a landing won't happen, on a loop:
+ *               a path drawn onto the runway's wrong end, onto another
+ *               colour's runway, onto a runway a departure holds, or a
+ *               locked approach that has to go around at the threshold.
  *   - OuterTraffic: planes crossing paths outside the airspace (magenta
  *               dashed edge), flown by the real flight model with the
  *               automatic collision avoidance on or off: head-on, crossing
@@ -37,6 +43,12 @@
  *               the toasts the game shows. `follow` rides along with the
  *               camera; `sound` plays the chime and engines (click the
  *               canvas first: browsers only start audio after a gesture).
+ *   - RunwayProgression: the runways built as their colours open, on a
+ *               loop: red alone at the start of a shift (the other
+ *               airport an empty fenced field: no tower, no windsock),
+ *               then blue laid down (a plain strip, its tower and windsock
+ *               growing up with it), then yellow (the X), with the game's
+ *               toast (and, with `sound`, the PA announcement).
  *   - LiveGame: the whole game (sim, input, HUD) in a story, with slow motion
  *               (`showAirspace` draws the airspace edge). Right-click a
  *               plane to follow it, with the "track plane active" badge
@@ -55,9 +67,16 @@
  * WRECK_* / DEBRIS_* / FLASH_* / SCORCH_* / SMOKE_DRIFT and the particle
  * set-ups in crash.ts, FOCUS_EASE_RATE in camera.ts, CRASH_BACKDROP in
  * ui/hud.ts.
+ * Invalid approach: REJECT_POP / REJECT_POP_SCALE / REJECT_HOLD /
+ * REJECT_FADE in rejectMarks.ts, the ring and X (MARK_STROKE, REJECT_X_SPAN)
+ * in meshes.ts, the buzz (`reject`, REJECT_*) in audio/sfx.ts; what counts as a
+ * refused landing in core/path.ts `rejectedLanding`.
  * Landing: FLIGHT_ALTITUDE / OUTER_FLIGHT_ALTITUDE / ALTITUDE_TRANSITION /
  * APPROACH_DISTANCE / THRESHOLD_ALTITUDE / ALTITUDE_SCALE_PER_UNIT and
  * FLARE_DISTANCE in config.ts, MAX_VERTICAL_SPEED in sceneSync.ts.
+ * Runway progression: COLOR_UNLOCK_SCORES in config.ts, `unlockedColors` in
+ * core/progression.ts, RUNWAY_REVEAL_SECONDS and `syncRunways` in
+ * sceneSync.ts, `reveal` in runway.ts / airfield.ts / airportGrounds.ts.
  * Departure: DEPARTURE_* / BACKTRACK_SPEED / LINEUP_* / TAKEOFF_ACCEL /
  * ROTATE_SPEED / CLIMB_ACCEL / CLIMB_DISTANCE in config.ts, the route and
  * procedure (`planDepartureRoute`) in core/departures.ts, DEPARTURE_DOT_* /
@@ -68,6 +87,7 @@
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { GameAudio } from "../../audio/mixer";
 import {
+  COLOR_UNLOCK_SCORES,
   CRASH_OVERLAY_DELAY,
   PATH_MIN_SPACING,
   PLANE_SPEED,
@@ -78,14 +98,15 @@ import {
 } from "../../config";
 import { headingVector, mulberry32 } from "../../core/math";
 import { createDeparture } from "../../core/departures";
-import { anchorPath, appendPathPoint } from "../../core/path";
+import { anchorPath, appendPathPoint, rejectedLanding } from "../../core/path";
 import { resolveOuterTraffic } from "../../core/avoidance";
 import { airspaceBounds, isInAirspace } from "../../core/layout";
 import { createPlane, updatePlane } from "../../core/plane";
 import { startGame, step, togglePause } from "../../core/simulation";
+import { newlyUnlockedColors } from "../../core/progression";
 import { pickSpawn } from "../../core/spawner";
-import { createGameState } from "../../core/state";
-import type { GameState, Plane, RunwayColor, Vec2 } from "../../core/types";
+import { createGameState, setLiveView } from "../../core/state";
+import type { GameState, Plane, Runway, RunwayColor, Vec2 } from "../../core/types";
 import { attachPointerInput } from "../../input/pointer";
 import { createArrivalArrows } from "../../ui/arrivalArrows";
 import { createHud } from "../../ui/hud";
@@ -172,7 +193,9 @@ function stageMarkers(state: GameState): void {
     planes.push(approach);
   }
 
-  // A free path wandering across the field.
+  // A free path wandering across the field, as a hand drags it: points
+  // about a path spacing apart with a slight wobble. The line draws as a
+  // smooth curve through them (render/pathLine.ts).
   const wanderer = createPlane(2, "blue", { x: world.width * 0.15, y: world.height * 0.2 }, 0);
   setPath(
     wanderer,
@@ -180,8 +203,8 @@ function stageMarkers(state: GameState): void {
       wanderer.pos,
       { x: world.width * 0.5, y: world.height * 0.05 },
       { x: world.width * 0.6, y: world.height * 0.4 },
-      20,
-    ),
+      60,
+    ).map((p, i) => ({ x: p.x + 0.3 * Math.sin(i * 2.3), y: p.y + 0.3 * Math.cos(i * 1.7) })),
   );
   planes.push(wanderer);
 
@@ -422,6 +445,118 @@ export const Landing: StoryObj<LandingArgs> = {
 };
 
 // ---------------------------------------------------------------------------
+// Invalid approach (the red "no landing" X)
+// ---------------------------------------------------------------------------
+
+/** The ways a landing can be refused (see core/path.ts `rejectedLanding`). */
+type InvalidCase = "wrongEnd" | "otherRunway" | "closed" | "goAround";
+
+interface InvalidApproachArgs {
+  /**
+   * wrongEnd: path drawn onto the red runway from its far end.
+   * otherRunway: a red plane's path onto the blue runway.
+   * closed: a good path onto the red runway while a departure holds it.
+   * goAround: a good path locks on, then a departure closes the runway
+   * before the plane arrives: it goes around at the threshold.
+   */
+  case: InvalidCase;
+  /** Seconds before the case replays. */
+  replayAfter: number;
+  /** The "denied" buzz (click the canvas once to start sound). */
+  sound: boolean;
+  timeScale: number;
+}
+
+/** Close `runway` to arrivals: a departure cleared onto it, still on the ground. */
+function closeRunway(state: GameState, runway: Runway): void {
+  const stand = runway.airfield.stands[0]!;
+  const departure = createDeparture(state, runway, stand, mulberry32(state.nextPlaneId));
+  departure.departure!.cleared = true;
+}
+
+/**
+ * One red plane with a straight path drawn to a runway threshold, point by
+ * point with an anchor attempt after each, exactly as the pointer input
+ * does, for `kind`. Nothing else flies.
+ *
+ * @returns where the red X goes once the drag ends (as input/pointer.ts
+ *          reports it), or null when the path locked on (goAround: the X
+ *          comes later, with the go-around).
+ */
+function stageInvalid(state: GameState, kind: InvalidCase): Vec2 | null {
+  state.planes = [];
+  state.phase = "playing";
+  state.spawnTimer = -1e9; // no arrivals
+  state.departureTimer = -1e9; // and no scheduled departures
+  const red = state.runways.find((r) => r.color === "red") ?? state.runways[0]!;
+  const target =
+    kind === "otherRunway" ? (state.runways.find((r) => r.color !== "red") ?? red) : red;
+  if (kind === "closed") closeRunway(state, red);
+
+  // Wrong end: from beyond the runway's far end, flying back up it.
+  const dir = headingVector(target.heading);
+  const travel = kind === "wrongEnd" ? { x: -dir.x, y: -dir.y } : dir;
+  const run = kind === "wrongEnd" ? target.length + 30 : 30;
+  const start = { x: target.threshold.x - travel.x * run, y: target.threshold.y - travel.y * run };
+  const plane = createPlane(state.nextPlaneId++, "red", start, Math.atan2(travel.y, travel.x));
+  state.planes.push(plane);
+  for (let d = PATH_MIN_SPACING; d <= run + 3; d += PATH_MIN_SPACING) {
+    appendPathPoint(plane, { x: start.x + travel.x * d, y: start.y + travel.y * d });
+    if (anchorPath(plane, state.runways, state.world, state.planes)) break;
+  }
+  if (kind === "goAround") closeRunway(state, red);
+  return rejectedLanding(plane, state.runways);
+}
+
+export const InvalidApproach: StoryObj<InvalidApproachArgs> = {
+  argTypes: {
+    case: { control: "inline-radio", options: ["wrongEnd", "otherRunway", "closed", "goAround"] },
+    replayAfter: { control: { type: "range", min: 3, max: 20, step: 0.5 } },
+    timeScale: { control: { type: "range", min: 0.1, max: 2, step: 0.05 } },
+  },
+  args: { case: "wrongEnd", replayAfter: 7, sound: true, timeScale: 1 },
+  render: (args) =>
+    mountStage((stage) => {
+      const cam = gameCamera(stage);
+      const state = createGameState(stage.aspect());
+      const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
+      sync.rebuildWorld(state);
+      const audio = storyAudio(stage, args.sound);
+      /** Stage the case and, like main.ts on letting go, flag a refusal. */
+      const replay = () => {
+        const at = stageInvalid(state, args.case);
+        if (at) {
+          sync.showRejectMark(at, state.world);
+          audio?.reject();
+        }
+      };
+      replay();
+
+      let time = 0;
+      let sinceStart = 0;
+      return (dt) => {
+        time += dt;
+        sinceStart += dt;
+        for (const event of step(state, dt)) {
+          audio?.onSimEvent(event, (id) => sync.panFor(id));
+          // As main.ts: the go-around's X on the runway's threshold.
+          if (event.type === "goAround") {
+            const runway = state.runways.find((r) => r.color === event.color);
+            if (runway) sync.showRejectMark(runway.threshold, state.world);
+          }
+        }
+        if (sinceStart >= args.replayAfter) {
+          sinceStart = 0;
+          replay(); // new plane ids: fresh meshes
+        }
+        cam.frame(dt, time);
+        sync.syncPlanes(state, time);
+        playFrame(audio, sync, state);
+      };
+    }, args.timeScale),
+};
+
+// ---------------------------------------------------------------------------
 // Departure (take-off from the field)
 // ---------------------------------------------------------------------------
 
@@ -511,6 +646,85 @@ export const Departure: StoryObj<DepartureArgs> = {
         cam.frame(dt, time);
         sync.syncPlanes(state, time);
         playFrame(sfx, sync, state);
+      };
+    }, args.timeScale),
+};
+
+// ---------------------------------------------------------------------------
+// Runway progression (runways built as their colours open)
+// ---------------------------------------------------------------------------
+
+interface RunwayProgressionArgs {
+  /** Seconds between steps: shift start (red only), blue opens, yellow opens. */
+  hold: number;
+  /** The PA announcing each runway opening (click the canvas once first). */
+  sound: boolean;
+  timeScale: number;
+}
+
+/**
+ * The incremental progression the game plays (`setRunwayProgression`): a
+ * shift starts with the red runway alone, then the score jumps to each
+ * colour's `COLOR_UNLOCK_SCORES` in turn and that runway is laid down
+ * (RUNWAY_REVEAL_SECONDS in sceneSync.ts: the strip unrolls, taxiways and
+ * hangars fade in; the tower and windsock of an airport rise with its
+ * first runway) with the game's toast. Blue opens as a plain strip and
+ * only gets its X once yellow opens. Then a new shift closes them again,
+ * on a loop. The sim doesn't run: no traffic, just the field.
+ */
+export const RunwayProgression: StoryObj<RunwayProgressionArgs> = {
+  argTypes: {
+    hold: { control: { type: "range", min: 1, max: 10, step: 0.5 } },
+    timeScale: { control: { type: "range", min: 0.1, max: 3, step: 0.05 } },
+  },
+  args: { hold: 3.5, sound: false, timeScale: 1 },
+  render: (args) =>
+    mountStage((stage) => {
+      const cam = gameCamera(stage);
+      const state = createGameState(stage.aspect());
+      const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
+      sync.setRunwayProgression(true);
+      sync.rebuildWorld(state);
+      stage.root.insertAdjacentHTML("beforeend", toastMarkup());
+      const toast = stage.root.querySelector<HTMLElement>("#toast")!;
+      let toastLeft = 0;
+      const audio = storyAudio(stage, args.sound);
+
+      // Score at each step: a new shift, then each colour's unlock score.
+      const steps = [0, ...state.runways.map((r) => COLOR_UNLOCK_SCORES[r.color])]
+        .filter((s, i, all) => all.indexOf(s) === i)
+        .sort((a, b) => a - b);
+      let index = 0;
+      const goTo = (i: number) => {
+        const before = state.score;
+        index = i % steps.length;
+        state.score = steps[index]!;
+        for (const color of newlyUnlockedColors(before, state.score, state.runways)) {
+          const event = { type: "unlocked", color } as const;
+          const t = toastFor(event);
+          if (t) {
+            toast.textContent = t.text;
+            toast.style.color = t.color;
+            toast.classList.remove("opacity-0");
+            toastLeft = 2.5;
+          }
+          audio?.onSimEvent(event, () => 0);
+        }
+      };
+
+      let time = 0;
+      let sinceStep = 0;
+      return (dt) => {
+        time += dt;
+        sinceStep += dt;
+        if (sinceStep >= args.hold) {
+          sinceStep = 0;
+          goTo(index + 1);
+        }
+        if ((toastLeft -= dt) <= 0) toast.classList.add("opacity-0");
+        cam.frame(dt, time);
+        sync.syncPlanes(state, time);
+        playFrame(audio, sync, state);
       };
     }, args.timeScale),
 };
@@ -638,6 +852,8 @@ export const LiveGame: StoryObj<LiveArgs> = {
       const cam = gameCamera(stage);
       const state = createGameState(stage.aspect());
       const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
+      // Same as main.ts: red alone at first, the others built as they open.
+      sync.setRunwayProgression(true);
       sync.rebuildWorld(state);
 
       /** Seconds until the game-over panel shows (see main.ts), or null. */
@@ -666,6 +882,11 @@ export const LiveGame: StoryObj<LiveArgs> = {
           onPan: (dx, dy) => cam.controller.dragBy(dx, dy),
           onFollow: (planeId) => follow(planeId),
           onPathDrawn: (_planeId, anchored) => audio?.readback(anchored),
+          // Same as main.ts: a refused landing gets the red X and the buzz.
+          onLandingRejected: (_planeId, at) => {
+            sync.showRejectMark(at, state.world);
+            audio?.reject();
+          },
         },
       );
       const audio = storyAudio(stage, args.sound, true);
@@ -684,7 +905,13 @@ export const LiveGame: StoryObj<LiveArgs> = {
         for (const event of step(state, dt)) {
           audio?.onSimEvent(event, (id) => sync.panFor(id));
           if (event.type === "landed") hud.setScore(state.score);
-          else if (event.type === "crash") {
+          else if (event.type === "goAround") {
+            // Same as main.ts: the X on the threshold, and the toast.
+            const runway = state.runways.find((r) => r.color === event.color);
+            if (runway) sync.showRejectMark(runway.threshold, state.world);
+            const toast = toastFor(event);
+            if (toast) hud.showToast(toast.text, toast.color);
+          } else if (event.type === "crash") {
             const site = sync.crash(event.planeIds);
             if (site) cam.controller.focusOn(site);
             gameOverIn = CRASH_OVERLAY_DELAY;
@@ -703,6 +930,8 @@ export const LiveGame: StoryObj<LiveArgs> = {
           follow(state.planes[0].id);
         }
         cam.frame(dt, time);
+        // Same as main.ts: arrivals start beyond whatever the camera shows.
+        setLiveView(state, cam.controller.groundView(stage.aspect()));
         hud.setTracking(cam.controller.following);
         sync.setHighlighted(pointer.refreshHover());
         sync.syncPlanes(state, time);

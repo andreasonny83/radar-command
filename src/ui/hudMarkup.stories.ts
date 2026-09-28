@@ -6,8 +6,11 @@
  * toast, tracking badge, help panel) are forced visible here.
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
+import { nightFactor } from "../core/daytime";
 import { createArrivalArrows } from "./arrivalArrows";
+import { formatClock } from "./hud";
 import {
+  CLOCK_ICONS,
   arrivalLayerMarkup,
   cameraControlsMarkup,
   helpButtonMarkup,
@@ -43,12 +46,18 @@ export default meta;
 
 type Story = StoryObj;
 
-export const ScorePanel: StoryObj<{ score: number }> = {
-  args: { score: 42 },
-  argTypes: { score: { control: { type: "number", min: 0, step: 1 } } },
-  render: ({ score }) => {
+export const ScorePanel: StoryObj<{ score: number; hours: number }> = {
+  args: { score: 42, hours: 8 },
+  argTypes: {
+    score: { control: { type: "number", min: 0, step: 1 } },
+    hours: { control: { type: "range", min: 0, max: 23.99, step: 0.25 } },
+  },
+  render: ({ score, hours }) => {
     const root = stage(scorePanelMarkup());
     part(root, "scoreDisplay").textContent = String(score);
+    part(root, "clockTime").textContent = formatClock(hours);
+    part(root, "clockIcon").innerHTML =
+      nightFactor(hours) >= 0.5 ? CLOCK_ICONS.moon : CLOCK_ICONS.sun;
     return root;
   },
 };

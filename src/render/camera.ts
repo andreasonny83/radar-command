@@ -41,7 +41,7 @@ import {
 } from "../config";
 import { panFraction, safeViewAspect, viewHalfHeight } from "../core/layout";
 import { angleDelta, normalizeAngle } from "../core/math";
-import type { GameState, Vec2, WorldSize } from "../core/types";
+import type { GameState, OrientedRect, Vec2, WorldSize } from "../core/types";
 import { toScene } from "./coords";
 
 /** Distance from target; with ortho it only needs to clear the scene. */
@@ -141,6 +141,31 @@ export class CameraController {
   /** True while the camera is following a subject (see `follow`). */
   get following(): boolean {
     return this.followTarget !== null;
+  }
+
+  /**
+   * The ground the screen shows (sim coordinates): a rectangle turned with
+   * the view, `length` across the screen and `width` up it (ground depth,
+   * stretched by the tilt). Sized at the wider of the current and target
+   * zoom, so a zoom-out still easing in counts in full. For the spawner
+   * (`GameState.liveView`): arrivals start outside it, so none pops up on
+   * screen.
+   */
+  groundView(aspect: number): OrientedRect {
+    const safeAspect = safeViewAspect(aspect);
+    const halfH = viewHalfHeight(this.world, safeAspect) / Math.min(this.zoom, this.targetZoom);
+    const target = this.camera.target;
+    // Screen right (unit length) and the half-height up the screen, as
+    // ground offsets (scene XZ).
+    const right = this.screenToGround(1, 0);
+    const up = this.screenToGround(0, halfH);
+    // Scene XZ → sim flips z (see coords.ts `fromScene`).
+    return {
+      center: { x: target.x + this.world.width / 2, y: this.world.height / 2 - target.z },
+      heading: Math.atan2(-right.z, right.x),
+      length: 2 * halfH * safeAspect,
+      width: 2 * Math.hypot(up.x, up.z),
+    };
   }
 
   /**

@@ -8,7 +8,8 @@
  *   - paint:    yellow taxi centrelines and stand lead-in lines (the lines
  *     planes follow), hold-short bars, and a stop bar in the runway colour
  *     at each stand;
- *   - lights:   small blue taxiway edge lights;
+ *   - lights:   small blue taxiway edge lights (glowing after dark), and
+ *               warm floodlight pools on the stands at night;
  *   - hangars:  arched-roof hangars with a roof stripe in the runway colour
  *     and an open doorway: planes roll straight in.
  *
@@ -19,19 +20,23 @@
 import type { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder";
+import { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import { CreateRibbon } from "@babylonjs/core/Meshes/Builders/ribbonBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+import "@babylonjs/core/Meshes/thinInstanceMesh"; // side effect: mesh.thinInstance* API
 import type { Scene } from "@babylonjs/core/scene";
 import { STAND_TURN_RADIUS, TAXI_TURN_RADIUS, TAXIWAY_OFFSET, TAXIWAY_WIDTH } from "../config";
 import { headingVector, lerp } from "../core/math";
 import { filletPath } from "../core/route";
 import type { OrientedRect, Runway, RunwayColor, Stand, Vec2, WorldSize } from "../core/types";
 import { headingToRotationY, toScene } from "./coords";
+import { SceneGlow } from "./glow";
+import { createPoolMesh, litNow, poolMaterial, setNightLevel } from "./nightLights";
 
 // Layer heights (scene y). Pavement sits over the grass (0) and stream
 // (≤ 0.05) but under the runway shoulder (0.06) and asphalt (0.08), so
@@ -40,6 +45,12 @@ const PAVE_Y = 0.055;
 const APRON_Y = 0.05;
 const PAINT_Y = 0.068;
 const LIGHT_Y = 0.12;
+
+/** Floodlight pools on the stands at night: height (above the paint) and radius. */
+const FLOOD_Y = PAINT_Y + 0.01;
+const FLOOD_RADIUS = 2.4;
+/** How bright a floodlight pool gets at full night (its material alpha). */
+const FLOOD_STRENGTH = 0.65;
 
 /** Taxi line width (world units). */
 const LINE_WIDTH = 0.16;
@@ -69,6 +80,18 @@ interface Sample {
 export class AirfieldView {
   constructor(private readonly meshes: TransformNode[]) {}
 
+  /**
+   * Fade a newly opened runway's taxiways and hangars in, 0 (invisible) to
+   * 1 (solid). Only while revealing: below 1 the meshes are alpha-blended.
+   */
+  reveal(k: number): void {
+    const visibility = Math.max(0, Math.min(1, k));
+    for (const node of this.meshes) {
+      if (node instanceof AbstractMesh) node.visibility = visibility;
+      for (const mesh of node.getChildMeshes()) mesh.visibility = visibility;
+    }
+  }
+
   dispose(): void {
     for (const node of this.meshes) node.dispose();
   }
@@ -82,6 +105,8 @@ export class AirfieldFactory {
   private readonly wall: StandardMaterial;
   private readonly roof: StandardMaterial;
   private readonly floor: StandardMaterial;
+  /** Warm apron floodlight pools (render/nightLights.ts), lit at night. */
+  private readonly flood: StandardMaterial;
 
   constructor(
     private readonly scene: Scene,
@@ -100,10 +125,16 @@ export class AirfieldFactory {
     this.roof = matte("hangarRoof", "#9ea8b3", scene);
     this.roof.specularColor = new Color3(0.25, 0.25, 0.25); // a bit of metal sheen
     this.floor = matte("hangarFloor", "#23272d", scene);
+    this.flood = poolMaterial("standFlood", "#ffe2a8", scene);
     // Ribbons and flat strips are built without caring about winding.
     for (const mat of [this.pavement, this.apron, this.taxiPaint, this.roof, this.wall]) {
       mat.backFaceCulling = false;
     }
+  }
+
+  /** 0 day … 1 night: the stand floodlights fade in. */
+  setNight(n: number): void {
+    setNightLevel(this.flood, n * FLOOD_STRENGTH);
   }
 
   create(runway: Runway, world: WorldSize): AirfieldView {
@@ -178,7 +209,10 @@ export class AirfieldFactory {
     // Blue edge lights along both sides of the taxi route, off the runway.
     for (const line of [taxiLine, connectorLine]) {
       const lights = this.edgeLights(line, runway, world);
-      if (lights) nodes.push(lights);
+      if (lights) {
+        SceneGlow.for(this.scene).add(lights, true);
+        nodes.push(lights);
+      }
     }
 
     for (const node of nodes) {
@@ -187,6 +221,24 @@ export class AirfieldFactory {
         node.receiveShadows = true;
       }
     }
+
+    // Apron floodlights: a pool of light on each stand after dark.
+    const pools = createPoolMesh("standFlood", this.scene);
+    pools.material = this.flood;
+    const m = new Matrix();
+    const scale = new Vector3(FLOOD_RADIUS, 1, FLOOD_RADIUS);
+    const at = new Vector3();
+    const matrices = new Float32Array(airfield.stands.length * 16);
+    airfield.stands.forEach((stand, i) => {
+      toScene(stand.pos, world, FLOOD_Y, at);
+      Matrix.ComposeToRef(scale, Quaternion.Identity(), at, m);
+      m.copyToArray(matrices, i * 16);
+    });
+    pools.thinInstanceSetBuffer("matrix", matrices, 16, true);
+    pools.thinInstanceRefreshBoundingInfo(false);
+    // Built at night (a runway opening after dark): lit straight away.
+    pools.isVisible = litNow(this.flood);
+    nodes.push(pools);
 
     for (const stand of airfield.stands) nodes.push(this.hangar(stand, runway.color, world));
     return new AirfieldView(nodes);

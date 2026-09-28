@@ -1,5 +1,6 @@
 /**
- * Low-poly daytime landscape: faceted grass, the airports' grounds (fences,
+ * Low-poly landscape (lit for the time of day by render/dayCycle.ts; night
+ * lights via `setNight`): faceted grass, the airports' grounds (fences,
  * towers, terminals; see airportGrounds.ts), a stream with sandy banks and
  * the odd boat sailing along it, and thin-instanced trees.
  *
@@ -35,7 +36,7 @@ import {
   type Tree,
   type TreeKind,
 } from "../core/scenery";
-import type { Runway, Vec2, WorldSize } from "../core/types";
+import type { Runway, RunwayColor, Vec2, WorldSize } from "../core/types";
 import { AirportGroundsFactory, type AirportView } from "./airportGrounds";
 import { BoatFleet } from "./boats";
 import { DrawbridgeFactory, type DrawbridgeView } from "./bridges";
@@ -74,6 +75,8 @@ const WATER_Y = 0.04;
 
 /** Base water glow; `update` pulses it for a gentle shimmer. */
 const WATER_EMISSIVE = new Color3(0.05, 0.14, 0.22);
+/** Water glow at full night: darker, a moonlit blue. */
+const WATER_NIGHT = new Color3(0.02, 0.05, 0.1);
 
 export class Landscape {
   /** Everything built by `setWorld`, disposed on the next rebuild. */
@@ -100,6 +103,9 @@ export class Landscape {
   private readonly fleet: BoatFleet;
   /** `time` of the previous `update`, to step the boats by the difference. */
   private lastTime: number | null = null;
+  /** 0 day … 1 night (see `setNight`), and the water glow before its shimmer. */
+  private night = 0;
+  private readonly waterBase = new Color3();
 
   private readonly grassMat: StandardMaterial;
   private readonly bankMat: StandardMaterial;
@@ -165,6 +171,25 @@ export class Landscape {
   }
 
   /**
+   * Raise each airport's control tower and windsock as far as its most
+   * built runway (see `AirportView.reveal`): `built(color)` is 0 for a
+   * closed colour, 1 for an open one, in between while it's being laid.
+   */
+  revealAirports(built: (color: RunwayColor) => number): void {
+    for (const airport of this.airports) airport.reveal(Math.max(0, ...airport.colors.map(built)));
+  }
+
+  /** 0 day … 1 night (SceneSync.setNight): passed on to the scenery. */
+  setNight(n: number): void {
+    this.night = n;
+    this.airportFactory.setNight(n);
+    this.countrysideFactory.setNight(n);
+    this.countryside?.setNight(n);
+    this.carFleet.setNight(n);
+    this.fleet.setNight(n);
+  }
+
+  /**
    * Per-frame animation (water shimmer, boats, cars, drawbridges, windsocks). `time` is
    * in seconds and stands still while the game is paused, so everything
    * stops too.
@@ -172,7 +197,8 @@ export class Landscape {
   update(time: number): void {
     for (const airport of this.airports) airport.update(time);
     const pulse = 1 + 0.35 * Math.sin(time * 1.3) * Math.sin(time * 0.7 + 1);
-    WATER_EMISSIVE.scaleToRef(pulse, this.waterMat.emissiveColor);
+    Color3.LerpToRef(WATER_EMISSIVE, WATER_NIGHT, this.night, this.waterBase);
+    this.waterBase.scaleToRef(pulse, this.waterMat.emissiveColor);
 
     // Clamped like the sim's dt, so a long frame can't teleport a boat.
     const dt = this.lastTime === null ? 0 : Math.min(0.1, Math.max(0, time - this.lastTime));

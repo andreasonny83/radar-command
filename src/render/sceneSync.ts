@@ -8,10 +8,12 @@ import type { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGener
 import { Material } from "@babylonjs/core/Materials/material";
 import { Axis } from "@babylonjs/core/Maths/math.axis";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { AudioCue } from "../audio/cues";
 import { CreateGreasedLine } from "@babylonjs/core/Meshes/Builders/greasedLineBuilder";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
+import "@babylonjs/core/Meshes/thinInstanceMesh"; // side effect: mesh.thinInstance* API
+import type { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import type { Scene } from "@babylonjs/core/scene";
 import {
   ALTITUDE_SCALE_PER_UNIT,
@@ -29,8 +31,18 @@ import {
   THRESHOLD_ALTITUDE,
 } from "../config";
 import { cruiseAltitude } from "../core/layout";
+import { unlockedColors } from "../core/progression";
 import { angleDelta, distance, lerp, normalizeAngle } from "../core/math";
-import type { GameState, Plane, PlaneColor, WorldSize } from "../core/types";
+import type {
+  GameState,
+  Plane,
+  PlaneColor,
+  PlanePhase,
+  Runway,
+  RunwayColor,
+  Vec2,
+  WorldSize,
+} from "../core/types";
 import {
   aircraftKindFor,
   animateAircraft,
@@ -45,8 +57,11 @@ import { flightTuning } from "./flightTuning";
 import { headingToRotationY, toScene } from "./coords";
 import { Landscape } from "./landscape";
 import type { MeshFactory } from "./meshes";
+import { smoothTrack } from "./pathLine";
+import { RejectMarks } from "./rejectMarks";
 import { RunwayFactory, type RunwayView } from "./runway";
 import { fitShadowsToWorld, OVERLAY_GROUP } from "./scene";
+import { createPoolMesh, poolMaterial, setNightLevel } from "./nightLights";
 import { windEffect } from "./wind";
 
 /**
@@ -60,8 +75,13 @@ const PATH_ALTITUDE = 0.15;
  * ~6 px at the default 720p view; thinner lines vanish against the grass.
  */
 const PATH_WIDTH = 0.5;
-/** Path line opacity: solid enough to read, still showing the ground below. */
-const PATH_ALPHA = 0.85;
+/**
+ * Path line opacity: a light wash of the plane's colour, enough to follow
+ * the route without hiding the runways, traffic and scenery under it.
+ */
+const PATH_ALPHA = 0.45;
+/** Departure routes (dotted) are the game's, not the player's: fainter still. */
+const DEPARTURE_PATH_ALPHA = 0.35;
 /**
  * Departures (core/departures.ts) draw their planned route as a dotted
  * line: one dot every `DEPARTURE_DOT_SPACING` world units, each dot
@@ -101,6 +121,14 @@ const ANCHOR_RING_ALTITUDE = 0.2;
  */
 export const ANCHOR_RING_HOLD = 2;
 export const ANCHOR_RING_FADE = 0.8;
+/**
+ * A runway colour opening mid-shift (see `setRunwayProgression`) is laid
+ * down over `RUNWAY_REVEAL_SECONDS`: the strip unrolls from its approach
+ * end, eased out, while its taxiways and hangars fade in over the second
+ * half. An airport's control tower and windsock grow up with its first
+ * runway. A new shift (or a resize) just shows what's open, no animation.
+ */
+export const RUNWAY_REVEAL_SECONDS = 1.6;
 /**
  * Hover highlight (a plane under the mouse, or held by a pointer; see
  * input/pointer.ts `refreshHover`). It eases in and out over roughly
@@ -147,6 +175,28 @@ const WHOOSH_GAP = 2.5;
  * an anchored path is redrawn low over the field.
  */
 const MAX_VERTICAL_SPEED = 4;
+
+/**
+ * Landing lights at night: a pool of light on the ground ahead of each
+ * plane below `BEAM_ALTITUDE` (on approach, on the ground, taking off).
+ * It shrinks and fades as the plane climbs out of range.
+ */
+const BEAM_ALTITUDE = 6;
+/** Pool height: over the runway paint (0.09), under a rolling plane (0.35). */
+const BEAM_Y = 0.1;
+const BEAM_LENGTH = 2.6;
+const BEAM_WIDTH = 1.2;
+const BEAM_STRENGTH = 0.6;
+/** Phases whose landing lights are on (not parked in a hangar or gone). */
+const BEAM_PHASES = new Set<PlanePhase>([
+  "flying",
+  "landing",
+  "taxiing",
+  "departing",
+  "outbound",
+  "takeoff",
+  "climbout",
+]);
 
 /**
  * Height `plane` should be flying at now: its cruise altitude over the
@@ -280,6 +330,15 @@ export class SceneSync {
   private readonly views = new Map<number, PlaneView>();
   private runwayViews: RunwayView[] = [];
   private airfieldViews: AirfieldView[] = [];
+  /**
+   * Hide runways whose colour isn't open yet (see `setRunwayProgression`).
+   * Off by default, so stories show the whole field.
+   */
+  private runwayProgression = false;
+  /** Colours drawn right now, in `state.runways` order (e.g. "red,blue"). */
+  private shownKey = "";
+  /** Runway colours still being revealed, and the sync `time` each began. */
+  private readonly reveals = new Map<RunwayColor, number>();
   private readonly landscape: Landscape;
   private readonly runwayFactory: RunwayFactory;
   private readonly airfieldFactory: AirfieldFactory;
@@ -298,7 +357,19 @@ export class SceneSync {
   private highlighted: ReadonlySet<number> = new Set();
   /** Sound cues raised since the last `takeAudioCues` (see audio/cues.ts). */
   private cues: AudioCue[] = [];
+  /** Red "no landing" X marks (see `showRejectMark`). */
+  private readonly rejectMarks: RejectMarks;
   private readonly scratch = new Vector3();
+  /** 0 day … 1 night (see `setNight`). */
+  private night = 0;
+  /** Landing-light pools, one thin instance per plane in range (night only). */
+  private readonly beams: Mesh;
+  private readonly beamMat: StandardMaterial;
+  private beamMatrices = new Float32Array(16 * 8);
+  private readonly beamM = new Matrix();
+  private readonly beamRot = new Quaternion();
+  private readonly beamScale = new Vector3();
+  private readonly beamPos = new Vector3();
 
   constructor(
     private readonly scene: Scene,
@@ -311,6 +382,23 @@ export class SceneSync {
     // Players never see the airspace edge; it's drawn for tuning only.
     this.boundary = new AirspaceBoundary(scene);
     this.boundary.setVisible(DEBUG_SHOW_AIRSPACE);
+    this.rejectMarks = new RejectMarks(factory);
+    this.beamMat = poolMaterial("landingLights", "#fff6e0", scene);
+    this.beams = createPoolMesh("landingLights", scene);
+    this.beams.material = this.beamMat;
+    this.beams.alwaysSelectAsActiveMesh = true;
+    this.beams.isVisible = false;
+    this.beams.thinInstanceSetBuffer("matrix", this.beamMatrices, 16, false);
+    this.beams.thinInstanceCount = 0;
+  }
+
+  /**
+   * Flash the red "no landing" X at `at` (sim coordinates): where a path
+   * ends on a runway without locking on, or a threshold where a plane had
+   * to go around (see render/rejectMarks.ts). Animated by `syncPlanes`.
+   */
+  showRejectMark(at: Vec2, world: WorldSize): void {
+    this.rejectMarks.show(at, world);
   }
 
   /**
@@ -327,6 +415,58 @@ export class SceneSync {
    */
   setHighlighted(ids: ReadonlySet<number>): void {
     this.highlighted = ids;
+  }
+
+  /**
+   * How dark it is, 0 day … 1 night (render/dayCycle.ts): passed on to
+   * everything with night lights. Cheap to call every frame: nothing
+   * happens unless it changed.
+   */
+  setNight(n: number): void {
+    if (n === this.night) return;
+    this.night = n;
+    this.factory.setNight(n);
+    this.landscape.setNight(n);
+    this.airfieldFactory.setNight(n);
+    setNightLevel(this.beamMat, n * BEAM_STRENGTH);
+  }
+
+  /**
+   * Night only: a landing-light pool on the ground ahead of every plane
+   * low enough to light it. New planes need nothing special: each frame
+   * rewrites the whole set.
+   */
+  private syncBeams(state: GameState): void {
+    if (this.night <= 0) return;
+    if (this.beamMatrices.length < state.planes.length * 16) {
+      this.beamMatrices = new Float32Array(state.planes.length * 32);
+      this.beams.thinInstanceSetBuffer("matrix", this.beamMatrices, 16, false);
+    }
+    let count = 0;
+    for (const plane of state.planes) {
+      const view = this.views.get(plane.id);
+      if (!view || this.wreckIds.has(plane.id) || !BEAM_PHASES.has(plane.phase)) continue;
+      const height = view.aircraft.root.position.y;
+      if (height >= BEAM_ALTITUDE) continue;
+      const fade = 1 - height / BEAM_ALTITUDE;
+      const ahead = 1.6 + height * 0.6;
+      toScene(
+        {
+          x: plane.pos.x + Math.cos(plane.heading) * ahead,
+          y: plane.pos.y + Math.sin(plane.heading) * ahead,
+        },
+        state.world,
+        BEAM_Y,
+        this.beamPos,
+      );
+      Quaternion.RotationYawPitchRollToRef(headingToRotationY(plane.heading), 0, 0, this.beamRot);
+      this.beamScale.set(BEAM_LENGTH * fade, 1, BEAM_WIDTH * fade);
+      Matrix.ComposeToRef(this.beamScale, this.beamRot, this.beamPos, this.beamM);
+      this.beamM.copyToArray(this.beamMatrices, count * 16);
+      count++;
+    }
+    this.beams.thinInstanceCount = count;
+    this.beams.thinInstanceBufferUpdated("matrix");
   }
 
   /**
@@ -350,25 +490,94 @@ export class SceneSync {
     return this.views.get(planeId)?.pan ?? 0;
   }
 
+  /**
+   * Incremental progression: draw only the runways whose colour is open at
+   * the current score (core/progression.ts `unlockedColors`). A shift
+   * starts with red alone; each colour that opens is laid down in front of
+   * the player (see `RUNWAY_REVEAL_SECONDS`), and a new shift closes them
+   * again. Off, every runway is drawn (stories). Applied on the next
+   * `rebuildWorld` or `syncPlanes`.
+   */
+  setRunwayProgression(on: boolean): void {
+    this.runwayProgression = on;
+  }
+
   /** Build static geometry (landscape, runways, taxiways, hangars) for the world. */
   rebuildWorld(state: GameState): void {
     fitShadowsToWorld(this.shadows, state.world);
+    // Airport grounds (fence, terminal) stay for every runway, open or not:
+    // the airport is there, its runway just isn't built yet. Its tower and
+    // windsock wait for the first runway (see `syncRunways`).
     this.landscape.setWorld(state.world, state.runways);
-    for (const view of this.runwayViews) view.dispose();
-    this.runwayViews = state.runways.map((r) =>
-      this.runwayFactory.create(r, state.world, state.runways),
-    );
-    for (const view of this.airfieldViews) view.dispose();
-    this.airfieldViews = state.runways.map((r) => this.airfieldFactory.create(r, state.world));
+    this.reveals.clear();
+    this.buildRunways(this.shownRunways(state), state);
     this.boundary.setWorld(state.world);
     // Path lines were built with the old world→scene mapping; force a rebuild.
     for (const view of this.views.values()) view.pathVersion = -1;
+  }
+
+  /** The runways to draw now: every one, or only the open colours. */
+  private shownRunways(state: GameState): Runway[] {
+    if (!this.runwayProgression) return [...state.runways];
+    const open = new Set(unlockedColors(state.score, state.runways));
+    return state.runways.filter((r) => open.has(r.color));
+  }
+
+  /**
+   * (Re)build the runway and airfield meshes for `shown`. Crossing runways
+   * cut their markings round each other, so the whole set is rebuilt: blue
+   * alone is a plain strip, and gets its X only once yellow opens.
+   */
+  private buildRunways(shown: readonly Runway[], state: GameState): void {
+    for (const view of this.runwayViews) view.dispose();
+    for (const view of this.airfieldViews) view.dispose();
+    this.runwayViews = shown.map((r) => this.runwayFactory.create(r, state.world, shown));
+    this.airfieldViews = shown.map((r) => this.airfieldFactory.create(r, state.world));
+    this.shownKey = shown.map((r) => r.color).join();
+  }
+
+  /**
+   * Follow the runway progression: rebuild when the open colours change
+   * (a colour opened, or a new shift closed them), start the reveal of any
+   * colour that just opened, and advance the reveals under way.
+   */
+  private syncRunways(state: GameState, time: number): void {
+    const shown = this.shownRunways(state);
+    const key = shown.map((r) => r.color).join();
+    if (key !== this.shownKey) {
+      const before = new Set(this.shownKey.split(","));
+      this.buildRunways(shown, state);
+      for (const color of this.reveals.keys()) {
+        if (!shown.some((r) => r.color === color)) this.reveals.delete(color);
+      }
+      for (const r of shown) if (!before.has(r.color)) this.reveals.set(r.color, time);
+    }
+    // How far each colour's runway is built: 0 closed, 1 open.
+    const built = new Map<RunwayColor, number>();
+    shown.forEach((r, i) => {
+      const start = this.reveals.get(r.color);
+      if (start === undefined) {
+        built.set(r.color, 1);
+        return;
+      }
+      const t = Math.min(1, Math.max(0, (time - start) / RUNWAY_REVEAL_SECONDS));
+      // Strip: ease-out cubic over the whole reveal. Airfield: second half.
+      const strip = 1 - (1 - t) ** 3;
+      built.set(r.color, strip);
+      this.runwayViews[i]?.reveal(strip);
+      this.airfieldViews[i]?.reveal(Math.max(0, t * 2 - 1));
+      if (t >= 1) this.reveals.delete(r.color);
+    });
+    // An airport with no runway open yet has no tower or windsock either:
+    // they go up with its first runway.
+    this.landscape.revealAirports((color) => built.get(color) ?? 0);
   }
 
   /** Create/update/dispose plane meshes to match `state.planes`. */
   syncPlanes(state: GameState, time: number): void {
     this.cues = [];
     this.landscape.update(time);
+    this.syncRunways(state, time);
     for (const runway of this.runwayViews) runway.update(time);
     this.scene.activeCamera?.getDirectionToRef(Axis.Z, this.viewDir);
     // `time` stands still while paused, so the easing freezes along with it.
@@ -421,7 +630,9 @@ export class SceneSync {
       this.updateView(view, plane, state.world, time, dt);
     }
 
+    this.syncBeams(state);
     this.crashEffect?.update(dt);
+    this.rejectMarks.update(dt);
 
     for (const [id, view] of this.views) {
       if (alive.has(id)) continue;
@@ -737,7 +948,10 @@ export class SceneSync {
     if (plane.path.length === 0 || !hasPathLine(plane)) return;
 
     const dotted = plane.departure !== null;
-    const track = dotted ? plane.path : [plane.pos, ...plane.path];
+    // The player's path is drawn as a smooth curve through its points (see
+    // render/pathLine.ts). A departure's route is left as is: it's already
+    // smooth, and its dots must stay in step with the route points.
+    const track = dotted ? plane.path : smoothTrack([plane.pos, ...plane.path]);
     const points = track.map((p) => toScene(p, world, PATH_ALTITUDE));
     let length = 0;
     for (let i = 1; i < track.length; i++) length += distance(track[i - 1]!, track[i]!);
@@ -753,7 +967,7 @@ export class SceneSync {
       },
       this.scene,
     );
-    line.material!.alpha = PATH_ALPHA;
+    line.material!.alpha = dotted ? DEPARTURE_PATH_ALPHA : PATH_ALPHA;
     line.material!.transparencyMode = Material.MATERIAL_ALPHABLEND;
 
     line.isPickable = false;

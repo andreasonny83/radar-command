@@ -6,9 +6,9 @@
  *     main runway (the classic look of an airfield from the air), and a
  *     see-through chain-link fence on posts along the perimeter;
  *   - control tower: concrete shaft, glass cab, antenna with a blinking red
- *     obstruction light;
+ *     obstruction light; the cab is lit from inside at night;
  *   - terminal: glass-fronted low building with a roof deck, and its car
- *     park with painted bays and parked cars;
+ *     park with painted bays and parked cars; lit from inside at night;
  *   - windsock: striped sock on a pole, streaming downwind (towards the
  *     approach end: planes land into the wind) and swaying gently.
  *
@@ -32,8 +32,9 @@ import { CAR_BAY_DEPTH, CAR_BAY_WIDTH } from "../config";
 import type { Airport, Landside } from "../core/airports";
 import { clipHalfPlane } from "../core/geometry";
 import { headingVector } from "../core/math";
-import type { OrientedRect, Vec2, WorldSize } from "../core/types";
+import type { OrientedRect, RunwayColor, Vec2, WorldSize } from "../core/types";
 import { headingToRotationY, toScene } from "./coords";
+import { SceneGlow } from "./glow";
 
 // Layer heights (scene y): mown grass just over the grass (0), under the
 // stream bank (0.02) and all the paving (0.05+).
@@ -63,8 +64,15 @@ const TOWER_CAB_H = 1.25;
 /** Seconds per blink of the tower's red obstruction light. */
 const BEACON_PERIOD = 1.6;
 
+/** Tower cab and terminal glass: cool by day, warm lit interiors at night. */
+const GLASS_DAY = new Color3(0.04, 0.1, 0.16);
+const GLASS_NIGHT = new Color3(0.62, 0.46, 0.22);
+
 /** Everything built for one airport; `update` animates the windsock and beacon. */
 export class AirportView {
+  /** Last `reveal` value, so repeated calls with the same one cost nothing. */
+  private revealed = 1;
+
   constructor(
     private readonly nodes: TransformNode[],
     private readonly sock: TransformNode,
@@ -72,7 +80,27 @@ export class AirportView {
     /** Downwind heading the sock streams towards (scene rotation). */
     private readonly downwind: number,
     private readonly phase: number,
+    /** Colours of this airport's runways (see `reveal`). */
+    readonly colors: readonly RunwayColor[],
+    /** Tower and windsock roots: the parts `reveal` raises. */
+    private readonly staffed: readonly TransformNode[],
   ) {}
+
+  /**
+   * Raise the control tower and windsock as the airport's first runway is
+   * built (see `SceneSync`'s runway progression): 0 = not there (disabled,
+   * so no shadow either), 1 = standing. They grow up from the ground.
+   */
+  reveal(k: number): void {
+    const v = Math.max(0, Math.min(1, k));
+    if (v === this.revealed) return;
+    this.revealed = v;
+    for (const root of this.staffed) {
+      root.setEnabled(v > 0);
+      // A zero scale would make the world matrix singular.
+      root.scaling.y = Math.max(0.001, v);
+    }
+  }
 
   /** `time` in seconds (stands still while paused). */
   update(time: number): void {
@@ -120,7 +148,7 @@ export class AirportGroundsFactory {
     this.glass.diffuseColor = Color3.FromHexString("#2d5575");
     this.glass.specularColor = new Color3(0.7, 0.8, 0.9);
     this.glass.specularPower = 64;
-    this.glass.emissiveColor = new Color3(0.04, 0.1, 0.16);
+    this.glass.emissiveColor = GLASS_DAY.clone();
     this.roofDeck = matte("roofDeck", "#b4bcc5", scene);
     this.plant = matte("roofPlant", "#6b7480", scene);
     this.asphalt = matte("carParkAsphalt", "#4c5259", scene);
@@ -132,6 +160,11 @@ export class AirportGroundsFactory {
     this.beaconMat = new StandardMaterial("towerBeacon", scene);
     this.beaconMat.disableLighting = true;
     this.beaconMat.emissiveColor = Color3.FromHexString("#ff2a2a");
+  }
+
+  /** 0 day … 1 night: the tower cab and terminal light up from inside. */
+  setNight(n: number): void {
+    Color3.LerpToRef(GLASS_DAY, GLASS_NIGHT, n, this.glass.emissiveColor);
   }
 
   create(airport: Airport, world: WorldSize, index: number): AirportView {
@@ -171,6 +204,8 @@ export class AirportGroundsFactory {
       beacon,
       headingToRotationY(Math.atan2(wy, wx)),
       index * 1.7,
+      airport.runways.map((r) => r.color),
+      [towerRoot, sockRoot],
     );
   }
 
@@ -312,6 +347,8 @@ export class AirportGroundsFactory {
       roofY + 0.3 + 1.55,
       false,
     );
+    // The obstruction light blooms after dark (render/glow.ts).
+    SceneGlow.for(this.scene).add(beacon, true);
     return { root, beacon };
   }
 

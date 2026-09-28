@@ -11,7 +11,8 @@ import {
   PATH_MIN_SPACING,
   PLANE_SPEED,
 } from "../config";
-import { angleDelta, clamp, distance } from "./math";
+import { isRunwayClosed } from "./departures";
+import { angleDelta, clamp, distance, headingVector } from "./math";
 import { updatePlane } from "./plane";
 import { mapBounds } from "./scenery";
 import type { Plane, Runway, Vec2, WorldSize } from "./types";
@@ -94,16 +95,23 @@ export function clampPathPoint(point: Vec2, world: WorldSize): Vec2 {
  * miss a leg that looks fine on paper. Either way a rejected path simply
  * doesn't anchor: the player can keep dragging and come round again.
  *
+ * A runway a departure has closed (see `isRunwayClosed`; pass the traffic
+ * as `planes`) never anchors either: landing there is forbidden for now.
+ * The path stays as drawn, and letting go on the runway shows the red X
+ * (see `rejectedLanding`).
+ *
  * @returns the runway anchored to, or null.
  */
 export function anchorPath(
   plane: Plane,
   runways: readonly Runway[],
   world: WorldSize,
+  planes: readonly Plane[] = [],
 ): Runway | null {
   if (plane.pathAnchored || plane.path.length === 0) return null;
   const runway = runways.find((r) => r.color === plane.color);
   if (!runway) return null;
+  if (isRunwayClosed(runway, planes)) return null;
 
   const end = plane.path[plane.path.length - 1]!;
   if (distance(end, runway.threshold) > ANCHOR_RADIUS) return null;
@@ -128,6 +136,41 @@ export function anchorPath(
   plane.pathAnchored = true;
   plane.pathVersion++;
   return runway;
+}
+
+/**
+ * The path the player just let go of ends on a runway but didn't anchor:
+ * the landing it aims for won't happen. Then the renderer shows a red X
+ * where it ends, instead of the green ring (see `onLandingRejected` in
+ * input/pointer.ts).
+ *
+ * "On a runway" is any runway's strip, or within `ANCHOR_RADIUS` of any
+ * threshold (the area where a good path would have anchored). Every reason
+ * it didn't anchor counts: the wrong end or side-on, a turn too tight to
+ * fly, another colour's runway, or a runway a departure has closed. A path
+ * ending anywhere else is just a route, and gets no X.
+ *
+ * @returns the path's end point, where the X goes; null if the path
+ *          anchored, is empty, or doesn't end on a runway.
+ */
+export function rejectedLanding(plane: Plane, runways: readonly Runway[]): Vec2 | null {
+  if (plane.pathAnchored) return null;
+  const end = plane.path[plane.path.length - 1];
+  if (!end) return null;
+  const onRunway = runways.some(
+    (r) => distance(end, r.threshold) <= ANCHOR_RADIUS || isOnStrip(end, r),
+  );
+  return onRunway ? { ...end } : null;
+}
+
+/** True if `p` lies on `runway`'s strip (its length × width rectangle). */
+function isOnStrip(p: Vec2, runway: Runway): boolean {
+  const d = headingVector(runway.heading);
+  const dx = p.x - runway.center.x;
+  const dy = p.y - runway.center.y;
+  const along = dx * d.x + dy * d.y;
+  const across = -dx * d.y + dy * d.x;
+  return Math.abs(along) <= runway.length / 2 && Math.abs(across) <= runway.width / 2;
 }
 
 /**

@@ -138,7 +138,21 @@ const LEVELS = {
   whoosh: 0.18,
   readback: 0.07,
   squelch: 0.03,
+  // Square waves carry more energy than the readback's sines at the same
+  // peak, so a lower level lands the "denied" buzz beside it (~-34 dBFS).
+  reject: 0.045,
 };
+
+/**
+ * The "landing rejected" buzz (see `Sfx.reject`): two falling notes, a
+ * fourth apart (E♭4 → B♭3), low and square like a game's "denied", clearly
+ * apart from the readback's rising two-tone.
+ */
+const REJECT_NOTES = [311.1, 233.1];
+/** Seconds each note of the reject buzz lasts, back to back. */
+const REJECT_NOTE = 0.13;
+/** Low-pass over the buzz (Hz): keeps the square's edge without the fizz. */
+const REJECT_TONE = 1800;
 
 /**
  * The audio nodes of one departure's engines: its type's idle and
@@ -262,6 +276,24 @@ export class Sfx {
       this.beep(this.out, freq, t + 0.08 + i * 0.12, 0.08, LEVELS.readback),
     );
     this.squelchBurst(this.out, t + 0.08 + tones.length * 0.12, 0.05);
+  }
+
+  /**
+   * A landing that won't happen: the path was let go of on a runway
+   * without locking on, or a plane on approach had to go around (see
+   * render/rejectMarks.ts, the red X it goes with). A short, low, falling
+   * two-note buzz. Not panned: like the readback, it's the tower's signal.
+   */
+  reject(): void {
+    const { ctx } = this;
+    const t = ctx.currentTime;
+    const tone = ctx.createBiquadFilter();
+    tone.type = "lowpass";
+    tone.frequency.value = REJECT_TONE;
+    tone.connect(this.out);
+    REJECT_NOTES.forEach((freq, i) =>
+      this.beep(tone, freq, t + i * REJECT_NOTE, REJECT_NOTE, LEVELS.reject, "square"),
+    );
   }
 
   // -------------------------------------------------------------------------

@@ -1,16 +1,16 @@
 /**
- * Mesh + material factory: aircraft, warning/hover/anchor rings (runways live in
- * runway.ts) and the glow layer for aircraft lights.
+ * Mesh + material factory: aircraft, warning/hover/anchor rings, the red
+ * "no landing" ring and X (runways live in runway.ts). Aircraft lights glow
+ * through the scene's shared glow (glow.ts).
  *
  * Aircraft are built once per (model, colour) as a hidden template (see
  * aircraft.ts) and then cloned, so every plane of a kind and colour shares
  * geometry, and all planes share one vertex-coloured paint material.
  */
-import "@babylonjs/core/Layers/effectLayerSceneComponent"; // side effect: effect layer rendering
-import { GlowLayer } from "@babylonjs/core/Layers/glowLayer";
 import { FresnelParameters } from "@babylonjs/core/Materials/fresnelParameters";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
@@ -23,16 +23,39 @@ import {
   type AircraftMaterials,
   type AircraftRig,
 } from "./aircraft";
+import { SceneGlow } from "./glow";
 import { OVERLAY_GROUP } from "./scene";
+
+/**
+ * The "no landing" mark mirrors the green anchor ring: the same ring (a
+ * `2 × ANCHOR_RADIUS` torus, `MARK_STROKE` thick), in red, with an X
+ * inside. The X's arms span `REJECT_X_SPAN` of the ring's inside, leaving
+ * a gap to the ring.
+ */
+const MARK_STROKE = 0.5;
+const REJECT_X_SPAN = 0.7;
+
+/**
+ * Readability floor at night (see `MeshFactory.setNight`): self-light on
+ * the aircraft livery (grey, multiplied by the vertex colours, so hues
+ * stay saturated) and on the shared runway/plane colour materials.
+ */
+const LIVERY_GLOW_DAY = 0.08;
+const LIVERY_GLOW_NIGHT = 0.85;
+const COLOR_GLOW_DAY = 0.35;
+const COLOR_GLOW_NIGHT = 0.7;
 
 export class MeshFactory {
   private readonly colorMaterials = new Map<PlaneColor, StandardMaterial>();
   private readonly aircraftTemplates = new Map<string, Mesh>();
   private readonly aircraftMaterials: AircraftMaterials;
-  /** Soft halo around nav lights and strobes; only lights are included. */
-  private readonly glow: GlowLayer;
+  /** The scene's shared glow (render/glow.ts): halos round the aircraft lights. */
+  private readonly glow: SceneGlow;
+  /** 0 day … 1 night (see `setNight`). */
+  private night = 0;
   private readonly warning: StandardMaterial;
   private readonly anchor: StandardMaterial;
+  private readonly reject: StandardMaterial;
   private readonly hover: StandardMaterial;
 
   constructor(private readonly scene: Scene) {
@@ -47,6 +70,12 @@ export class MeshFactory {
     this.anchor.disableLighting = true;
     this.anchor.emissiveColor = Color3.FromHexString("#22c55e");
 
+    // Reject mark: the anchor ring's red twin, "no landing" (see
+    // `createRejectMark`). Unlit like it.
+    this.reject = new StandardMaterial("reject", scene);
+    this.reject.disableLighting = true;
+    this.reject.emissiveColor = Color3.FromHexString("#ef4444");
+
     // Hover ring: unlit white "grab me" halo. Neutral on purpose: it must
     // not read as a team colour (red plane) or as the red warning ring.
     this.hover = new StandardMaterial("hover", scene);
@@ -54,22 +83,16 @@ export class MeshFactory {
     this.hover.emissiveColor = Color3.White();
 
     this.aircraftMaterials = this.makeAircraftMaterials();
-    // Exclude by default: with an empty include list (no planes yet) the
-    // layer would otherwise make every emissive surface glow.
-    this.glow = new GlowLayer("aircraft-lights", scene, {
-      mainTextureRatio: 0.5,
-      blurKernelSize: 24,
-      excludeByDefault: true,
-    });
-    this.glow.intensity = 1.1;
+    this.glow = SceneGlow.for(scene);
   }
 
   /** Shared material for a runway/plane colour. */
   material(color: PlaneColor): StandardMaterial {
     let mat = this.colorMaterials.get(color);
     if (!mat) {
-      mat = this.makeMaterial(`color-${color}`, COLOR_HEX[color], 0.35);
+      mat = this.makeMaterial(`color-${color}`, COLOR_HEX[color], COLOR_GLOW_DAY);
       this.colorMaterials.set(color, mat);
+      this.tintColor(color, mat);
     }
     return mat;
   }
@@ -97,16 +120,41 @@ export class MeshFactory {
     const rig = rigFromClone(kind, root, id);
     // Rendering group is set per clone: it isn't copied from the template.
     for (const mesh of rig.all) mesh.renderingGroupId = OVERLAY_GROUP;
-    for (const mesh of rig.lights) this.glow.addIncludedOnlyMesh(mesh);
+    for (const mesh of rig.lights) this.glow.add(mesh);
     return rig;
   }
 
   /** Dispose a plane made by `createAircraft`, children and glow entries too. */
   disposeAircraft(rig: AircraftRig): void {
-    // The glow layer keeps ids of included meshes and doesn't drop them on
-    // dispose, so remove them by hand or the list grows every plane.
-    for (const mesh of rig.lights) this.glow.removeIncludedOnlyMesh(mesh);
+    // Children (and their glow entries, see SceneGlow.add) go with the root.
     rig.root.dispose();
+  }
+
+  /**
+   * 0 day … 1 night. Brightens the glow and raises the self-light of the
+   * liveries and the runway colours, so red, blue, yellow and violet read
+   * as clearly at night as by day. Paths and rings are unlit already.
+   */
+  setNight(n: number): void {
+    this.night = n;
+    this.glow.setNight(n);
+    const livery = LIVERY_GLOW_DAY + (LIVERY_GLOW_NIGHT - LIVERY_GLOW_DAY) * n;
+    // `paint` is typed as Material in AircraftMaterials; it's the
+    // StandardMaterial built in makeAircraftMaterials.
+    const paint = this.aircraftMaterials.paint as StandardMaterial;
+    paint.emissiveColor.set(livery, livery, livery);
+    // The paint's emissive goes through its rim Fresnel, whose face-on
+    // colour is black: by day only the silhouette edge is self-lit. At
+    // night the face-on side lights up too, or the boost above would only
+    // ever reach the rims.
+    paint.emissiveFresnelParameters?.rightColor.set(n, n, n);
+    for (const [color, mat] of this.colorMaterials) this.tintColor(color, mat);
+  }
+
+  /** Colour material self-light for the current `night`. */
+  private tintColor(color: PlaneColor, mat: StandardMaterial): void {
+    const glow = COLOR_GLOW_DAY + (COLOR_GLOW_NIGHT - COLOR_GLOW_DAY) * this.night;
+    Color3.FromHexString(COLOR_HEX[color]).scaleToRef(glow, mat.emissiveColor);
   }
 
   /** Flat red ring shown around planes on a collision course. */
@@ -155,6 +203,44 @@ export class MeshFactory {
     ring.renderingGroupId = OVERLAY_GROUP;
     ring.setEnabled(false);
     return ring;
+  }
+
+  /**
+   * Red ring with an X inside: "this landing won't happen", the red twin of
+   * the green anchor ring (same size and stroke), shown where a path ends
+   * on a runway without locking on (see render/rejectMarks.ts). The root is
+   * the ring; the X is its child. Hidden until shown.
+   */
+  createRejectMark(name: string): Mesh {
+    const ring = CreateTorus(
+      name,
+      { diameter: ANCHOR_RADIUS * 2, thickness: MARK_STROKE, tessellation: 48 },
+      this.scene,
+    );
+    const inside = ANCHOR_RADIUS * 2 - MARK_STROKE;
+    const cross = this.crossMesh(`${name}-x`, inside * REJECT_X_SPAN, MARK_STROKE);
+    cross.parent = ring;
+    for (const mesh of [ring, cross]) {
+      mesh.material = this.reject;
+      mesh.isPickable = false;
+      mesh.renderingGroupId = OVERLAY_GROUP;
+    }
+    ring.setEnabled(false);
+    return ring;
+  }
+
+  /** Two flat bars `length` long and `width` wide, crossed at 45°. */
+  private crossMesh(name: string, length: number, width: number): Mesh {
+    const bars = [Math.PI / 4, -Math.PI / 4].map((angle, i) => {
+      const bar = CreateBox(
+        `${name}-${i}`,
+        { width: length, height: MARK_STROKE, depth: width },
+        this.scene,
+      );
+      bar.rotation.y = angle;
+      return bar;
+    });
+    return Mesh.MergeMeshes(bars, true)!;
   }
 
   /** Materials shared by every aircraft part (see aircraft.ts). */

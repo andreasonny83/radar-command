@@ -14,7 +14,10 @@ import { POINTER_CONTROLS, SHORTCUT_GROUPS, shortcutHint } from "../input/shortc
 import { CC0_TEXT, GPL_TEXT, RECORDINGS, SOURCE_URL, THIRD_PARTY } from "./licenses";
 import { GITHUB_REPO_URL } from "./links";
 
-/** "Landed" counter, top-left. */
+/**
+ * "Landed" counter, top-left, with the time of day under it (a sun or a
+ * moon and the 24 h clock; `hud.setClock` fills them in).
+ */
 export function scorePanelMarkup(): string {
   return `
     <div class="pointer-events-none absolute top-4 left-4 z-10">
@@ -24,6 +27,10 @@ export function scorePanelMarkup(): string {
       >
         <span class="text-sm font-bold tracking-wider text-slate-400 uppercase">Landed</span>
         <div id="scoreDisplay" class="glow-text text-3xl font-black text-sky-400">0</div>
+        <div class="mt-1 flex items-center gap-1.5 text-sm font-bold text-slate-300 tabular-nums">
+          <span id="clockIcon" class="text-amber-300" title="Day">${CLOCK_ICONS.sun}</span>
+          <span id="clockTime">08:00</span>
+        </div>
       </div>
     </div>`;
 }
@@ -89,6 +96,23 @@ const SOUND_ICON = `
     <path d="M15.5 9a4 4 0 0 1 0 6" />
     <path d="M18.5 6.5a7.5 7.5 0 0 1 0 11" />
   </svg>`;
+
+/**
+ * Sun and moon for the HUD clock (same stroke style, smaller). Used before
+ * this point in the file, but only at runtime (after module init).
+ */
+export const CLOCK_ICONS = {
+  sun: `
+  <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"
+    stroke-linecap="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="4" fill="currentColor" />
+    <path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" />
+  </svg>`,
+  moon: `
+  <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+    <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />
+  </svg>`,
+};
 
 /** Beamed pair of eighth notes, for the music button (same style as SOUND_ICON). */
 const MUSIC_ICON = `

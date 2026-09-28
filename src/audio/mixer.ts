@@ -89,6 +89,8 @@ export class GameAudio {
   private hidden = false;
   /** The followed plane whose effects lead the mix (see `setFocus`). */
   private focus: number | null = null;
+  /** 0 day … 1 night, replayed into the graph when it's created. */
+  private night = 0;
 
   constructor(private readonly storage: Storage | null = safeStorage()) {
     this.isMuted = this.storage?.getItem(MUTE_KEY) === "1";
@@ -156,6 +158,16 @@ export class GameAudio {
   }
 
   /**
+   * How dark it is, 0 day … 1 night (render/dayCycle.ts): the music moves
+   * to its night loop, the terminal quiets down. Safe before audio starts.
+   */
+  setNight(n: number): void {
+    this.night = n;
+    this.graph?.music.setNight(n);
+    this.graph?.ambience.setNight(n);
+  }
+
+  /**
    * Suspend all sound while the page is hidden (another tab), and resume
    * when it's back. The render loop stops in a hidden tab, so the music's
    * scheduler would run dry anyway; this silences the rest with it.
@@ -200,6 +212,9 @@ export class GameAudio {
         music: new Music(ctx, musicBus, seed),
       };
       this.graph.sfx.setFocus(this.focus);
+      // It may already be night by the first click.
+      this.graph.music.setNight(this.night);
+      this.graph.ambience.setNight(this.night);
       this.applyLevels(0);
     }
     if (!this.hidden && this.graph.ctx.state === "suspended") void this.graph.ctx.resume();
@@ -215,9 +230,10 @@ export class GameAudio {
 
   /**
    * React to a sim event with the sound it calls for: the chime when a
-   * departure is announced, engines spooling up for a go-around, and a PA
-   * announcement for the ones the terminal would tell passengers about. `pan`
-   * places the plane it's about (see `SceneSync.panFor`).
+   * departure is announced, engines spooling up and the reject buzz for a
+   * go-around, and a PA announcement for the ones the terminal would tell
+   * passengers about. `pan` places the plane it's about (see
+   * `SceneSync.panFor`).
    */
   onSimEvent(event: SimEvent, pan: PanLookup): void {
     switch (event.type) {
@@ -226,6 +242,7 @@ export class GameAudio {
         break;
       case "goAround":
         this.graph?.sfx.goAround(pan(event.planeId), event.planeId);
+        this.reject(); // with the red X at the threshold (main.ts)
         break;
       default:
         break;
@@ -233,6 +250,14 @@ export class GameAudio {
     // The terminal PA may announce it (a departure, a runway opening).
     // After the chime, so the announcement is timed clear of it.
     this.graph?.ambience.onGameEvent(event);
+  }
+
+  /**
+   * The "landing rejected" buzz, with the red X: a path let go of on a
+   * runway without locking on, or a go-around (see `onSimEvent`).
+   */
+  reject(): void {
+    this.graph?.sfx.reject();
   }
 
   /** Play a render cue (gear, touchdown, whoosh, warning; see audio/cues.ts). */

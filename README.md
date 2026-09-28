@@ -93,7 +93,7 @@ npm run storybook
 ## Feedback & contributing
 
 Found a bug or have an idea? Use **Send feedback** in the game (start screen or help panel), or
-[open an issue](https://github.com/andreasonny83/airport-simulator/issues/new) directly.
+[open an issue](https://github.com/andreasonny83/radar-command/issues/new) directly.
 
 Pull requests are welcome. Before opening one, please run:
 

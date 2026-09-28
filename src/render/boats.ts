@@ -4,17 +4,21 @@
  *
  * Each model is built once as a template (flat-shaded, colours baked into
  * vertex colours, like the trees' canopies), then cloned per boat so every
- * boat can fade in and out on its own `visibility`.
+ * boat can fade in and out on its own `visibility`. Each carries a lantern
+ * (masthead or cabin roof) that lights up at night (`setNight`).
  */
 import type { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import type { Scene } from "@babylonjs/core/scene";
 import { boatPose, type BoatKind, type BoatTraffic } from "../core/boats";
 import type { WorldSize } from "../core/types";
 import { headingToRotationY, toScene } from "./coords";
+import { SceneGlow } from "./glow";
+import { lampMaterial, setNightLevel } from "./nightLights";
 
 /** Water surface height (matches landscape.ts `WATER_Y`). */
 const WATER_Y = 0.04;
@@ -150,6 +154,8 @@ export class BoatFleet {
   /** One hidden template per kind; each boat is a clone. */
   private readonly templates: Record<BoatKind, Mesh>;
   private readonly views = new Map<number, Mesh>();
+  /** Masthead / cabin-roof lanterns, lit at night. */
+  private readonly lanternMat: StandardMaterial;
 
   constructor(
     scene: Scene,
@@ -164,9 +170,21 @@ export class BoatFleet {
     bodyMat.backFaceCulling = false;
     bodyMat.twoSidedLighting = true;
 
+    this.lanternMat = lampMaterial("boatLantern", "#ffd27a", scene);
+    // A lantern at the masthead (sailboat) or on the cabin roof: a child
+    // of the template, so every clone carries its own.
+    const lantern = (body: Mesh, x: number, y: number) => {
+      const lamp = CreateSphere(`${body.name}-lantern`, { diameter: 0.14, segments: 6 }, scene);
+      lamp.parent = body;
+      lamp.position.set(x, y, 0);
+      lamp.material = this.lanternMat;
+      lamp.isPickable = false;
+    };
+
     const make = (body: Mesh) => {
       body.material = bodyMat;
       body.isVisible = false; // templates only; clones are what's drawn
+      body.setEnabled(false); // …and their lanterns with them
       body.isPickable = false;
       return body;
     };
@@ -174,6 +192,8 @@ export class BoatFleet {
       sailboat: make(sailboatModel(scene)),
       motorboat: make(motorboatModel(scene)),
     };
+    lantern(this.templates.sailboat, 0.17, 3.48);
+    lantern(this.templates.motorboat, -0.1, 0.86);
   }
 
   /** Create/move/dispose boat meshes to match `traffic`. `time` in seconds. */
@@ -200,6 +220,9 @@ export class BoatFleet {
         0.03 * Math.sin(time * 1.9 + phase),
       );
       body.visibility = pose.opacity;
+      // A child's visibility doesn't follow its parent: fade the lantern
+      // (and so its halo, see glow.ts) with the boat.
+      for (const child of body.getChildMeshes()) child.visibility = pose.opacity;
     }
 
     for (const [id, body] of this.views) {
@@ -207,6 +230,11 @@ export class BoatFleet {
       this.disposeView(body);
       this.views.delete(id);
     }
+  }
+
+  /** 0 day … 1 night: lanterns fade in. */
+  setNight(n: number): void {
+    setNightLevel(this.lanternMat, n);
   }
 
   /** Remove every boat (e.g. before the river is rebuilt). */
@@ -218,6 +246,12 @@ export class BoatFleet {
   private createView(kind: BoatKind, id: number): Mesh {
     const body = this.templates[kind].clone(`${kind}-${id}`);
     body.isVisible = true;
+    body.setEnabled(true);
+    // The lantern: halo at night, and lit at once if launched after dark.
+    for (const child of body.getChildMeshes()) {
+      child.isVisible = this.lanternMat.alpha > 0;
+      SceneGlow.for(body.getScene()).add(child as Mesh, true);
+    }
     body.scaling.setAll(BOAT_SCALE);
     this.shadows.addShadowCaster(body);
     return body;

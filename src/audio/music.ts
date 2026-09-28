@@ -41,13 +41,11 @@ export interface Chord {
 }
 
 /**
- * The chord loop the music is built on.
- *
- * TODO(you): set the mood. The default is a gentle I–IV–ii–V in D major,
+ * The day loop the music is built on: a gentle I–IV–ii–V in D major,
  * voiced with added 9ths and 7ths (Dmaj9 → Gmaj7 → Em9 → A7sus4), the soft,
- * unresolved colour of lounge and ambient music. Things to try:
+ * unresolved colour of lounge and ambient music. After dusk the music
+ * moves to `NIGHT_PROGRESSION`. Things to try:
  *   - stay on two chords (Dmaj9 ↔ Gmaj7): even calmer, more "drone";
- *   - a minor key (Bm9 → Gmaj7 → Dmaj7 → A6): wistful, night-shift;
  *   - more chords, or a longer `CHORD_SECONDS`: slower harmonic movement.
  * Keep the pad voicings within about C3–G4 (48–67) so they stay warm and
  * don't compete with the effects.
@@ -58,6 +56,29 @@ export const MUSIC_PROGRESSION: readonly Chord[] = [
   { name: "Em9", root: 40, notes: [52, 55, 59, 62, 66] },
   { name: "A7sus4", root: 45, notes: [57, 62, 64, 67] },
 ];
+
+/**
+ * The night loop, after dusk: B minor, the relative minor of the day's D
+ * major (the same notes, a sadder home), so the change is a soft one:
+ * Bm9 → Gmaj7 → Dmaj7 → A6. Voiced in the same C3–G4 range.
+ */
+export const NIGHT_PROGRESSION: readonly Chord[] = [
+  { name: "Bm9", root: 35, notes: [50, 54, 57, 59, 61] },
+  { name: "Gmaj7", root: 43, notes: [55, 59, 62, 66] },
+  { name: "Dmaj7", root: 38, notes: [50, 54, 57, 61] },
+  { name: "A6", root: 45, notes: [57, 61, 64, 66] },
+];
+
+/**
+ * Switch to the night loop once `night` reaches `NIGHT_ON`, back to day
+ * below `NIGHT_OFF`; the gap stops it flip-flopping. Changes land on the
+ * next chord boundary.
+ */
+const NIGHT_ON = 0.6;
+const NIGHT_OFF = 0.4;
+
+/** At full night the piano plays this much less often. */
+const NIGHT_PIANO_THIN = 0.3;
 
 /** Seconds each chord lasts. Slow: ~2 minutes before the harmony repeats. */
 export const CHORD_SECONDS = 8;
@@ -119,6 +140,9 @@ export class Music {
   private readonly booked: { t: number; index: number }[] = [];
   /** Seconds per chord: `CHORD_SECONDS` unless changed (see `setChordSeconds`). */
   private chordSeconds = CHORD_SECONDS;
+  /** 0 day … 1 night (see `setNight`), and which loop is playing. */
+  private night = 0;
+  private nightMode = false;
 
   /**
    * @param ctx   the mixer's audio context
@@ -185,7 +209,17 @@ export class Music {
     );
   }
 
-  /** The chord sounding now (its index in `MUSIC_PROGRESSION`), or null before the first. */
+  /** How dark it is, 0 day … 1 night (render/dayCycle.ts via the mixer). */
+  setNight(n: number): void {
+    this.night = n;
+  }
+
+  /** Is the night loop (`NIGHT_PROGRESSION`) the one playing? */
+  isNight(): boolean {
+    return this.nightMode;
+  }
+
+  /** The chord sounding now (its index in the loop playing, see `isNight`), or null before the first. */
   currentChord(): number | null {
     const now = this.ctx.currentTime;
     let index: number | null = null;
@@ -200,8 +234,16 @@ export class Music {
     if (this.nextChord < now - 0.5) this.nextChord = now + 0.1;
     const horizon = now + LOOKAHEAD;
     while (this.nextChord < horizon) {
-      const index = this.chordIndex % MUSIC_PROGRESSION.length;
-      this.scheduleChord(MUSIC_PROGRESSION[index]!, this.nextChord);
+      // Day or night loop, decided chord by chord; a switch starts the new
+      // loop from its first chord.
+      const night = this.nightMode ? this.night > NIGHT_OFF : this.night >= NIGHT_ON;
+      if (night !== this.nightMode) {
+        this.nightMode = night;
+        this.chordIndex = 0;
+      }
+      const progression = night ? NIGHT_PROGRESSION : MUSIC_PROGRESSION;
+      const index = this.chordIndex % progression.length;
+      this.scheduleChord(progression[index]!, this.nextChord);
       this.booked.push({ t: this.nextChord, index });
       if (this.booked.length > 3) this.booked.shift();
       this.chordIndex++;
@@ -223,7 +265,7 @@ export class Music {
     this.bassNote(chord.root, t, end);
     const beat = this.chordSeconds / BEATS_PER_CHORD;
     for (let i = 0; i < BEATS_PER_CHORD; i++) {
-      if (this.rng() >= PIANO_DENSITY) continue;
+      if (this.rng() >= PIANO_DENSITY * (1 - NIGHT_PIANO_THIN * this.night)) continue;
       const note = chord.notes[Math.floor(this.rng() * chord.notes.length)]! + 12;
       // A touch of human timing and dynamics.
       const at = t + i * beat + (this.rng() - 0.5) * 0.06;

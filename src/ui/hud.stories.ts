@@ -11,6 +11,7 @@
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { fn } from "storybook/test";
 import { COLOR_HEX } from "../config";
+import { nightFactor } from "../core/daytime";
 import type { GamePhase, PlaneColor, RunwayColor } from "../core/types";
 import { createHud, type Hud, type HudCallbacks } from "./hud";
 
@@ -36,6 +37,8 @@ interface HudArgs extends HudCallbacks {
   help: boolean;
   /** Open the licenses panel (the "Licenses" link on the overlay / in help). */
   licenses: boolean;
+  /** Time of day on the HUD clock (hours; night from ~21:00). */
+  hours: number;
 }
 
 /**
@@ -65,6 +68,7 @@ function stage(): HTMLElement {
 /** Put a freshly mounted HUD into the state described by `args`. */
 function applyArgs(hud: Hud, args: HudArgs): void {
   hud.setScore(args.score);
+  hud.setClock(args.hours, nightFactor(args.hours));
   if (args.phase === "gameover") hud.showGameOver(args.score);
   else if (args.phase !== "start") hud.hideOverlay();
   hud.setPhase(args.phase);
@@ -108,6 +112,7 @@ const meta: Meta<HudArgs> = {
   argTypes: {
     phase: { control: "inline-radio", options: ["start", "playing", "paused", "gameover"] },
     score: { control: { type: "number", min: 0, step: 1 } },
+    hours: { control: { type: "range", min: 0, max: 23.99, step: 0.25 } },
     toastColor: {
       control: "inline-radio",
       options: ["none", "red", "blue", "yellow", "violet"],
@@ -132,6 +137,7 @@ const meta: Meta<HudArgs> = {
     musicOn: true,
     help: false,
     licenses: false,
+    hours: 8,
     onStart: fn(),
     onTogglePause: fn(),
     onRotate: fn(),
@@ -150,6 +156,9 @@ export const StartScreen: Story = {};
 
 /** Mid-shift: score, pause button and camera controls. */
 export const Playing: Story = { args: { phase: "playing", score: 12 } };
+
+/** A shift after dark: the clock shows the moon. */
+export const Night: Story = { args: { phase: "playing", score: 14, hours: 23.5 } };
 
 /**
  * Arrival arrows on the screen edge, as planes are about to fly in. Arrows

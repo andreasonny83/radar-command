@@ -1,6 +1,11 @@
 /**
- * Babylon engine + scene bootstrap: renderer, clear colour, daytime lights
- * and the shared shadow generator.
+ * Babylon engine + scene bootstrap: renderer, clear colour, lights and the
+ * shared shadow generator.
+ *
+ * The lights are created here with the noon look (these constants are the
+ * noon keyframe in dayTuning.ts). In the game, render/dayCycle.ts then moves
+ * them through the day; stories that don't create a `DayCycle` keep this
+ * noon look.
  */
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
@@ -29,10 +34,10 @@ export const CLEAR_COLOR = "#2f5222";
 export const OVERLAY_GROUP = 1;
 
 /** Direction the sun shines (towards the ground, slightly from the side). */
-const SUN_DIRECTION = new Vector3(-0.5, -1, 0.3).normalize();
+export const SUN_DIRECTION = new Vector3(-0.5, -1, 0.3).normalize();
 
 /** How far back along the sun ray the light sits; must clear every caster. */
-const SUN_DISTANCE = 150;
+export const SUN_DISTANCE = 150;
 
 /**
  * Shadow map covers this multiple of the playfield diagonal. Trees beyond it
@@ -46,6 +51,10 @@ export interface SceneContext {
   scene: Scene;
   /** Shared generator: register anything that should cast a shadow. */
   shadows: ShadowGenerator;
+  /** Sky fill light (render/dayCycle.ts retints it through the day). */
+  fill: HemisphericLight;
+  /** Sun / moon: the shadow-casting key light (moved by render/dayCycle.ts). */
+  key: DirectionalLight;
 }
 
 export function createScene(canvas: HTMLCanvasElement): SceneContext {
@@ -90,7 +99,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneContext {
   // glance; the sky fill light keeps shaded ground from going murky.
   shadows.darkness = 0.25;
 
-  return { engine, scene, shadows };
+  return { engine, scene, shadows, fill, key };
 }
 
 /**

@@ -13,11 +13,11 @@ import { distance, headingVector } from "./math";
 import { createPlane } from "./plane";
 import { unlockedColors } from "./progression";
 import type { Bounds } from "./scenery";
-import type { GameState, Plane, Rng, RunwayColor, Vec2, WorldSize } from "./types";
+import type { GameState, OrientedRect, Plane, Rng, RunwayColor, Vec2, WorldSize } from "./types";
 
 export interface SpawnSpec {
   color: RunwayColor;
-  /** Start point, off-screen at the default view. */
+  /** Start point, off-screen (see `pickSpawn`). */
   pos: Vec2;
   heading: number;
   /** Where the straight track crosses into the airspace. */
@@ -27,7 +27,7 @@ export interface SpawnSpec {
 }
 
 /**
- * How far past the default view's edge a plane must start to be fully out
+ * How far past the view's edge (see `pickSpawn`) a plane must start to be fully out
  * of sight: its own size. Altitude doesn't lift it up the screen, since
  * planes are drawn over their ground track (render/sceneSync.ts
  * `placeOverTrack`).
@@ -48,18 +48,25 @@ const ENTRY_CORNER_INSET = 0.12;
  *
  * The track crosses the airspace edge at `entry`, somewhere along that
  * side (clear of the corners), heading roughly inward. The plane starts
- * back along that track, off-screen at the default view: `ARRIVAL_WARNING`
- * seconds of flight beyond the point where it comes into sight. So it
- * flies in from the screen edge rather than appearing out of nowhere, and
- * its arrow shows for the same time whichever side it comes from. It then
- * crosses the countryside round the airspace high up (see
- * `cruiseAltitude`), descending as it nears the edge.
+ * back along that track, off-screen: `ARRIVAL_WARNING` seconds of flight
+ * beyond the point where it comes into sight. So it flies in from the
+ * screen edge rather than appearing out of nowhere, and its arrow shows for
+ * the same time whichever side it comes from. It then crosses the
+ * countryside round the airspace high up (see `cruiseAltitude`),
+ * descending as it nears the edge.
+ *
+ * "Off-screen" means outside the default view and, when given, `liveView`:
+ * the ground the camera shows right now (`GameState.liveView`). Zoomed
+ * out, rotated or panned, that reaches past the default view, and a plane
+ * started only beyond the default view would pop up in plain sight. The
+ * cost: zoomed out, arrivals fly in from further away, so they take longer.
  */
 export function pickSpawn(
   world: WorldSize,
   viewAspect: number,
   colors: readonly RunwayColor[],
   rng: Rng,
+  liveView: OrientedRect | null = null,
 ): SpawnSpec {
   const color = colors[Math.floor(rng() * colors.length)] ?? colors[0] ?? "red";
   const edge = pickEdge(edgeWeights(world, viewAspect), rng()); // 0 top, 1 right, 2 bottom, 3 left
@@ -92,7 +99,13 @@ export function pickSpawn(
   const dir = headingVector(heading);
   const back = { x: -dir.x, y: -dir.y };
   const hidden = grow(defaultViewBounds(world, viewAspect), OFFSCREEN_MARGIN);
-  const runIn = exitDistance(entry, back, hidden) + ARRIVAL_WARNING * PLANE_SPEED;
+  // Both views are convex: past the later of the two exits, the track is
+  // out of sight of both for good.
+  const outOfSight = Math.max(
+    exitDistance(entry, back, hidden),
+    liveView ? rectExitDistance(entry, back, liveView, OFFSCREEN_MARGIN) : 0,
+  );
+  const runIn = outOfSight + ARRIVAL_WARNING * PLANE_SPEED;
   return {
     color,
     pos: { x: entry.x + back.x * runIn, y: entry.y + back.y * runIn },
@@ -152,6 +165,35 @@ function grow(b: Bounds, by: number): Bounds {
 }
 
 /**
+ * Distance from `p` along unit vector `d` to where the ray leaves `r` grown
+ * by `margin` for good, or 0 if it never passes through it. Unlike
+ * `exitDistance`, `p` may start outside (a zoomed-in view can miss the
+ * entry point, yet the track behind it can still cross the screen). Slab
+ * test in the rectangle's own frame: `u` along its heading, `v` across.
+ */
+function rectExitDistance(p: Vec2, d: Vec2, r: OrientedRect, margin: number): number {
+  const axis = headingVector(r.heading);
+  const ox = p.x - r.center.x;
+  const oy = p.y - r.center.y;
+  let tIn = 0;
+  let tOut = Infinity;
+  for (const [o, dd, half] of [
+    [ox * axis.x + oy * axis.y, d.x * axis.x + d.y * axis.y, r.length / 2 + margin],
+    [-ox * axis.y + oy * axis.x, -d.x * axis.y + d.y * axis.x, r.width / 2 + margin],
+  ] as const) {
+    if (dd === 0) {
+      if (Math.abs(o) > half) return 0; // parallel, outside this slab
+      continue;
+    }
+    const t1 = (-half - o) / dd;
+    const t2 = (half - o) / dd;
+    tIn = Math.max(tIn, Math.min(t1, t2));
+    tOut = Math.min(tOut, Math.max(t1, t2));
+  }
+  return tIn > tOut ? 0 : tOut;
+}
+
+/**
  * Distance from `p` (inside `b`) along unit vector `d` to the edge of `b`:
  * the nearest of the two walls the ray heads for. 0 if `p` is outside.
  */
@@ -180,9 +222,9 @@ export function spawnPlane(state: GameState, rng: Rng): Plane | null {
   const colors = unlockedColors(state.score, state.runways);
   if (colors.length === 0) return null;
 
-  let spec = pickSpawn(state.world, state.viewAspect, colors, rng);
+  let spec = pickSpawn(state.world, state.viewAspect, colors, rng, state.liveView);
   for (let i = 1; i < SPAWN_ATTEMPTS && isCrowded(spec, state.planes); i++) {
-    spec = pickSpawn(state.world, state.viewAspect, colors, rng);
+    spec = pickSpawn(state.world, state.viewAspect, colors, rng, state.liveView);
   }
 
   const plane = createPlane(state.nextPlaneId++, spec.color, spec.pos, spec.heading);

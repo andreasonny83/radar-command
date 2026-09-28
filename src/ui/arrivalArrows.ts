@@ -1,10 +1,11 @@
 /**
- * Arrival arrows: before a new plane flies into view, an arrow on the screen
+ * Arrival arrows: before a plane flies into view (a new arrival, or any
+ * plane approaching from outside the current view), an arrow on the screen
  * edge shows where it will come in and which way it's heading.
  *
  * This module only draws. The render layer works out where each arrow goes
- * (render/arrivals.ts projects inbound planes onto the screen), so the UI
- * stays free of Babylon. Markup lives in hudMarkup.ts (`arrivalArrowMarkup`).
+ * (render/arrivals.ts projects approaching planes onto the screen), so the
+ * UI stays free of Babylon. Markup lives in hudMarkup.ts (`arrivalArrowMarkup`).
  */
 import { arrivalArrowMarkup } from "./hudMarkup";
 

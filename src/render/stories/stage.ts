@@ -8,6 +8,8 @@
  * previous engine, so WebGL contexts never pile up.
  */
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
+import type { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
+import type { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import type { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
 import type { Engine } from "@babylonjs/core/Engines/engine";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
@@ -20,6 +22,7 @@ import { MAX_DT } from "../../config";
 import { computeWorldSize } from "../../core/layout";
 import type { WorldSize } from "../../core/types";
 import { CameraController } from "../camera";
+import { setDayPalette } from "../dayTuning";
 import { setFlightTuning } from "../flightTuning";
 import { createScene } from "../scene";
 
@@ -30,6 +33,9 @@ export interface Stage {
   engine: Engine;
   scene: Scene;
   shadows: ShadowGenerator;
+  /** Sky fill and key (sun) lights, for stories that run a DayCycle. */
+  fill: HemisphericLight;
+  key: DirectionalLight;
   /** Width / height of the canvas right now. */
   aspect(): number;
 }
@@ -56,6 +62,8 @@ export function mountStage(build: (stage: Stage) => FrameFn | void, timeScale = 
   // Undo any flight tuning a previous story (Tuning/Flight) applied, so every
   // other story shows the game's active preset.
   setFlightTuning();
+  // Same for the time-of-day palette (Tuning/Time of day edits it live).
+  setDayPalette();
 
   const root = document.createElement("div");
   root.className = "relative h-full w-full overflow-hidden text-slate-100";
@@ -65,13 +73,15 @@ export function mountStage(build: (stage: Stage) => FrameFn | void, timeScale = 
   canvas.style.touchAction = "none";
   root.append(canvas);
 
-  const { engine, scene, shadows } = createScene(canvas);
+  const { engine, scene, shadows, fill, key } = createScene(canvas);
   const stage: Stage = {
     root,
     canvas,
     engine,
     scene,
     shadows,
+    fill,
+    key,
     aspect: () => engine.getRenderWidth() / Math.max(1, engine.getRenderHeight()),
   };
   // Storybook attaches `root` after this function returns, so the canvas

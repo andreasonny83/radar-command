@@ -47,6 +47,9 @@ import { ANNOUNCER_VOICES, loadSpeech, speak } from "./speech";
  * departure chime, alerts); `PA_CLEAR_OF_CHIME` keeps them apart, however
  * often they come.
  */
+/** At full night the terminal is this much quieter (share of its level). */
+const TERMINAL_NIGHT_DIP = 0.55;
+
 export const PA_SCHEDULE = {
   /** Seconds between announcements (a random pick in the range each time). */
   interval: [30, 120] as const,
@@ -137,6 +140,11 @@ export class Ambience {
   private readonly rng: () => number;
   /** Into the terminal layer, through its low-pass. */
   private readonly bed: AudioNode;
+  /** Terminal level for the time of day (between the glass and the layer). */
+  private readonly nightDim: GainNode;
+  /** 0 day … 1 night, and the terminal level last scheduled. */
+  private night = 0;
+  private dim = 1;
   private readonly announcer: Voice;
   /** Into the PA: the tinny speaker and hall that the chime and voice go through. */
   private readonly speaker: AudioNode;
@@ -188,7 +196,8 @@ export class Ambience {
     const glass = ctx.createBiquadFilter();
     glass.type = "lowpass";
     glass.frequency.value = BED_CUTOFF;
-    glass.connect(this.layers.terminal);
+    this.nightDim = ctx.createGain();
+    glass.connect(this.nightDim).connect(this.layers.terminal);
     this.bed = glass;
 
     // PA: a tinny ceiling speaker (a narrow band) in a big hall.
@@ -211,6 +220,19 @@ export class Ambience {
     // The speech engine is ~2 MB: fetch it now, in the background (the
     // ambience only exists once the player has clicked, see audio/mixer.ts).
     void loadSpeech().then((ok) => (this.speechReady = ok));
+  }
+
+  /**
+   * How dark it is, 0 day … 1 night: the terminal empties out (quieter) and
+   * the PA speaks less often. Cheap every frame: the gain is only
+   * rescheduled when it moves.
+   */
+  setNight(n: number): void {
+    this.night = n;
+    const dim = 1 - TERMINAL_NIGHT_DIP * n;
+    if (Math.abs(dim - this.dim) < 0.01) return;
+    this.dim = dim;
+    this.nightDim.gain.setTargetAtTime(dim, this.ctx.currentTime, 2);
   }
 
   /** Fade a layer in or out (e.g. the story's toggles). */
@@ -280,7 +302,8 @@ export class Ambience {
         continue;
       }
       this.announcement(this.nextPa);
-      this.nextPa += this.between(PA_SCHEDULE.interval);
+      // Quieter nights: gaps up to twice as long at full night.
+      this.nextPa += this.between(PA_SCHEDULE.interval) * (1 + this.night);
     }
     while (this.nextJet < horizon) {
       this.jetFlyover(this.nextJet);

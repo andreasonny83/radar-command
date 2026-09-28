@@ -9,7 +9,7 @@
 import type { GamePhase } from "../core/types";
 import { shortcutHint } from "../input/shortcuts";
 import { createArrivalArrows, type ArrivalMarker } from "./arrivalArrows";
-import { hudMarkup } from "./hudMarkup";
+import { CLOCK_ICONS, hudMarkup } from "./hudMarkup";
 import { licenseTextUrl, PROJECT_LICENSE_TEXT } from "./licenses";
 import { feedbackIssueUrl } from "./links";
 
@@ -35,6 +35,12 @@ export interface HudCallbacks {
 
 export interface Hud {
   setScore(score: number): void;
+  /**
+   * Time of day under the score: `hours` as HH:MM, and a moon once
+   * `night` ≥ 0.5 (a sun before). Cheap every frame: the DOM is only
+   * touched when the minute or the icon changes.
+   */
+  setClock(hours: number, night: number): void;
   hideOverlay(): void;
   showGameOver(score: number): void;
   /** Sync the pause button and banner with the current game phase. */
@@ -88,6 +94,14 @@ const CRASH_BACKDROP = [
  * Inject the HUD markup at the start of `root` (so it stacks above a canvas
  * that follows it) and wire it to `callbacks`.
  */
+/** "HH:MM" for a time of day in hours (0 ≤ h < 24; wraps). */
+export function formatClock(hours: number): string {
+  const minutes = Math.floor((((hours % 24) + 24) % 24) * 60);
+  const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
+  const mm = String(minutes % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   root.insertAdjacentHTML("afterbegin", hudMarkup());
   // Scoped to `root` rather than `document`, so Storybook can mount a HUD
@@ -98,6 +112,10 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     return el;
   };
   const score = byId("scoreDisplay");
+  const clockIcon = byId("clockIcon");
+  const clockTime = byId("clockTime");
+  let clockText = "";
+  let clockNight: boolean | null = null;
   const overlay = byId("overlay");
   const title = byId("overlayTitle");
   const message = byId("overlayMessage");
@@ -233,6 +251,21 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   return {
     setScore(value) {
       score.textContent = String(value);
+    },
+    setClock(hours, night) {
+      const text = formatClock(hours);
+      if (text !== clockText) {
+        clockText = text;
+        clockTime.textContent = text;
+      }
+      const isNight = night >= 0.5;
+      if (isNight !== clockNight) {
+        clockNight = isNight;
+        clockIcon.innerHTML = isNight ? CLOCK_ICONS.moon : CLOCK_ICONS.sun;
+        clockIcon.title = isNight ? "Night" : "Day";
+        clockIcon.classList.toggle("text-amber-300", !isNight);
+        clockIcon.classList.toggle("text-sky-200", isNight);
+      }
     },
     hideOverlay() {
       overlay.classList.add("opacity-0", "pointer-events-none");

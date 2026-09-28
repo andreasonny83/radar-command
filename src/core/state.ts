@@ -4,7 +4,7 @@
  */
 import { DEPARTURE_INTERVAL_MIN, SPAWN_INTERVAL_START, WORLD_ASPECT } from "../config";
 import { computeWorldSize, layoutRunways, safeViewAspect } from "./layout";
-import type { GameState } from "./types";
+import type { GameState, OrientedRect } from "./types";
 
 /**
  * Fresh state waiting on the start screen. The world is fixed; `viewAspect`
@@ -24,6 +24,7 @@ export function createGameState(viewAspect = WORLD_ASPECT): GameState {
     nextGroundSeq: 0,
     world,
     viewAspect: safeViewAspect(viewAspect),
+    liveView: null,
     runways: layoutRunways(world),
     planes: [],
   };
@@ -48,4 +49,13 @@ export function resetGameState(state: GameState): void {
  */
 export function setViewAspect(state: GameState, aspect: number): void {
   state.viewAspect = safeViewAspect(aspect);
+}
+
+/**
+ * Record the ground the camera shows now (sim coordinates), so arrivals
+ * start beyond it however the view is zoomed, rotated or panned (see
+ * `GameState.liveView`). Cheap: call it every frame.
+ */
+export function setLiveView(state: GameState, view: OrientedRect | null): void {
+  state.liveView = view;
 }

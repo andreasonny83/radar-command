@@ -1,5 +1,5 @@
 {
-  "name": "airport-simulator",
+  "name": "radar-command",
   "version": "1.0.0",
   "type": "module",
   "description": "3D air traffic control game (Flight Control-style) built with Babylon.js",
@@ -22,7 +22,8 @@
   "dependencies": {
     "@babylonjs/core": "^9.27.1",
     "@echogarden/espeak-ng-emscripten": "^0.3.5",
-    "@vercel/analytics": "^2.0.1"
+    "@vercel/analytics": "^2.0.1",
+    "@vercel/speed-insights": "^2.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

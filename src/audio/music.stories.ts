@@ -6,7 +6,10 @@
  * args switch the three layers (pads, piano, bass) on and off,
  * pick the game scene the mix is set for (full on the title and in play,
  * dipped while paused, faded out after a crash) and change the tempo
- * (seconds per chord). The panel shows the chord sounding now.
+ * (seconds per chord). Start always opens at the "playing" level and moves
+ * to the chosen scene after `INTRO_SECONDS`, so you hear its transition.
+ * The panel shows the chord sounding now. `night` plays the after-dusk loop
+ * (`NIGHT_PROGRESSION`).
  *
  * Tuning loop: the chord loop (`MUSIC_PROGRESSION`), `CHORD_SECONDS`, the
  * layer levels (`LAYER_LEVELS`), pad / piano / reverb / ambience constants
@@ -18,7 +21,7 @@
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { createGameState } from "../core/state";
 import { GameAudio, type AudioScene } from "./mixer";
-import { CHORD_SECONDS, MUSIC_PROGRESSION, type MusicLayer } from "./music";
+import { CHORD_SECONDS, MUSIC_PROGRESSION, NIGHT_PROGRESSION, type MusicLayer } from "./music";
 
 interface MusicArgs {
   pads: boolean;
@@ -28,9 +31,20 @@ interface MusicArgs {
   scene: AudioScene;
   /** Seconds per chord (the game uses `CHORD_SECONDS`). */
   chordSeconds: number;
+  /** Play the night loop (as after dusk in the game). */
+  night: boolean;
 }
 
 const LAYERS: MusicLayer[] = ["pads", "piano", "bass"];
+
+/**
+ * Seconds the music plays at the "playing" level before the story moves to
+ * the chosen scene. The game only reaches "paused" or "crash" from a shift
+ * in play, so this is how those scenes are heard: as the dip or the
+ * fade-out from full music. Started straight in "crash", the music bus
+ * would sit at 0 and no chord would ever be booked: silence.
+ */
+const INTRO_SECONDS = 4;
 
 /** The audio of the story on screen; closed when the next one mounts. */
 let active: { audio: GameAudio; frame: number } | null = null;
@@ -47,6 +61,7 @@ const meta: Meta<MusicArgs> = {
     bass: true,
     scene: "playing",
     chordSeconds: CHORD_SECONDS,
+    night: false,
   },
 };
 export default meta;
@@ -71,21 +86,28 @@ export const Music: StoryObj<MusicArgs> = {
         <div id="status" class="mt-4 text-sm text-slate-400">Stopped: press Start.</div>
       </div>`;
     const chords = root.querySelector<HTMLElement>("#chords")!;
-    chords.innerHTML = MUSIC_PROGRESSION.map(
-      (c) =>
-        `<span class="chord rounded-lg border border-slate-700 px-3 py-1 font-mono text-sm text-slate-400 transition">${c.name}</span>`,
-    ).join("");
+    const loop = args.night ? NIGHT_PROGRESSION : MUSIC_PROGRESSION;
+    chords.innerHTML = loop
+      .map(
+        (c) =>
+          `<span class="chord rounded-lg border border-slate-700 px-3 py-1 font-mono text-sm text-slate-400 transition">${c.name}</span>`,
+      )
+      .join("");
     const chips = Array.from(chords.querySelectorAll<HTMLElement>(".chord"));
     const status = root.querySelector<HTMLElement>("#status")!;
 
     // No storage: the args decide, not the player's saved settings.
     const audio = new GameAudio(null);
-    audio.setScene(args.scene);
+    // Start at full music; the chosen scene follows the intro (INTRO_SECONDS).
+    audio.setScene("playing");
     const state = createGameState(); // no planes: music only
     const session = { audio, frame: 0 };
     active = session;
 
     root.querySelector<HTMLButtonElement>("#startAudio")!.addEventListener("click", () => {
+      // Before unlock on purpose: GameAudio must replay it into the graph
+      // that unlock creates (as when it's already night at the first click).
+      audio.setNight(args.night ? 1 : 0);
       audio.unlock();
       // Music alone: the ambience has its own story.
       for (const layer of ["terminal", "pa", "outside"] as const) {
@@ -93,7 +115,16 @@ export const Music: StoryObj<MusicArgs> = {
       }
       audio.music?.setChordSeconds(args.chordSeconds);
       for (const layer of LAYERS) audio.setMusicLayer(layer, args[layer]);
-      status.textContent = `Playing: scene "${args.scene}", ${args.chordSeconds} s per chord.`;
+      if (args.scene === "playing") {
+        status.textContent = `Playing: scene "playing", ${args.chordSeconds} s per chord.`;
+        return;
+      }
+      status.textContent = `Playing: scene "playing", "${args.scene}" in ${INTRO_SECONDS} s…`;
+      window.setTimeout(() => {
+        // Harmless if the story has moved on: a closed GameAudio ignores it.
+        audio.setScene(args.scene);
+        status.textContent = `Playing: scene "${args.scene}", ${args.chordSeconds} s per chord.`;
+      }, INTRO_SECONDS * 1000);
     });
 
     let mounted = false;

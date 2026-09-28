@@ -12,7 +12,8 @@
  * which end to land on. Everything else is white paint on dark asphalt.
  *
  * Static white markings are merged into a single mesh per runway, and so are
- * the edge lights, so each runway costs a handful of draw calls.
+ * the edge lights, so each runway costs a handful of draw calls. After dark
+ * the edge and approach lights bloom (the scene's shared glow, glow.ts).
  *
  * Crossing runways (blue and yellow's X) share their pavement where they
  * meet. As on a real airfield, the intersection keeps only the primary
@@ -22,6 +23,7 @@
 import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder";
 import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
@@ -31,6 +33,7 @@ import { COLOR_HEX, RUNWAY_THRESHOLD_INSET } from "../config";
 import { runwayDesignator } from "../core/layout";
 import type { Runway, RunwayColor, Vec2, WorldSize } from "../core/types";
 import { headingToRotationY, toScene } from "./coords";
+import { SceneGlow } from "./glow";
 
 // Layer heights (scene y). Everything sits above the grass (0) and stream
 // (≤ 0.05) and below planes on their rollout (0.35).
@@ -132,11 +135,37 @@ function onPavement(p: Vec2, runway: Runway, margin: number): boolean {
 
 /** A built runway: its root node plus the lights `update` animates. */
 export class RunwayView {
+  /** Where the root sits once fully revealed. */
+  private readonly center: Vector3;
+  /** Scene direction of the landing direction (local +x). */
+  private readonly along: Vector3;
+
   constructor(
     readonly root: TransformNode,
     /** Ordered farthest → nearest to the threshold. */
     private readonly approachLights: Mesh[],
-  ) {}
+    /** Runway length, to keep the approach end still (see `reveal`). */
+    private readonly length: number,
+  ) {
+    this.center = root.position.clone();
+    // Babylon's rotation about y turns local +x into (cos r, 0, -sin r).
+    const r = root.rotation.y;
+    this.along = new Vector3(Math.cos(r), 0, -Math.sin(r));
+  }
+
+  /**
+   * How far a newly opened runway has been laid down, 0 (nothing) to 1
+   * (whole). It unrolls from its approach end towards the far end (see
+   * `SceneSync`'s runway progression): the strip scales along its length,
+   * and the root slides so the approach end (local x = -length/2) stays put.
+   */
+  reveal(k: number): void {
+    // A zero scale would make the world matrix singular.
+    const s = Math.max(0.001, Math.min(1, k));
+    this.root.scaling.x = s;
+    const shift = (-this.length / 2) * (1 - s);
+    this.root.position.copyFrom(this.center).addInPlace(this.along.scale(shift));
+  }
 
   /** Sweep the approach "rabbit" towards the threshold. `time` in seconds. */
   update(time: number): void {
@@ -217,6 +246,10 @@ export class RunwayFactory {
     const number = this.buildNumber(runwayDesignator(runway.heading), thresholdX + 4.5);
     const edgeLights = this.buildEdgeLights(L, W, clearance);
     const approach = this.buildApproachLights(runway.color, L, W);
+    // After dark the edge and approach lights bloom (render/glow.ts).
+    const glow = SceneGlow.for(this.scene);
+    glow.add(edgeLights, true);
+    for (const light of approach) glow.add(light, true);
 
     const parts = [shoulder, asphalt, bar, paint, number, edgeLights, ...approach];
     for (const part of parts) {
@@ -226,7 +259,7 @@ export class RunwayFactory {
     // Planes on approach shade the pavement.
     for (const part of [shoulder, asphalt, bar, paint, number]) part.receiveShadows = true;
 
-    return new RunwayView(root, approach);
+    return new RunwayView(root, approach, L);
   }
 
   // -------------------------------------------------------------------------

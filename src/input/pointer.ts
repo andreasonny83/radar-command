@@ -22,7 +22,14 @@ import { Matrix } from "@babylonjs/core/Maths/math.vector";
 import type { Scene } from "@babylonjs/core/scene";
 import { PLANE_GRAB_RADIUS } from "../config";
 import { distance } from "../core/math";
-import { anchorPath, appendPathPoint, clampPathPoint, isSteerable, startPath } from "../core/path";
+import {
+  anchorPath,
+  appendPathPoint,
+  clampPathPoint,
+  isSteerable,
+  rejectedLanding,
+  startPath,
+} from "../core/path";
 import type { GameState, Plane, Vec2 } from "../core/types";
 import { fromScene } from "../render/coords";
 
@@ -96,6 +103,13 @@ export interface PointerFeedback {
    * which ends the drag by itself. For the tower's radio readback.
    */
   onPathDrawn?: (planeId: number, anchored: boolean) => void;
+  /**
+   * The drag ended with `planeId`'s path on a runway, but it didn't lock
+   * on: that landing won't happen (wrong end, unflyable, another colour's
+   * runway, or closed by a departure; see `rejectedLanding`). `at` is the
+   * path's end, where the red X goes.
+   */
+  onLandingRejected?: (planeId: number, at: Vec2) => void;
 }
 
 /** Planes a right-click may pick to follow: any still visible in the game. */
@@ -204,18 +218,25 @@ export function attachPointerInput(
       release(e.pointerId);
       return;
     }
-    const { x, y } = toCanvas(e);
-    const hit = screenToWorld(scene, camera, state, x, y);
-    if (!hit) return;
+    // The browser sends one move event per frame, but keeps every pointer
+    // sample in between as coalesced events. Walk them all: a quick flick
+    // then records its curve, not one long straight chord.
+    const samples = e.getCoalescedEvents?.() ?? [];
+    for (const sample of samples.length > 0 ? samples : [e]) {
+      const { x, y } = toCanvas(sample);
+      const hit = screenToWorld(scene, camera, state, x, y);
+      if (!hit) continue;
 
-    // Anywhere on the map is fair game; only the map's own edge clamps.
-    const point = clampPathPoint(hit, state.world);
-    if (!appendPathPoint(plane, point)) return;
-    // Reached the runway from the right direction: the path snaps onto the
-    // threshold and is finished, so this pointer stops routing the plane.
-    if (anchorPath(plane, state.runways, state.world)) {
-      release(e.pointerId);
-      feedback.onPathDrawn?.(plane.id, true);
+      // Anywhere on the map is fair game; only the map's own edge clamps.
+      const point = clampPathPoint(hit, state.world);
+      if (!appendPathPoint(plane, point)) continue;
+      // Reached the runway from the right direction: the path snaps onto the
+      // threshold and is finished, so this pointer stops routing the plane.
+      if (anchorPath(plane, state.runways, state.world, state.planes)) {
+        release(e.pointerId);
+        feedback.onPathDrawn?.(plane.id, true);
+        return;
+      }
     }
   };
 
@@ -232,6 +253,9 @@ export function attachPointerInput(
     release(e.pointerId);
     if (plane && isSteerable(plane) && plane.path.length > 0) {
       feedback.onPathDrawn?.(plane.id, plane.pathAnchored);
+      // Let go on a runway without locking on: flag the landing as a no-go.
+      const at = rejectedLanding(plane, getState().runways);
+      if (at) feedback.onLandingRejected?.(plane.id, at);
     }
   };
 

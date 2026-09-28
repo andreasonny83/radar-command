@@ -8,7 +8,7 @@
  */
 
 /** Public source repository. */
-export const GITHUB_REPO_URL = "https://github.com/andreasonny83/airport-simulator";
+export const GITHUB_REPO_URL = "https://github.com/andreasonny83/radar-command";
 
 /**
  * Body template for a feedback issue. Plain Markdown: GitHub shows it in the

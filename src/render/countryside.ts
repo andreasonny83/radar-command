@@ -7,7 +7,9 @@
  *   - roads:   grey strips with a dashed white centre line;
  *              (bridges over the river are drawbridges: render/bridges.ts);
  *   - village: houses, cottages and barns (thin-instanced walls and gabled
- *              roofs, coloured per house), and a church with a spire.
+ *              roofs, coloured per house), and a church with a spire;
+ *   - night:   lit windows (house by house from dusk), street lamps with
+ *              pools of light along the village roads (see nightLights.ts).
  *
  * Everything is static and low-poly, and sits flat on the ground below the
  * airports' paving, so it never gets in the way of reading the board.
@@ -24,7 +26,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import "@babylonjs/core/Meshes/thinInstanceMesh"; // side effect: mesh.thinInstance* API
 import type { Scene } from "@babylonjs/core/scene";
-import { ROAD_WIDTH } from "../config";
+import { ROAD_WIDTH, VILLAGE_RADIUS } from "../config";
 import type {
   Bridge,
   Countryside,
@@ -39,6 +41,8 @@ import { horizonFade, type Bounds } from "../core/scenery";
 import { headingVector, mulberry32 } from "../core/math";
 import type { Vec2, WorldSize } from "../core/types";
 import { headingToRotationY, toScene } from "./coords";
+import { SceneGlow } from "./glow";
+import { createPoolMesh, lampMaterial, litNow, poolMaterial, setNightLevel } from "./nightLights";
 import { CLEAR_COLOR } from "./scene";
 
 // Layer heights (scene y): fields just over the grass (0), under the
@@ -83,9 +87,58 @@ const HOUSE_SIZES: Record<
   barn: { l: 4.2, d: 2.8, h: 1.8, rise: 1.3 },
 };
 
+/** Window panes: dark glass when unlit, warm when someone's home. */
+const WINDOW_DARK = Color3.FromHexString("#1a2230");
+const WINDOW_LIT = Color3.FromHexString("#ffc86b");
+/**
+ * Each house switches its lights on at its own `night` level, from dusk
+ * onwards; above 1 it stays dark all night (nobody home).
+ */
+const WINDOW_THRESHOLD_MIN = 0.08;
+const WINDOW_THRESHOLD_RANGE = 1.05;
+
+/** Street lamps along the village roads: spacing, bulb height, pool size. */
+const LAMP_SPACING = 5;
+const LAMP_HEIGHT = 1.25;
+const LAMP_POOL_RADIUS = 1.6;
+const LAMP_POOL_STRENGTH = 0.5;
+
+/** Lit-window state for the village's thin-instanced panes. */
+interface VillageWindows {
+  mesh: Mesh;
+  /** Per-instance "color" buffer (rgba), rewritten when lights change. */
+  colors: Float32Array;
+  /** Per-instance `night` level the pane lights up at. */
+  thresholds: Float32Array;
+}
+
 /** Static countryside meshes, disposed together on a rebuild. */
 export class CountrysideView {
-  constructor(private readonly meshes: Mesh[]) {}
+  /** Last `night` step applied to the windows (-1 = none yet). */
+  private windowStep = -1;
+
+  constructor(
+    private readonly meshes: Mesh[],
+    private readonly windows: VillageWindows | null,
+  ) {}
+
+  /**
+   * 0 day … 1 night: windows light up house by house. Recoloured only when
+   * `n` moves a step (1/40), not every frame.
+   */
+  setNight(n: number): void {
+    const w = this.windows;
+    if (!w) return;
+    w.mesh.isVisible = n > 0;
+    const step = Math.round(n * 40);
+    if (step === this.windowStep) return;
+    this.windowStep = step;
+    for (let i = 0; i < w.thresholds.length; i++) {
+      const c = n > w.thresholds[i]! ? WINDOW_LIT : WINDOW_DARK;
+      w.colors.set([c.r, c.g, c.b, 1], i * 4);
+    }
+    w.mesh.thinInstanceBufferUpdated("color");
+  }
 
   dispose(): void {
     for (const mesh of this.meshes) mesh.dispose();
@@ -100,6 +153,12 @@ export class CountrysideFactory {
   private readonly stone: StandardMaterial;
   private readonly churchWall: StandardMaterial;
   private readonly churchRoof: StandardMaterial;
+  /** Unlit panes (colour per instance), street-lamp bulbs and their pools. */
+  private readonly windowMat: StandardMaterial;
+  private readonly lampMat: StandardMaterial;
+  private readonly lampPool: StandardMaterial;
+  /** Current `night`, applied to views built later (see `create`). */
+  private night = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -125,6 +184,11 @@ export class CountrysideFactory {
     this.churchRoof = matte("churchRoof", "#4d5563", scene);
     this.churchRoof.backFaceCulling = false;
     this.churchRoof.twoSidedLighting = true;
+    this.windowMat = new StandardMaterial("villageWindows", scene);
+    this.windowMat.disableLighting = true;
+    this.windowMat.emissiveColor = Color3.White(); // × the instance colour
+    this.lampMat = lampMaterial("streetLamp", "#ffe0a0", scene);
+    this.lampPool = poolMaterial("streetLampPool", "#ffd890", scene);
   }
 
   /** @param bounds  the scenery map, for fading roads into the horizon. */
@@ -139,9 +203,13 @@ export class CountrysideFactory {
       const spans = land.bridges.filter((b) => b.road === i);
       meshes.push(...this.roadMeshes(road, spans, junctions, world, bounds));
     });
-    meshes.push(...this.houses(land.houses, world));
+    const village = this.houses(land.houses, world);
+    meshes.push(...village.meshes, ...this.streetLamps(land, world));
     for (const mesh of meshes) mesh.isPickable = false;
-    return new CountrysideView(meshes);
+    const view = new CountrysideView(meshes, village.windows);
+    // Built at night: windows lit straight away.
+    view.setNight(this.night);
+    return view;
   }
 
   // -------------------------------------------------------------------------
@@ -313,9 +381,13 @@ export class CountrysideFactory {
   // -------------------------------------------------------------------------
 
   /** Houses, cottages and barns as thin instances; the church built on its own. */
-  private houses(houses: readonly House[], world: WorldSize): Mesh[] {
+  private houses(
+    houses: readonly House[],
+    world: WorldSize,
+  ): { meshes: Mesh[]; windows: VillageWindows | null } {
     const plain = houses.filter((h) => h.kind !== "church");
     const meshes: Mesh[] = [];
+    let windows: VillageWindows | null = null;
     if (plain.length > 0) {
       const walls = CreateBox("houseWalls", { size: 1 }, this.scene);
       walls.bakeTransformIntoVertices(Matrix.Translation(0, 0.5, 0));
@@ -363,11 +435,116 @@ export class CountrysideFactory {
         this.shadows?.addShadowCaster(mesh, false);
         meshes.push(mesh);
       }
+      windows = this.windowPanes(plain, world);
+      meshes.push(windows.mesh);
     }
     for (const church of houses.filter((h) => h.kind === "church")) {
       meshes.push(...this.church(church, world));
     }
-    return meshes;
+    return { meshes, windows };
+  }
+
+  /**
+   * Two panes per house (barns have none), each a thin box through the
+   * house so it shows on both long walls: four windows. Hidden by day
+   * (CountrysideView.setNight shows and colours them).
+   */
+  private windowPanes(houses: readonly House[], world: WorldSize): VillageWindows {
+    const homes = houses.filter((h) => h.kind !== "barn");
+    const mesh = CreateBox("villageWindows", { size: 1 }, this.scene);
+    mesh.material = this.windowMat;
+    mesh.isPickable = false;
+    const matrices = new Float32Array(homes.length * 2 * 16);
+    const colors = new Float32Array(homes.length * 2 * 4);
+    const thresholds = new Float32Array(homes.length * 2);
+    const rng = mulberry32(0x3d0ff);
+    const m = new Matrix();
+    const rot = new Quaternion();
+    const scale = new Vector3();
+    const pos = new Vector3();
+    homes.forEach((h, i) => {
+      const size = HOUSE_SIZES[h.kind as Exclude<HouseKind, "church">];
+      const d = headingVector(h.heading);
+      Quaternion.RotationYawPitchRollToRef(headingToRotationY(h.heading), 0, 0, rot);
+      scale.set(size.l * 0.18, size.h * 0.26, size.d + 0.04);
+      const threshold = WINDOW_THRESHOLD_MIN + WINDOW_THRESHOLD_RANGE * rng();
+      [-0.22, 0.22].forEach((along, k) => {
+        const x = along * size.l;
+        toScene({ x: h.pos.x + d.x * x, y: h.pos.y + d.y * x }, world, size.h * 0.55, pos);
+        Matrix.ComposeToRef(scale, rot, pos, m);
+        m.copyToArray(matrices, (i * 2 + k) * 16);
+        thresholds[i * 2 + k] = threshold;
+      });
+    });
+    mesh.thinInstanceSetBuffer("matrix", matrices, 16, true);
+    mesh.thinInstanceSetBuffer("color", colors, 4, false);
+    mesh.thinInstanceRefreshBoundingInfo(false);
+    mesh.isVisible = false;
+    return { mesh, colors, thresholds };
+  }
+
+  /**
+   * Street lamps every `LAMP_SPACING` along the roads within the village,
+   * alternating sides: a bulb (glows at night) and a pool of light under
+   * it. Both hidden by day.
+   */
+  private streetLamps(land: Countryside, world: WorldSize): Mesh[] {
+    const village = land.village;
+    if (!village) return [];
+    const spots: Vec2[] = [];
+    for (const road of land.roads) {
+      let run = 0;
+      let side = 1;
+      for (let i = 1; i < road.points.length; i++) {
+        const a = road.points[i - 1]!;
+        const b = road.points[i]!;
+        run += Math.hypot(b.x - a.x, b.y - a.y);
+        if (run < LAMP_SPACING) continue;
+        run = 0;
+        if (Math.hypot(b.x - village.x, b.y - village.y) > VILLAGE_RADIUS) continue;
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const off = (ROAD_WIDTH / 2 + 0.4) * side;
+        spots.push({ x: b.x - ((b.y - a.y) / len) * off, y: b.y + ((b.x - a.x) / len) * off });
+        side = -side;
+      }
+    }
+    if (spots.length === 0) return [];
+    const bulb = CreateBox("streetLampBulb", { size: 0.22 }, this.scene);
+    bulb.material = this.lampMat;
+    const pool = createPoolMesh("streetLampPool", this.scene);
+    pool.material = this.lampPool;
+    const bulbM = new Float32Array(spots.length * 16);
+    const poolM = new Float32Array(spots.length * 16);
+    const m = new Matrix();
+    const pos = new Vector3();
+    const one = Vector3.One();
+    const poolScale = new Vector3(LAMP_POOL_RADIUS, 1, LAMP_POOL_RADIUS);
+    spots.forEach((p, i) => {
+      toScene(p, world, LAMP_HEIGHT, pos);
+      Matrix.ComposeToRef(one, Quaternion.Identity(), pos, m);
+      m.copyToArray(bulbM, i * 16);
+      pos.y = ROAD_PAINT_Y + 0.006;
+      Matrix.ComposeToRef(poolScale, Quaternion.Identity(), pos, m);
+      m.copyToArray(poolM, i * 16);
+    });
+    for (const [mesh, mats, mat] of [
+      [bulb, bulbM, this.lampMat],
+      [pool, poolM, this.lampPool],
+    ] as const) {
+      mesh.thinInstanceSetBuffer("matrix", mats, 16, true);
+      mesh.thinInstanceRefreshBoundingInfo(false);
+      mesh.isPickable = false;
+      mesh.isVisible = litNow(mat);
+    }
+    SceneGlow.for(this.scene).add(bulb, true);
+    return [bulb, pool];
+  }
+
+  /** 0 day … 1 night: lamps fade in (windows are per view, see CountrysideView). */
+  setNight(n: number): void {
+    this.night = n;
+    setNightLevel(this.lampMat, n);
+    setNightLevel(this.lampPool, n * LAMP_POOL_STRENGTH);
   }
 
   /** Nave with a pitched roof, and a square tower with a spire at the west end. */

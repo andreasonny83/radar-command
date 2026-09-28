@@ -317,6 +317,15 @@ export interface GameState {
    * ground the camera shows round it, so arrivals start out of sight.
    */
   viewAspect: number;
+  /**
+   * The ground the camera shows right now (sim coordinates): a rectangle,
+   * `length` across the screen and `width` up it, turned with the view.
+   * Reported by the renderer every frame; null until it has. Zoomed out,
+   * rotated or panned, this reaches past the default view, and arrivals
+   * must start beyond it too or they'd pop up on screen (see
+   * core/spawner.ts `pickSpawn`).
+   */
+  liveView: OrientedRect | null;
   runways: Runway[];
   planes: Plane[];
 }

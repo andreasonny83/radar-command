@@ -29,6 +29,7 @@ import type { Bridge } from "../core/countryside";
 import { arcLengths, nearestOnPolyline } from "../core/geometry";
 import type { Vec2, WorldSize } from "../core/types";
 import { headingToRotationY, toScene } from "./coords";
+import { SceneGlow } from "./glow";
 
 /** Road height off the bridge (matches countryside.ts). */
 const ROAD_Y = 0.03;
@@ -256,6 +257,8 @@ export class DrawbridgeFactory {
       light.isPickable = false;
       nodes.push(light);
       lights.push(light);
+      // Flashing barrier lights bloom after dark (render/glow.ts).
+      SceneGlow.for(this.scene).add(light, true);
 
       // The boom pivots on the post and reaches across the road (local +x).
       const pivot = new TransformNode("boomPivot", this.scene);
