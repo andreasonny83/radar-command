@@ -12,6 +12,11 @@ export default tseslint.config(
       globals: { ...globals.browser },
     },
   },
+  // Node scripts (the audio pipeline).
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: { globals: { ...globals.node } },
+  },
   // Must be last: turns off stylistic rules that would fight Prettier.
   prettier,
 );

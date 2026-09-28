@@ -1,0 +1,17 @@
+[
+  {
+    "id": "terminal",
+    "kind": "bed",
+    "source": {
+      "freesoundId": 394173,
+      "title": "Airport Sound Effect Stuttgart Germany.wav",
+      "author": "FreeToUseSounds",
+      "url": "https://freesound.org/s/394173/",
+      "preview": "https://cdn.freesound.org/previews/394/394173_7266967-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": { "start": 0, "length": 60 },
+    "process": { "bitrate": 64 },
+    "changes": "cut, mixed to mono, levelled and re-encoded"
+  }
+]
