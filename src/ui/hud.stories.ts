@@ -211,7 +211,7 @@ export const HelpFromStart: Story = { args: { phase: "start", help: true } };
 /**
  * Licenses panel (ui/licenses.ts), opened from the "Licenses" link: the
  * project's ISC license, why the game as served is GPL-3.0 (the bundled
- * meSpeak voice), a notice per component and the full texts, fetched from
+ * eSpeak NG voice), a notice per component and the full texts, fetched from
  * public/licenses/.
  */
 export const Licenses: Story = { args: { phase: "start", licenses: true } };

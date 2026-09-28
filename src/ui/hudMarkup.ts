@@ -495,8 +495,8 @@ export function licensesPanelMarkup(): string {
             </p>
             <p>
               The game as you're playing it also includes
-              <span class="font-semibold text-slate-100">meSpeak</span>, a build of the eSpeak
-              speech synthesiser that voices the terminal announcements. It is licensed under the
+              <span class="font-semibold text-slate-100">eSpeak NG</span>, the speech synthesiser
+              that voices the terminal announcements. It is licensed under the
               <span class="font-semibold text-slate-100">GNU General Public License, version 3</span>,
               so the game as a whole is distributed under the terms of the GPL-3.0 (full text
               below). You may copy, modify and share it under those terms.

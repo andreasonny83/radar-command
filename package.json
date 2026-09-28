@@ -20,8 +20,8 @@
   "license": "ISC",
   "dependencies": {
     "@babylonjs/core": "^9.27.1",
-    "@vercel/analytics": "^2.0.1",
-    "mespeak": "^2.0.2"
+    "@echogarden/espeak-ng-emscripten": "^0.3.5",
+    "@vercel/analytics": "^2.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

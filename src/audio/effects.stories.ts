@@ -14,7 +14,7 @@
  * switch its layers (room tone, the chattering crowd, PA announcements,
  * jets and radio outside) on and off; "PA announcement" plays one straight away (a queued
  * game line, else a terminal line), and "Speak" announces whatever is in
- * the text box. The speech engine (audio/speech.ts, ~1 MB) loads when
+ * the text box. The speech engine (audio/speech.ts, ~2 MB) loads when
  * audio starts; until then announcements use the wordless voice, and the
  * crowd is only its murmur (its lines render one by one over the first
  * few seconds, then conversations start).

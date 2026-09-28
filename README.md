@@ -112,8 +112,9 @@ Inspired by _Flight Control_ by Firemint. Built with Babylon.js, Vite, TypeScrip
 
 The project's own source code is released under the [ISC license](LICENSE).
 
-The game as built and served also bundles [meSpeak](https://www.masswerk.at/mespeak/)
-(a build of the eSpeak speech synthesiser, used for the spoken terminal announcements),
+The game as built and served also bundles [eSpeak NG](https://github.com/espeak-ng/espeak-ng)
+(the speech synthesiser behind the terminal announcements and crowd, via its
+[JavaScript port](https://github.com/echogarden-project/espeak-ng-emscripten)),
 which is licensed under the [GNU GPL v3](public/licenses/GPL-3.0.txt). The distributed
 game as a whole is therefore conveyed under the terms of the GPL-3.0, with this repository
 as its complete source. The in-game **Licenses** panel (start screen, game-over screen and

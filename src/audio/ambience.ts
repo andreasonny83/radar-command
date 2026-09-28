@@ -199,7 +199,7 @@ export class Ambience {
     this.announcer = this.createVoice(150, speakerLow);
     this.speaker = speakerLow;
 
-    // The speech engine is ~1 MB: fetch it now, in the background (the
+    // The speech engine is ~2 MB: fetch it now, in the background (the
     // ambience only exists once the player has clicked, see audio/mixer.ts).
     void loadSpeech().then((ok) => (this.speechReady = ok));
   }

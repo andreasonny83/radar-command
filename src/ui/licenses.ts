@@ -4,8 +4,8 @@
  * notice for every third-party component bundled into it.
  *
  * Why the game as a whole is GPL-3.0: the PA announcer's voice
- * (audio/speech.ts) is meSpeak, a build of the eSpeak speech synthesiser,
- * and both are GPL-3.0. The project's own source stays ISC (LICENSE), but
+ * (audio/speech.ts) is eSpeak NG, the speech synthesiser, compiled to
+ * JavaScript, and it's GPL-3.0. The project's own source stays ISC (LICENSE), but
  * serving the game conveys the combined work, which has to follow the GPL:
  * its full text travels with the game, and the complete source is public.
  *
@@ -38,12 +38,12 @@ export interface ThirdPartyNotice {
 
 export const THIRD_PARTY: readonly ThirdPartyNotice[] = [
   {
-    name: "meSpeak (eSpeak speech synthesiser)",
-    role: "The voice of the terminal PA announcements",
+    name: "eSpeak NG (speech synthesiser)",
+    role: "The voices of the terminal PA announcements and the crowd",
     license: "GPL-3.0",
     copyright:
-      "© 2011–2013 Norbert Landsteiner (meSpeak), based on speak.js by Alon Zakai and eSpeak by Jonathan Duddington",
-    url: "https://www.masswerk.at/mespeak/",
+      "© 2005–2014 Jonathan Duddington, © 2015– Reece H. Dunn and the eSpeak NG contributors; JavaScript port by Eitan Isaacson (espeakng.js) and the Echogarden project",
+    url: "https://github.com/echogarden-project/espeak-ng-emscripten",
     text: "licenses/GPL-3.0.txt",
   },
   {

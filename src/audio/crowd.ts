@@ -23,11 +23,11 @@
  *
  * Until the voices have loaded, or if they can't, only the murmur plays.
  */
-import { loadCrowdVoices, speakAs, type CrowdVoice, type SpeechStyle } from "./speech";
+import { loadSpeech, speakAs, type CrowdVoice, type SpeechStyle } from "./speech";
 
 /** The languages the crowd speaks, each with the voices that speak it. */
 const LANGUAGE_VOICES = {
-  en: ["en/en-rp", "en/en-us", "en/en-sc"],
+  en: ["en-gb-x-rp", "en-us", "en-gb-scotland"],
   fr: ["fr"],
   de: ["de"],
   es: ["es"],
@@ -105,7 +105,7 @@ export const CROWD_LINES: Record<Language, readonly string[]> = {
  */
 export const CROWD = {
   /** Conversations going on at once. */
-  conversations: 5,
+  conversations: 0,
   /** Chance a new conversation is in English (else one of the others). */
   english: 0.65,
   /** Lines traded in one conversation. */
@@ -123,7 +123,7 @@ const MURMUR_LEVEL = 0.05;
 /** Low-pass cutoff (Hz) of the nearest and the furthest spot. */
 const NEAR_CUTOFF = 3200;
 const FAR_CUTOFF = 900;
-/** Timbres the voices are spoken in (meSpeak variants, m = male, f = female). */
+/** Timbres the voices are spoken in (eSpeak NG variants, m = male, f = female). */
 const VARIANTS = ["m1", "m2", "m3", "m4", "m6", "f1", "f2", "f3", "f4", "f5"];
 /** Milliseconds between clip renders (each takes ~10-60 ms of main thread). */
 const RENDER_SPACING = 120;
@@ -170,7 +170,7 @@ export class Crowd {
     this.startMurmur(noise);
     for (let i = 0; i < CROWD.conversations; i++) this.conversations.push(this.newSpot(0));
     // Fetch the voices in the background, then render the lines one by one.
-    void loadCrowdVoices().then((ok) => {
+    void loadSpeech().then((ok) => {
       if (ok) this.renderLines();
     });
   }
