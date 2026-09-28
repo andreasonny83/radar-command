@@ -11,7 +11,7 @@
  * help panel come from the shortcut table in input/shortcuts.ts.
  */
 import { POINTER_CONTROLS, SHORTCUT_GROUPS, shortcutHint } from "../input/shortcuts";
-import { GPL_TEXT, SOURCE_URL, THIRD_PARTY } from "./licenses";
+import { CC0_TEXT, GPL_TEXT, RECORDINGS, SOURCE_URL, THIRD_PARTY } from "./licenses";
 import { GITHUB_REPO_URL } from "./links";
 
 /** "Landed" counter, top-left. */
@@ -78,8 +78,31 @@ export function toastMarkup(): string {
 }
 
 /**
+ * Speaker with sound waves, for the sound button. An SVG in currentColor
+ * rather than an emoji, so it matches the music note in size and colour
+ * and dims with `.hud-button-off` like any text glyph.
+ */
+const SOUND_ICON = `
+  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" />
+    <path d="M15.5 9a4 4 0 0 1 0 6" />
+    <path d="M18.5 6.5a7.5 7.5 0 0 1 0 11" />
+  </svg>`;
+
+/** Beamed pair of eighth notes, for the music button (same style as SOUND_ICON). */
+const MUSIC_ICON = `
+  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M9 17.5V6l10-2v11.5" />
+    <circle cx="6.5" cy="17.5" r="2.5" fill="currentColor" />
+    <circle cx="16.5" cy="15.5" r="2.5" fill="currentColor" />
+  </svg>`;
+
+/**
  * Sound on / off, first in the bottom-right button row (with the camera
- * buttons). Shows the current state; `hud.setMuted` flips the icon.
+ * buttons). `hud.setMuted` dims it (`.hud-button-off` in style.css) while
+ * the sound is off, the same look as the music button.
  */
 export function soundButtonMarkup(): string {
   return `
@@ -90,7 +113,7 @@ export function soundButtonMarkup(): string {
         aria-label="Sound"
         aria-pressed="true"
       >
-        🔊
+        ${SOUND_ICON}
       </button>`;
 }
 
@@ -107,7 +130,7 @@ export function musicButtonMarkup(): string {
         aria-label="Music"
         aria-pressed="true"
       >
-        ♪
+        ${MUSIC_ICON}
       </button>`;
 }
 
@@ -443,6 +466,11 @@ export function helpPanelMarkup(): string {
     </div>`;
 }
 
+/** `text` made safe to place inside markup (text or an attribute value). */
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
 /**
  * Licenses panel: how the game is licensed (the project's own code is ISC;
  * the game as served bundles the GPL-3.0 speech engine, so the whole is
@@ -466,6 +494,18 @@ export function licensesPanelMarkup(): string {
           <summary class="cursor-pointer text-slate-400 hover:text-sky-300">License text</summary>
           <pre data-license-text="${n.text}" class="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-950/60 p-3 whitespace-pre-wrap text-slate-400">Loading…</pre>
         </details>
+      </li>`,
+  ).join("");
+  // Titles and names come from Freesound: escaped, not trusted as markup.
+  const recordings = RECORDINGS.map(
+    (r) => `
+      <li class="py-2">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4">
+          <a class="font-semibold text-slate-100 underline decoration-slate-600 hover:text-sky-300" href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.title)}</a>
+          <a class="rounded-md border border-slate-600 px-1.5 font-mono text-xs text-slate-300 hover:text-sky-300" href="${escapeHtml(r.licenseUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(r.license)}</a>
+        </div>
+        <div class="text-sm text-slate-400">by ${escapeHtml(r.author)}</div>
+        <div class="text-xs text-slate-500">${escapeHtml(r.changes)}: ${r.files.map(escapeHtml).join(", ")}</div>
       </li>`,
   ).join("");
   return `
@@ -513,6 +553,20 @@ export function licensesPanelMarkup(): string {
           <section>
             ${helpHeadingMarkup("Third-party components")}
             <ul class="divide-y divide-slate-800">${notices}</ul>
+          </section>
+          <section>
+            ${helpHeadingMarkup("Sound recordings")}
+            <p class="text-sm">
+              The planes' engines, runway and gear sounds, the fly-bys and the terminal are
+              cut from real field recordings shared on
+              <a class="text-sky-300 underline" href="https://freesound.org" target="_blank" rel="noopener noreferrer">Freesound</a>,
+              all dedicated to the public domain (CC0 1.0). Thank you to everyone who recorded them.
+            </p>
+            <ul class="divide-y divide-slate-800">${recordings}</ul>
+            <details class="mt-1 text-xs">
+              <summary class="cursor-pointer text-slate-400 hover:text-sky-300">CC0 1.0 legal code</summary>
+              <pre data-license-text="${CC0_TEXT}" class="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-950/60 p-3 whitespace-pre-wrap text-slate-400">Loading…</pre>
+            </details>
           </section>
           <section>
             ${helpHeadingMarkup("GNU General Public License v3.0")}

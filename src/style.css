@@ -37,8 +37,8 @@
       bg-slate-800/80 text-xl font-bold text-slate-200 shadow-lg backdrop-blur-sm
       transition hover:bg-slate-700 active:scale-95;
   }
-  /* A toggle button switched off (the music button, hud.ts `setMusicOn`):
-     dimmed, with a diagonal strike through the icon. */
+  /* A toggle button switched off (sound and music, hud.ts `setMuted` and
+     `setMusicOn`): dimmed, with a diagonal strike through the icon. */
   .hud-button-off {
     @apply text-slate-500;
     background-image: linear-gradient(

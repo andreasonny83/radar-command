@@ -8,12 +8,12 @@
  *   ambience ─► ambience bus ─┼─► master ─► speakers
  *   music ────► music bus ────┘
  *
- * - master: the sound on / off setting (🔊 button, M);
- * - music bus: the music on / off setting (♪ button, N), and the scene's
+ * - master: the sound on / off setting (speaker button, M);
+ * - music bus: the music on / off setting (music button, N), and the scene's
  *   music level: full on the title screen and during a shift, dipped while
  *   paused, faded out after a crash;
  * - ambience bus: the airport carries on quietly while paused and after a
- *   crash; ♪ doesn't touch it (it's the world, not the soundtrack);
+ *   crash; the music button doesn't touch it (it's the world, not the soundtrack);
  * - sfx bus: silenced while paused, so held engines don't drone on.
  *
  * main.ts feeds it three ways: game state every frame (`update`), the
@@ -95,12 +95,12 @@ export class GameAudio {
     this.isMusicOn = this.storage?.getItem(MUSIC_KEY) !== "0";
   }
 
-  /** Is all sound off (🔊 / M)? */
+  /** Is all sound off (speaker button / M)? */
   get muted(): boolean {
     return this.isMuted;
   }
 
-  /** Is the background music on (♪ / N)? */
+  /** Is the background music on (music button / N)? */
   get musicOn(): boolean {
     return this.isMusicOn;
   }
@@ -195,7 +195,7 @@ export class GameAudio {
         ambienceBus,
         musicBus,
         samples,
-        sfx: new Sfx(ctx, sfxBus),
+        sfx: new Sfx(ctx, sfxBus, samples),
         ambience: new Ambience(ctx, ambienceBus, samples, seed ^ 0x5eed),
         music: new Music(ctx, musicBus, seed),
       };

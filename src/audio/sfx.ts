@@ -1,25 +1,30 @@
 /**
- * Sound effects, synthesised with the Web Audio API: no audio files.
+ * Sound effects: the planes' own sounds are real recordings (engines,
+ * runway, gear, whooshes: audio/samples.ts, credited in CREDITS.md), the
+ * game's signals (chime, alert, readback) are synthesised with the Web
+ * Audio API.
  *
  * Like the renderer, this layer only reads game state; it never changes it.
  * Effects come three ways:
  *
  * - State, every frame (`update`): the continuous sounds.
  *   - Take-off engines: every departure from lining up to the top of its
- *     climb has a voice of its own: spooling up on the line-up, a roar
- *     rising in pitch and brightness with speed down the take-off roll,
- *     then fading away as it climbs out. A voice is a band of filtered
- *     noise (the roar), two detuned saws through a low-pass (the rumble)
- *     and a thin sine (the turbine whine).
+ *     climb has a voice of its own, in its type's recordings (jet,
+ *     turboprop or piston: `ENGINE_FAMILY`): an idle and a full-power loop,
+ *     blended as the throttle opens, played faster (higher) with speed and
+ *     brighter with power, then fading away as it climbs out.
  *   - Rollout: tyre and runway rumble under a landing plane, from the
  *     moment its wheels touch (the end of the flare) until it turns off,
- *     falling with its speed.
+ *     slowing and dulling with its speed.
  * - Cues from the renderer (`cue`, see audio/cues.ts), timed to the
- *   animation: gear whine and clunk, the touchdown chirp (with a burst of
- *   reverse thrust), the bank whoosh and the near-miss alert.
+ *   animation: the gear's hydraulic whine (for exactly as long as the legs
+ *   swing) and clunk, the touchdown chirp (with reverse thrust for jets),
+ *   the bank whoosh and the near-miss alert.
  * - Game moments (called by the mixer): the departure chime, a go-around's
  *   engines spooling to full power, and the radio readback when the player
  *   finishes a path.
+ *
+ * A recording that hasn't loaded (or failed to) is simply skipped.
  *
  * Everything tied to a plane is panned to where it is on screen. While the
  * camera follows a plane (`setFocus`), its sounds step forward and every
@@ -35,11 +40,18 @@ import {
   PLANE_SPEED,
   ROTATE_SPEED,
 } from "../config";
+import { aircraftKindFor, type AircraftKind } from "../core/fleet";
 import type { GameState, Plane } from "../core/types";
 import type { AudioCue, PanLookup } from "./cues";
+import type { SampleId, Samples } from "./samples";
 
-/** Loudest an engine voice gets (at full power, close by). */
-const ENGINE_VOLUME = 0.32;
+/**
+ * Loudest an engine voice gets (at full power, close by). The recordings
+ * are levelled to -20 dBFS RMS by the audio pipeline; this puts a
+ * departure's take-off roll at the same loudness as the old synthesised
+ * roar (measured: offline render, RMS), the loudest thing in the game.
+ */
+const ENGINE_VOLUME = 1.27;
 
 /** Share of full power while lined up, spooling up before the roll. */
 const SPOOL_THROTTLE = 0.35;
@@ -53,8 +65,35 @@ const ENGINE_FADE_DISTANCE = CLIMB_DISTANCE * 1.6;
 /** Time constant (seconds) for engine parameter changes: smooth, never stepped. */
 const ENGINE_SMOOTHING = 0.12;
 
+/**
+ * Engine playback speed (and pitch): `ENGINE_RATE[0]` standing still,
+ * rising with speed, never outside the range (beyond ~±25 % a recording
+ * starts to sound sped up rather than revved up).
+ */
+const ENGINE_RATE = [0.85, 1.25] as const;
+const ENGINE_RATE_PER_SPEED = 0.4;
+
+/** Engine low-pass cut-off (Hz): duller at low power and far away, open at full power. */
+const ENGINE_CUTOFF = [900, 7900] as const;
+
+/** Which engine recordings each aircraft type plays (audio/samples.ts). */
+const ENGINE_FAMILY: Record<AircraftKind, "jet" | "turboprop" | "piston"> = {
+  airliner: "jet",
+  turboprop: "turboprop",
+  light: "piston",
+};
+
+/** Loudness of each type's engines and runway sounds: the trainer is the quietest. */
+const KIND_SCALE: Record<AircraftKind, number> = { airliner: 1, turboprop: 0.8, light: 0.55 };
+
+/** Tyre-chirp playback speed per type: a small plane's tyres squeal higher. */
+const CHIRP_RATE: Record<AircraftKind, number> = { airliner: 0.9, turboprop: 1, light: 1.1 };
+
+/** The fly-by recordings the bank whoosh picks from (a different one each time). */
+const WHOOSHES: readonly SampleId[] = ["whoosh-1", "whoosh-2", "whoosh-3"];
+
 /** Loudest the rollout rumble gets (just after touchdown). */
-const ROLLOUT_VOLUME = 0.22;
+const ROLLOUT_VOLUME = 0.33;
 
 /**
  * Follow mode (see `setFocus`): the followed plane's sounds are scaled by
@@ -87,31 +126,34 @@ const ALERT_VOLUME = 0.09;
  * RMS through the master): cues that matter for play (readback, alert,
  * touchdown) around -34 dBFS, the gear and whoosh around -40 (texture,
  * just above the music's -35 bed), a go-around's engines up to -31, all
- * under a departure's full-power roar (-20).
+ * under a departure's full-power roar (-20). The recorded sounds were
+ * matched to those levels (offline renders of old and new, RMS).
  */
 const LEVELS = {
-  gearWhine: 0.11,
-  gearClunk: 0.2,
-  chirp: 0.09,
-  thump: 0.22,
-  reverse: 0.2,
-  goAround: 0.2,
-  whoosh: 0.16,
+  gearWhine: 0.23,
+  gearClunk: 0.25,
+  chirp: 0.18,
+  reverse: 0.4,
+  goAround: 0.78,
+  whoosh: 0.18,
   readback: 0.07,
   squelch: 0.03,
 };
 
-/** The audio nodes of one departure's engines. */
+/**
+ * The audio nodes of one departure's engines: its type's idle and
+ * full-power recordings, both looping, blended by power.
+ */
 interface EngineVoice {
-  sources: AudioScheduledSourceNode[];
-  roar: BiquadFilterNode;
-  rumble: [OscillatorNode, OscillatorNode];
-  whine: OscillatorNode;
+  sources: [idle: AudioBufferSourceNode, full: AudioBufferSourceNode];
+  idle: GainNode;
+  full: GainNode;
+  tone: BiquadFilterNode;
   out: GainNode;
   pan: StereoPannerNode;
 }
 
-/** The audio nodes of one landing plane's rollout rumble. */
+/** The audio nodes of one landing plane's rollout rumble (a looping recording). */
 interface RolloutVoice {
   source: AudioBufferSourceNode;
   tone: BiquadFilterNode;
@@ -132,10 +174,12 @@ export class Sfx {
   /**
    * @param ctx  the mixer's audio context
    * @param out  where the effects play (the mixer's effects bus)
+   * @param samples  the recorded sounds (audio/samples.ts)
    */
   constructor(
     private readonly ctx: AudioContext,
     private readonly out: AudioNode,
+    private readonly samples: Samples,
   ) {
     this.noise = noiseBuffer(ctx);
   }
@@ -174,20 +218,35 @@ export class Sfx {
   }
 
   /**
-   * A go-around: the engines spool up to full power over ~2 s, hold, and
-   * fade as the plane climbs away. `planeId` is the plane going around
-   * (for the follow-mode focus).
+   * A go-around: the plane's own engines (its type's full-power
+   * recording) spool up to full power over ~2 s, hold, and fade as it
+   * climbs away. `planeId` is the plane going around (its type, and the
+   * follow-mode focus).
    */
   goAround(pan: number, planeId?: number): void {
     const t = this.ctx.currentTime;
-    const out = this.oneShot(pan, this.focusLevel(planeId));
-    const env = out.gain;
+    const kind = planeId === undefined ? "airliner" : aircraftKindFor(planeId);
+    const sound = this.play(
+      `engine-${ENGINE_FAMILY[kind]}-full`,
+      pan,
+      this.focusLevel(planeId),
+      t,
+      {
+        loop: true,
+      },
+    );
+    if (!sound) return;
+    const env = sound.env.gain;
+    const level = LEVELS.goAround * KIND_SCALE[kind];
     env.setValueAtTime(0, t);
-    env.linearRampToValueAtTime(LEVELS.goAround * 0.4, t + 0.3);
-    env.linearRampToValueAtTime(LEVELS.goAround, t + 2);
-    env.setValueAtTime(LEVELS.goAround, t + 3);
+    env.linearRampToValueAtTime(level * 0.4, t + 0.3);
+    env.linearRampToValueAtTime(level, t + 2);
+    env.setValueAtTime(level, t + 3);
     env.linearRampToValueAtTime(0, t + 4.8);
-    this.jetRoar(out, t, 5, [300, 2600, 1400], [45, 85, 80]);
+    // The spool-up: the pitch rises with the power.
+    sound.src.playbackRate.setValueAtTime(ENGINE_RATE[0], t);
+    sound.src.playbackRate.linearRampToValueAtTime(1.15, t + 2);
+    sound.src.stop(t + 5);
   }
 
   /**
@@ -222,7 +281,7 @@ export class Sfx {
         this.gearClunk(cue.pan, level, t, cue.down);
         break;
       case "touchdown":
-        this.touchdown(cue.pan, level, t);
+        this.touchdown(cue.pan, level, t, aircraftKindFor(cue.planeId));
         break;
       case "bankWhoosh":
         this.whoosh(cue.pan, level, t, cue.strength);
@@ -234,96 +293,57 @@ export class Sfx {
   }
 
   /**
-   * Gear travelling: a hydraulic whine (a buzzy tone through a narrow band,
-   * rising in pitch as the pump works) with a little hiss, for exactly as
-   * long as the legs swing.
+   * Gear travelling: the hydraulic pump (a looping recording), for exactly
+   * as long as the legs swing, its pitch rising a little as it works;
+   * retracting (lifting the legs) runs a touch higher than extending.
    */
   private gearWhine(pan: number, level: number, t: number, seconds: number, down: boolean): void {
-    const { ctx } = this;
     const dur = Math.max(0.2, seconds);
-    const out = this.oneShot(pan, level);
-    out.gain.setValueAtTime(0, t);
-    out.gain.linearRampToValueAtTime(LEVELS.gearWhine, t + 0.12);
-    out.gain.setValueAtTime(LEVELS.gearWhine, t + dur - 0.12);
-    out.gain.linearRampToValueAtTime(0, t + dur);
-    const pump = ctx.createOscillator();
-    pump.type = "sawtooth";
-    const base = down ? 170 : 190;
-    pump.frequency.setValueAtTime(base, t);
-    pump.frequency.linearRampToValueAtTime(base * 1.25, t + dur);
-    const band = ctx.createBiquadFilter();
-    band.type = "bandpass";
-    band.frequency.value = 900;
-    band.Q.value = 3;
-    pump.connect(band).connect(out);
-    pump.start(t);
-    pump.stop(t + dur + 0.05);
-    const hiss = this.noiseSource(t, dur);
-    const hissBand = ctx.createBiquadFilter();
-    hissBand.type = "highpass";
-    hissBand.frequency.value = 2500;
-    const hissGain = ctx.createGain();
-    hissGain.gain.value = 0.3;
-    hiss.connect(hissBand).connect(hissGain).connect(out);
+    const sound = this.play("gear-hydraulic", pan, level, t, { loop: true });
+    if (!sound) return;
+    const env = sound.env.gain;
+    env.setValueAtTime(0, t);
+    env.linearRampToValueAtTime(LEVELS.gearWhine, t + 0.05);
+    env.setValueAtTime(LEVELS.gearWhine, t + dur - 0.05);
+    env.linearRampToValueAtTime(0, t + dur);
+    const base = down ? 1 : 1.05;
+    sound.src.playbackRate.setValueAtTime(base, t);
+    sound.src.playbackRate.linearRampToValueAtTime(base * 1.08, t + dur);
+    sound.src.stop(t + dur + 0.05);
   }
 
-  /** Gear locked: a short low thump with a metallic click (deeper going down). */
+  /** Gear locked: a heavy steel clunk (lower and louder going down). */
   private gearClunk(pan: number, level: number, t: number, down: boolean): void {
-    const out = this.oneShot(pan, level);
-    out.gain.value = 1;
-    this.thump(out, t, down ? 85 : 110, 0.14, LEVELS.gearClunk);
-    this.click(out, t, 1800, 0.03, LEVELS.gearClunk * 0.35);
+    this.play("gear-clunk", pan, level, t, {
+      gain: LEVELS.gearClunk * (down ? 1.2 : 1),
+      rate: down ? 0.9 : 1.05,
+    });
   }
 
   /**
-   * Wheels on the runway: two quick tyre chirps (a squeal gliding down)
-   * over a thump, then a burst of reverse thrust swelling and dying away.
+   * Wheels on the runway: a tyre chirp (higher for smaller planes), and
+   * for jets the reverse thrust roaring up to slow the plane (the
+   * recording opens on its own touchdown bump, so it starts right away).
    */
-  private touchdown(pan: number, level: number, t: number): void {
-    const { ctx } = this;
-    const out = this.oneShot(pan, level);
-    out.gain.value = 1;
-    this.thump(out, t, 60, 0.25, LEVELS.thump);
-    for (const [at, level] of [
-      [0, 1],
-      [0.09, 0.6],
-    ] as const) {
-      const squeal = ctx.createOscillator();
-      squeal.type = "triangle";
-      squeal.frequency.setValueAtTime(1300, t + at);
-      squeal.frequency.exponentialRampToValueAtTime(650, t + at + 0.09);
-      const env = ctx.createGain();
-      env.gain.setValueAtTime(0.0001, t + at);
-      env.gain.exponentialRampToValueAtTime(LEVELS.chirp * level, t + at + 0.01);
-      env.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.1);
-      squeal.connect(env).connect(out);
-      squeal.start(t + at);
-      squeal.stop(t + at + 0.12);
-    }
-    // Reverse thrust: the engines roar back up to slow the plane.
-    const rev = this.oneShot(pan, level);
-    rev.gain.setValueAtTime(0, t + 0.3);
-    rev.gain.linearRampToValueAtTime(LEVELS.reverse, t + 1.1);
-    rev.gain.linearRampToValueAtTime(0, t + 3.2);
-    this.jetRoar(rev, t + 0.3, 3, [500, 1800, 700], [60, 70, 55]);
+  private touchdown(pan: number, level: number, t: number, kind: AircraftKind): void {
+    const scale = KIND_SCALE[kind];
+    this.play("touchdown-chirp", pan, level, t, {
+      gain: LEVELS.chirp * scale,
+      rate: CHIRP_RATE[kind],
+    });
+    if (kind === "airliner") this.play("reverse-thrust", pan, level, t, { gain: LEVELS.reverse });
   }
 
-  /** Airflow over the wings in a hard turn: a band of noise swept up and back. */
+  /**
+   * Air over the wings in a hard turn: a fly-by recording (a different
+   * one each time), louder and quicker the harder the bank.
+   */
   private whoosh(pan: number, level: number, t: number, strength: number): void {
-    const { ctx } = this;
-    const dur = 0.9;
-    const out = this.oneShot(pan, level);
-    out.gain.setValueAtTime(0, t);
-    out.gain.linearRampToValueAtTime(LEVELS.whoosh * Math.min(1.3, strength), t + dur * 0.4);
-    out.gain.linearRampToValueAtTime(0, t + dur);
-    const src = this.noiseSource(t, dur);
-    const band = ctx.createBiquadFilter();
-    band.type = "bandpass";
-    band.Q.value = 1.2;
-    band.frequency.setValueAtTime(400, t);
-    band.frequency.linearRampToValueAtTime(1300, t + dur * 0.45);
-    band.frequency.linearRampToValueAtTime(500, t + dur);
-    src.connect(band).connect(out);
+    const id = WHOOSHES[Math.floor(Math.random() * WHOOSHES.length)]!;
+    this.play(id, pan, level, t, {
+      gain: LEVELS.whoosh * Math.min(1.3, strength),
+      rate: 0.9 + 0.3 * Math.min(1, strength),
+    });
   }
 
   /** Near-miss: a soft two-tone, twice, rate-limited (see `ALERT_GAP`). */
@@ -359,37 +379,41 @@ export class Sfx {
     // Nothing runs on after the shift ends (the crash has its own drama).
     const live = state.phase === "playing" || state.phase === "paused";
     for (const plane of live ? state.planes : []) {
+      const kind = aircraftKindFor(plane.id);
       const sound = engineSound(plane);
-      if (sound) {
+      // A voice needs its recordings: until they've loaded, the plane is
+      // silent (and gets its voice on the first frame they're there).
+      const engine = sound
+        ? (this.engines.get(plane.id) ?? this.createEngine(plane.id, kind))
+        : null;
+      if (sound && engine) {
         engines.add(plane.id);
-        let voice = this.engines.get(plane.id);
-        if (!voice) {
-          voice = this.createEngine();
-          this.engines.set(plane.id, voice);
-        }
         const { level, speed } = sound;
         const t = ENGINE_SMOOTHING;
-        const gain = ENGINE_VOLUME * level * this.focusLevel(plane.id);
-        voice.out.gain.setTargetAtTime(gain, now, t);
-        voice.roar.frequency.setTargetAtTime(350 + 2600 * level * (0.4 + 0.6 * speed), now, t);
-        const base = 42 + 38 * speed + 10 * level;
-        voice.rumble[0].frequency.setTargetAtTime(base, now, t);
-        voice.rumble[1].frequency.setTargetAtTime(base * 1.013, now, t);
-        voice.whine.frequency.setTargetAtTime(900 + 1700 * speed + 400 * level, now, t);
-        voice.pan.pan.setTargetAtTime(pan(plane.id), now, t);
+        // Idle blends into full power as the throttle opens (equal power:
+        // the sum stays as loud mid-blend as at either end).
+        const blend = (Math.min(1, level) * Math.PI) / 2;
+        engine.idle.gain.setTargetAtTime(Math.cos(blend), now, t);
+        engine.full.gain.setTargetAtTime(Math.sin(blend), now, t);
+        const rate = Math.min(ENGINE_RATE[1], ENGINE_RATE[0] + ENGINE_RATE_PER_SPEED * speed);
+        for (const src of engine.sources) src.playbackRate.setTargetAtTime(rate, now, t);
+        const cutoff = ENGINE_CUTOFF[0] + (ENGINE_CUTOFF[1] - ENGINE_CUTOFF[0]) * level;
+        engine.tone.frequency.setTargetAtTime(cutoff, now, t);
+        const gain = ENGINE_VOLUME * KIND_SCALE[kind] * level * this.focusLevel(plane.id);
+        engine.out.gain.setTargetAtTime(gain, now, t);
+        engine.pan.pan.setTargetAtTime(pan(plane.id), now, t);
       }
       const roll = rolloutLevel(plane);
-      if (roll > 0) {
+      const rollout =
+        roll > 0 ? (this.rollouts.get(plane.id) ?? this.createRollout(plane.id)) : null;
+      if (rollout) {
         rollouts.add(plane.id);
-        let voice = this.rollouts.get(plane.id);
-        if (!voice) {
-          voice = this.createRollout();
-          this.rollouts.set(plane.id, voice);
-        }
-        const gain = ROLLOUT_VOLUME * roll * this.focusLevel(plane.id);
-        voice.out.gain.setTargetAtTime(gain, now, 0.15);
-        voice.tone.frequency.setTargetAtTime(120 + 380 * roll, now, 0.15);
-        voice.pan.pan.setTargetAtTime(pan(plane.id), now, 0.15);
+        const gain = ROLLOUT_VOLUME * KIND_SCALE[kind] * roll * this.focusLevel(plane.id);
+        rollout.out.gain.setTargetAtTime(gain, now, 0.15);
+        // Slower and duller as the plane brakes.
+        rollout.source.playbackRate.setTargetAtTime(0.8 + 0.3 * roll, now, 0.15);
+        rollout.tone.frequency.setTargetAtTime(500 + 1500 * roll, now, 0.15);
+        rollout.pan.pan.setTargetAtTime(pan(plane.id), now, 0.15);
       }
     }
     for (const [id, voice] of this.engines) {
@@ -406,72 +430,73 @@ export class Sfx {
     }
   }
 
-  /** Build one engine voice (silent until `update` turns it up). */
-  private createEngine(): EngineVoice {
+  /**
+   * Build plane `planeId`'s engine voice (silent until `update` turns it
+   * up), or null while its type's recordings haven't loaded.
+   */
+  private createEngine(planeId: number, kind: AircraftKind): EngineVoice | null {
+    const family = ENGINE_FAMILY[kind];
+    const idleBuffer = this.samples.get(`engine-${family}-idle`);
+    const fullBuffer = this.samples.get(`engine-${family}-full`);
+    if (!idleBuffer || !fullBuffer) return null;
     const { ctx } = this;
     const pan = ctx.createStereoPanner();
     pan.connect(this.out);
     const out = ctx.createGain();
     out.gain.value = 0;
     out.connect(pan);
-
-    // Roar: looping white noise through a low-pass that opens with power.
-    const hiss = ctx.createBufferSource();
-    hiss.buffer = this.noise;
-    hiss.loop = true;
-    const roar = ctx.createBiquadFilter();
-    roar.type = "lowpass";
-    roar.frequency.value = 350;
-    roar.Q.value = 0.8;
-    hiss.connect(roar).connect(out);
-
-    // Rumble: two slightly detuned saws, their beating gives a throb.
-    const rumbleFilter = ctx.createBiquadFilter();
-    rumbleFilter.type = "lowpass";
-    rumbleFilter.frequency.value = 420;
-    const rumbleGain = ctx.createGain();
-    rumbleGain.gain.value = 0.35;
-    rumbleFilter.connect(rumbleGain).connect(out);
-    const rumble = [ctx.createOscillator(), ctx.createOscillator()] as [
-      OscillatorNode,
-      OscillatorNode,
-    ];
-    for (const osc of rumble) {
-      osc.type = "sawtooth";
-      osc.frequency.value = 45;
-      osc.connect(rumbleFilter);
-    }
-
-    // Whine: a faint high sine, rising with the engine speed.
-    const whine = ctx.createOscillator();
-    whine.frequency.value = 900;
-    const whineGain = ctx.createGain();
-    whineGain.gain.value = 0.035;
-    whine.connect(whineGain).connect(out);
-
-    const sources: AudioScheduledSourceNode[] = [hiss, ...rumble, whine];
-    for (const src of sources) src.start();
-    return { sources, roar, rumble, whine, out, pan };
-  }
-
-  /** Build one rollout rumble: looping noise, low-passed (silent until `update`). */
-  private createRollout(): RolloutVoice {
-    const { ctx } = this;
-    const pan = ctx.createStereoPanner();
-    pan.connect(this.out);
-    const out = ctx.createGain();
-    out.gain.value = 0;
-    out.connect(pan);
-    const source = ctx.createBufferSource();
-    source.buffer = this.noise;
-    source.loop = true;
     const tone = ctx.createBiquadFilter();
     tone.type = "lowpass";
-    tone.frequency.value = 300;
-    tone.Q.value = 0.7;
-    source.connect(tone).connect(out);
-    source.start();
-    return { source, tone, out, pan };
+    tone.frequency.value = ENGINE_CUTOFF[0];
+    tone.connect(out);
+    const idle = ctx.createGain();
+    idle.gain.value = 1;
+    idle.connect(tone);
+    const full = ctx.createGain();
+    full.gain.value = 0;
+    full.connect(tone);
+    const sources = [this.loop(idleBuffer, idle), this.loop(fullBuffer, full)] as [
+      AudioBufferSourceNode,
+      AudioBufferSourceNode,
+    ];
+    const voice = { sources, idle, full, tone, out, pan };
+    this.engines.set(planeId, voice);
+    return voice;
+  }
+
+  /**
+   * Build plane `planeId`'s rollout rumble (silent until `update` turns it
+   * up), or null while the recording hasn't loaded.
+   */
+  private createRollout(planeId: number): RolloutVoice | null {
+    const buffer = this.samples.get("rollout");
+    if (!buffer) return null;
+    const { ctx } = this;
+    const pan = ctx.createStereoPanner();
+    pan.connect(this.out);
+    const out = ctx.createGain();
+    out.gain.value = 0;
+    out.connect(pan);
+    const tone = ctx.createBiquadFilter();
+    tone.type = "lowpass";
+    tone.frequency.value = 2000;
+    tone.connect(out);
+    const voice = { source: this.loop(buffer, tone), tone, out, pan };
+    this.rollouts.set(planeId, voice);
+    return voice;
+  }
+
+  /**
+   * Start `buffer` looping into `out` from a random point, so planes
+   * sharing a recording never play it in step (which would phase).
+   */
+  private loop(buffer: AudioBuffer, out: AudioNode): AudioBufferSourceNode {
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    src.connect(out);
+    src.start(0, Math.random() * buffer.duration);
+    return src;
   }
 
   // -------------------------------------------------------------------------
@@ -497,6 +522,32 @@ export class Sfx {
     return gain;
   }
 
+  /**
+   * Play recording `id` at `t` through a one-shot chain (see `oneShot`):
+   * `gain` sets its level (or shape `env` yourself), `rate` its speed and
+   * pitch, `loop` keeps it going until stopped. Null (and silence) if the
+   * recording hasn't loaded.
+   */
+  private play(
+    id: SampleId,
+    pan: number,
+    level: number,
+    t: number,
+    { gain = 0, rate = 1, loop = false }: { gain?: number; rate?: number; loop?: boolean } = {},
+  ): { src: AudioBufferSourceNode; env: GainNode } | null {
+    const buffer = this.samples.get(id);
+    if (!buffer) return null;
+    const env = this.oneShot(pan, level);
+    env.gain.value = gain;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = loop;
+    src.playbackRate.value = rate;
+    src.connect(env);
+    src.start(t);
+    return { src, env };
+  }
+
   /** The shared noise buffer, played from a random point for `dur` seconds. */
   private noiseSource(t: number, dur: number): AudioBufferSourceNode {
     const src = this.ctx.createBufferSource();
@@ -505,73 +556,6 @@ export class Sfx {
     src.start(t, Math.random() * 1.5);
     src.stop(t + dur + 0.05);
     return src;
-  }
-
-  /**
-   * Jet engines for `dur` seconds from `t` into `out` (whose gain is the
-   * envelope): filtered noise whose cut-off follows `cutoff` (start, peak,
-   * end, Hz) and a detuned saw rumble following `pitch` (start, peak, end).
-   * The peak falls 40 % of the way through.
-   */
-  private jetRoar(
-    out: AudioNode,
-    t: number,
-    dur: number,
-    cutoff: readonly [number, number, number],
-    pitch: readonly [number, number, number],
-  ): void {
-    const { ctx } = this;
-    const peak = t + dur * 0.4;
-    const roar = ctx.createBiquadFilter();
-    roar.type = "lowpass";
-    roar.frequency.setValueAtTime(cutoff[0], t);
-    roar.frequency.linearRampToValueAtTime(cutoff[1], peak);
-    roar.frequency.linearRampToValueAtTime(cutoff[2], t + dur);
-    this.noiseSource(t, dur).connect(roar).connect(out);
-    const rumble = ctx.createBiquadFilter();
-    rumble.type = "lowpass";
-    rumble.frequency.value = 400;
-    const g = ctx.createGain();
-    g.gain.value = 0.3;
-    rumble.connect(g).connect(out);
-    for (const detune of [1, 1.013]) {
-      const osc = ctx.createOscillator();
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(pitch[0] * detune, t);
-      osc.frequency.linearRampToValueAtTime(pitch[1] * detune, peak);
-      osc.frequency.linearRampToValueAtTime(pitch[2] * detune, t + dur);
-      osc.connect(rumble);
-      osc.start(t);
-      osc.stop(t + dur + 0.05);
-    }
-  }
-
-  /** A low sine thump: pitch dropping, fast decay. */
-  private thump(out: AudioNode, t: number, freq: number, dur: number, level: number): void {
-    const { ctx } = this;
-    const osc = ctx.createOscillator();
-    osc.frequency.setValueAtTime(freq * 1.6, t);
-    osc.frequency.exponentialRampToValueAtTime(freq, t + dur * 0.4);
-    const env = ctx.createGain();
-    env.gain.setValueAtTime(0.0001, t);
-    env.gain.exponentialRampToValueAtTime(level, t + 0.006);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(env).connect(out);
-    osc.start(t);
-    osc.stop(t + dur + 0.02);
-  }
-
-  /** A short click: a sliver of noise through a band around `freq`. */
-  private click(out: AudioNode, t: number, freq: number, dur: number, level: number): void {
-    const { ctx } = this;
-    const band = ctx.createBiquadFilter();
-    band.type = "bandpass";
-    band.frequency.value = freq;
-    band.Q.value = 2;
-    const env = ctx.createGain();
-    env.gain.setValueAtTime(level, t);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    this.noiseSource(t, dur).connect(band).connect(env).connect(out);
   }
 
   /** A clean beep of `freq` Hz, with soft edges so it doesn't click. */

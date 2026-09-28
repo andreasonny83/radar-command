@@ -103,8 +103,13 @@ const VOWELS: readonly (readonly [number, number])[] = [
   [600, 1700], // æ
 ];
 
-/** Levels inside the layers, balanced by measurement (offline render, RMS). */
-const TERMINAL_LEVEL = 0.12;
+/**
+ * Levels inside the layers, balanced by measurement (offline render, RMS).
+ * The terminal sits about where the old synthesised hum and crowd did
+ * (~-38 dBFS RMS), just under the announcer (~-36) so every word stays
+ * clear, and under the game's own cues.
+ */
+const TERMINAL_LEVEL = 0.19;
 const ANNOUNCER_LEVEL = 0.16;
 /**
  * The spoken announcer (rendered speech peaks near full scale): measured
@@ -259,7 +264,9 @@ export class Ambience {
     if (this.booked < now - 0.5) {
       // First call, or back after a gap: start afresh just ahead of now.
       this.booked = now;
-      this.nextBed = now;
+      // The copy of the terminal booked before the gap may still be
+      // playing: carry on from where it hands over (else start now).
+      this.nextBed = Math.max(this.nextBed, now);
       if (this.nextPa < now) this.nextPa = now + PA_SCHEDULE.first;
       this.nextJet = now + this.between(JET_INTERVAL) / 3;
       this.nextSquelch = now + this.between(SQUELCH_INTERVAL) / 2;

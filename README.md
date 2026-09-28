@@ -108,12 +108,18 @@ update the matching stories too.
 
 Inspired by _Flight Control_ by Firemint. Built with Babylon.js, Vite, TypeScript and Tailwind CSS.
 
+The planes' engines, runway and gear sounds, the fly-bys and the terminal ambience are cut from
+real field recordings shared on [Freesound](https://freesound.org) and dedicated to the public
+domain (CC0 1.0). Every recording and its author is listed in [CREDITS.md](CREDITS.md) and in
+the game's **Licenses** panel. To change a sound, edit `scripts/audio/sources.json` and run
+`npm run audio:build`.
+
 ## License
 
 The project's own source code is released under the [ISC license](LICENSE).
 
 The game as built and served also bundles [eSpeak NG](https://github.com/espeak-ng/espeak-ng)
-(the speech synthesiser behind the terminal announcements and crowd, via its
+(the speech synthesiser behind the terminal announcements, via its
 [JavaScript port](https://github.com/echogarden-project/espeak-ng-emscripten)),
 which is licensed under the [GNU GPL v3](public/licenses/GPL-3.0.txt). The distributed
 game as a whole is therefore conveyed under the terms of the GPL-3.0, with this repository

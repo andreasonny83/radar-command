@@ -48,7 +48,7 @@ export interface Hud {
    * plane). Cheap to call every frame: the DOM is only touched on change.
    */
   setTracking(active: boolean): void;
-  /** Show the sound button as muted (🔇) or on (🔊). */
+  /** Show the sound button as muted (dimmed, struck through) or on. */
   setMuted(muted: boolean): void;
   /** Show the music button as on (lit) or off (dimmed). */
   setMusicOn(on: boolean): void;
@@ -272,7 +272,7 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       arrivals.update(markers);
     },
     setMuted(muted) {
-      soundBtn.textContent = muted ? "🔇" : "🔊";
+      soundBtn.classList.toggle("hud-button-off", muted);
       const keys = shortcutHint("toggleSound");
       soundBtn.title = muted ? `Sound on (${keys})` : `Sound off (${keys})`;
       soundBtn.setAttribute("aria-pressed", String(!muted));
