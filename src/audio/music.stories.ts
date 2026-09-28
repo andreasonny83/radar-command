@@ -12,7 +12,7 @@
  * layer levels (`LAYER_LEVELS`), pad / piano / reverb / ambience constants
  * in music.ts; the bus levels (`MUSIC_VOLUME`, `SCENE_LEVELS`) in mixer.ts.
  * Save and the story reloads (press Start again). The airport ambience
- * that plays alongside (chatter, announcements, jets) has its own story,
+ * that plays alongside (terminal, announcements, jets) has its own story,
  * "Audio/Effects".
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
@@ -88,7 +88,7 @@ export const Music: StoryObj<MusicArgs> = {
     root.querySelector<HTMLButtonElement>("#startAudio")!.addEventListener("click", () => {
       audio.unlock();
       // Music alone: the ambience has its own story.
-      for (const layer of ["room", "chatter", "pa", "outside"] as const) {
+      for (const layer of ["terminal", "pa", "outside"] as const) {
         audio.setAmbienceLayer(layer, false);
       }
       audio.music?.setChordSeconds(args.chordSeconds);

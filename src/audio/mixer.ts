@@ -196,7 +196,7 @@ export class GameAudio {
         musicBus,
         samples,
         sfx: new Sfx(ctx, sfxBus),
-        ambience: new Ambience(ctx, ambienceBus, seed ^ 0x5eed),
+        ambience: new Ambience(ctx, ambienceBus, samples, seed ^ 0x5eed),
         music: new Music(ctx, musicBus, seed),
       };
       this.graph.sfx.setFocus(this.focus);

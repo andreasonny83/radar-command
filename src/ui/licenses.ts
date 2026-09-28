@@ -39,7 +39,7 @@ export interface ThirdPartyNotice {
 export const THIRD_PARTY: readonly ThirdPartyNotice[] = [
   {
     name: "eSpeak NG (speech synthesiser)",
-    role: "The voices of the terminal PA announcements and the crowd",
+    role: "The voice of the terminal PA announcements",
     license: "GPL-3.0",
     copyright:
       "© 2005–2014 Jonathan Duddington, © 2015– Reece H. Dunn and the eSpeak NG contributors; JavaScript port by Eitan Isaacson (espeakng.js) and the Echogarden project",

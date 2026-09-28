@@ -285,7 +285,18 @@ async function analyse(freesoundId, seconds) {
   if (!existsSync(file)) fail(`no entry uses #${freesoundId} and it isn't in ${CACHE}`);
   const log = spawnSync(
     FFMPEG,
-    ["-hide_banner", "-v", "verbose", "-i", file, "-af", "ebur128=framelog=verbose", "-f", "null", "-"],
+    [
+      "-hide_banner",
+      "-v",
+      "verbose",
+      "-i",
+      file,
+      "-af",
+      "ebur128=framelog=verbose",
+      "-f",
+      "null",
+      "-",
+    ],
     {
       maxBuffer: 1 << 30,
     },

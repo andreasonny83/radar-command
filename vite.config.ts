@@ -7,8 +7,8 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
     // The speech engine's voice data (src/audio/speech.ts), trimmed to the
-    // languages the PA and the crowd speak (`CROWD_VOICES`).
-    espeakNgData(["en", "fr", "de", "es", "it"]),
+    // language the PA speaks (`ANNOUNCER_VOICE`).
+    espeakNgData(["en"]),
   ],
   optimizeDeps: {
     // Served as is, so espeakNgData can trim the engine's package listing.

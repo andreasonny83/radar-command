@@ -7,15 +7,12 @@
  * the game as a whole is conveyed under GPL-3.0 (the project's own source
  * stays ISC): see the Licenses panel (ui/licenses.ts).
  *
- * The engine (~0.8 MB) and its voice data (~1.2 MB: only the languages
- * spoken here, trimmed at build time by vite-plugins/espeakNgData.ts)
- * aren't in the main bundle: `loadSpeech` fetches both the first time the
- * ambience starts. `speak` renders a line of text to an AudioBuffer, so
- * the words play through the same tinny PA speaker, hall echo and mixer
- * bus as everything else (mute, pause and volume just work).
- *
- * The same engine voices the crowd chattering in the terminal
- * (audio/crowd.ts): `speakAs` renders a line in any of `CROWD_VOICES`.
+ * The engine (~0.8 MB) and its voice data (English only, trimmed at
+ * build time by vite-plugins/espeakNgData.ts) aren't in the main bundle:
+ * `loadSpeech` fetches both the first time the ambience starts. `speak`
+ * renders a line of text to an AudioBuffer, so the words play through the
+ * same tinny PA speaker, hall echo and mixer bus as everything else (mute,
+ * pause and volume just work).
  */
 import type { eSpeakNGWorker } from "@echogarden/espeak-ng-emscripten";
 import ESPEAK_DATA_URL from "virtual:espeak-ng-data";
@@ -32,43 +29,18 @@ export const ANNOUNCER_VOICES: readonly { variant: string; pitch: number }[] = [
   { variant: "m3", pitch: 42 },
 ];
 const ANNOUNCER_SPEED = 145;
-const ANNOUNCER_VOICE = "en-gb-x-rp";
-
 /**
- * The crowd's voices (eSpeak NG voice names): English accents plus the
- * languages you'd overhear at a European regional airport. Only these
- * languages' data is bundled: adding one? Add it to `espeakNgData` in
- * vite.config.ts too.
+ * eSpeak NG voice name. Only English voice data is bundled: another
+ * language needs adding to `espeakNgData` in vite.config.ts too.
  */
-export const CROWD_VOICES = [
-  "en-gb-x-rp",
-  "en-us",
-  "en-gb-scotland",
-  "fr",
-  "de",
-  "es",
-  "it",
-] as const;
-export type CrowdVoice = (typeof CROWD_VOICES)[number];
-
-/** How one line is spoken (see `ANNOUNCER_VOICES`). */
-export interface SpeechStyle {
-  voice: CrowdVoice;
-  /** Timbre: m1-m8 male, f1-f5 female. */
-  variant: string;
-  /** 0-100, 50 = default. */
-  pitch: number;
-  /** Words per minute. */
-  speed: number;
-}
+const ANNOUNCER_VOICE = "en-gb-x-rp";
 
 let engine: Promise<eSpeakNGWorker | null> | null = null;
 
 /**
  * Load the speech engine and its voices (once; later calls share the same
  * promise). Resolves false if it can't load (offline, blocked):
- * announcements then fall back to the wordless babble voice, and the
- * crowd keeps to its murmur.
+ * announcements then fall back to the wordless babble voice.
  */
 export function loadSpeech(): Promise<boolean> {
   engine ??= (async () => {
@@ -93,31 +65,23 @@ export function loadSpeech(): Promise<boolean> {
 
 /**
  * Render `text` as the announcer's speech (`voice` indexes
- * `ANNOUNCER_VOICES`), or null if the engine isn't loaded or fails. Call
- * `loadSpeech` first; this never loads it itself.
+ * `ANNOUNCER_VOICES`), or null if the engine isn't loaded or rendering
+ * fails. Call `loadSpeech` first; this never loads it itself.
  */
-export function speak(ctx: BaseAudioContext, text: string, voice = 0): Promise<AudioBuffer | null> {
-  const { variant, pitch } = ANNOUNCER_VOICES[voice % ANNOUNCER_VOICES.length]!;
-  return speakAs(ctx, text, { voice: ANNOUNCER_VOICE, variant, pitch, speed: ANNOUNCER_SPEED });
-}
-
-/**
- * Render `text` in `style`, or null if the engine isn't loaded or
- * rendering fails. The engine keeps its settings between lines, so every
- * line sets all of them.
- */
-export async function speakAs(
+export async function speak(
   ctx: BaseAudioContext,
   text: string,
-  style: SpeechStyle,
+  voice = 0,
 ): Promise<AudioBuffer | null> {
   const worker = engine ? await engine : null;
   if (!worker) return null;
+  const { variant, pitch } = ANNOUNCER_VOICES[voice % ANNOUNCER_VOICES.length]!;
   try {
-    // Voice first, then the rate and pitch to speak it at.
-    if (worker.set_voice(`${style.voice}+${style.variant}`) !== 0) return null;
-    worker.set_rate(style.speed);
-    worker.set_pitch(style.pitch);
+    // The engine keeps its settings between lines, so every line sets them
+    // all: voice first, then the rate and pitch to speak it at.
+    if (worker.set_voice(`${ANNOUNCER_VOICE}+${variant}`) !== 0) return null;
+    worker.set_rate(ANNOUNCER_SPEED);
+    worker.set_pitch(pitch);
     // Rendering is synchronous; the samples arrive in chunks.
     const chunks: Int16Array[] = [];
     let length = 0;

@@ -10,21 +10,22 @@
  * rollout) by running a stand-in plane through their state for a few
  * seconds. `pan` places the plane effects left or right; `focus` plays
  * them as in follow mode: from the followed plane (stepped forward) or
- * from another plane (pushed back). The ambience args
- * switch its layers (room tone, the chattering crowd, PA announcements,
- * jets and radio outside) on and off; "PA announcement" plays one straight away (a queued
- * game line, else a terminal line), and "Speak" announces whatever is in
- * the text box. The speech engine (audio/speech.ts, ~2 MB) loads when
- * audio starts; until then announcements use the wordless voice, and the
- * crowd is only its murmur (its lines render one by one over the first
- * few seconds, then conversations start).
+ * from another plane (pushed back). The ambience args switch its layers
+ * (the terminal recording, PA announcements, jets and radio outside) on
+ * and off; "PA announcement" plays one straight away (a queued game line,
+ * else a terminal line), and "Speak" announces whatever is in the text
+ * box. The recordings (audio/samples.ts, ~1.5 MB) and the speech engine
+ * (audio/speech.ts) load when audio starts: until then the terminal is
+ * quiet and announcements use the wordless voice.
  *
  * Tuning loop: `LEVELS`, `ENGINE_*`, `ROLLOUT_VOLUME`, `ALERT_*`,
- * `FOCUS_LEVEL` / `BACKGROUND_LEVEL` and the builders in sfx.ts; `PA_SCHEDULE`, `AMBIENCE_LEVELS`, `VOWELS` and the
- * `*_LEVEL`s in ambience.ts; `CROWD`, `CROWD_LINES` and the levels in
- * crowd.ts; the lines in announcements.ts; the voices in speech.ts; bus levels (`AMBIENCE_VOLUME`,
- * `SCENE_LEVELS`) in mixer.ts; gear timing (`GEAR_TRAVEL`) in
- * render/sceneSync.ts. Save, reload the story, press Start again.
+ * `FOCUS_LEVEL` / `BACKGROUND_LEVEL` and the builders in sfx.ts;
+ * `PA_SCHEDULE`, `AMBIENCE_LEVELS`, `BED_*`, `VOWELS` and the `*_LEVEL`s
+ * in ambience.ts; the lines in announcements.ts; the voices in speech.ts;
+ * bus levels (`AMBIENCE_VOLUME`, `SCENE_LEVELS`) in mixer.ts; gear timing
+ * (`GEAR_TRAVEL`) in render/sceneSync.ts. The recordings themselves are
+ * cut in scripts/audio/sources.json (hear them raw in "Audio/Samples").
+ * Save, reload the story, press Start again.
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { FLARE_DISTANCE, LANDING_SPEED_START, PLANE_SPEED, ROTATE_SPEED } from "../config";
@@ -44,13 +45,12 @@ interface EffectsArgs {
   pan: number;
   /** Play the plane effects as if the camera followed this plane, or another. */
   focus: Focus;
-  room: boolean;
-  chatter: boolean;
+  terminal: boolean;
   pa: boolean;
   outside: boolean;
 }
 
-const AMBIENCE: AmbienceLayer[] = ["room", "chatter", "pa", "outside"];
+const AMBIENCE: AmbienceLayer[] = ["terminal", "pa", "outside"];
 
 /** The audio of the story on screen; closed when the next one mounts. */
 let active: GameAudio | null = null;
@@ -67,8 +67,7 @@ const meta: Meta<EffectsArgs> = {
   args: {
     pan: 0,
     focus: "no plane followed",
-    room: true,
-    chatter: true,
+    terminal: true,
     pa: true,
     outside: true,
   },
