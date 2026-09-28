@@ -10,8 +10,288 @@
       "preview": "https://cdn.freesound.org/previews/394/394173_7266967-hq.mp3",
       "license": "CC0-1.0"
     },
-    "cut": { "start": 0, "length": 60 },
-    "process": { "bitrate": 64 },
+    "cut": {
+      "start": 390,
+      "length": 60
+    },
+    "process": {
+      "bitrate": 64,
+      "fadeIn": 0.5,
+      "fadeOut": 0.5
+    },
+    "changes": "cut, mixed to mono, levelled and re-encoded"
+  },
+  {
+    "id": "engine-jet-idle",
+    "kind": "loop",
+    "source": {
+      "freesoundId": 51091,
+      "title": "airliner_ascend.aif",
+      "author": "Heigh-hoo",
+      "url": "https://freesound.org/s/51091/",
+      "preview": "https://cdn.freesound.org/previews/51/51091_21830-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 7,
+      "length": 3
+    },
+    "process": {},
+    "changes": "cut, mixed to mono, levelled, looped and re-encoded"
+  },
+  {
+    "id": "engine-jet-full",
+    "kind": "loop",
+    "source": {
+      "freesoundId": 51091,
+      "title": "airliner_ascend.aif",
+      "author": "Heigh-hoo",
+      "url": "https://freesound.org/s/51091/",
+      "preview": "https://cdn.freesound.org/previews/51/51091_21830-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 23,
+      "length": 3
+    },
+    "process": {},
+    "changes": "cut, mixed to mono, levelled, looped and re-encoded"
+  },
+  {
+    "id": "engine-turboprop-idle",
+    "kind": "loop",
+    "source": {
+      "freesoundId": 502670,
+      "title": "King Air 350 Takeoff",
+      "author": "highflyer500",
+      "url": "https://freesound.org/s/502670/",
+      "preview": "https://cdn.freesound.org/previews/502/502670_10785049-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 15.5,
+      "length": 3
+    },
+    "process": {},
+    "changes": "cut, mixed to mono, levelled, looped and re-encoded"
+  },
+  {
+    "id": "engine-turboprop-full",
+    "kind": "loop",
+    "source": {
+      "freesoundId": 502670,
+      "title": "King Air 350 Takeoff",
+      "author": "highflyer500",
+      "url": "https://freesound.org/s/502670/",
+      "preview": "https://cdn.freesound.org/previews/502/502670_10785049-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 6.1,
+      "length": 1.5
+    },
+    "process": {},
+    "changes": "cut, mixed to mono, levelled, looped and re-encoded"
+  },
+  {
+    "id": "engine-piston-idle",
+    "kind": "loop",
+    "source": {
+      "freesoundId": 322321,
+      "title": "Small plane (Cessna) engine start, idle, and takeoff.",
+      "author": "JLWSound",
+      "url": "https://freesound.org/s/322321/",
+      "preview": "https://cdn.freesound.org/previews/322/322321_2489703-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 36,
+      "length": 3
+    },
+    "process": {},
+    "changes": "cut, mixed to mono, levelled, looped and re-encoded"
+  },
+  {
+    "id": "engine-piston-full",
+    "kind": "loop",
+    "source": {
+      "freesoundId": 322321,
+      "title": "Small plane (Cessna) engine start, idle, and takeoff.",
+      "author": "JLWSound",
+      "url": "https://freesound.org/s/322321/",
+      "preview": "https://cdn.freesound.org/previews/322/322321_2489703-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 461,
+      "length": 3
+    },
+    "process": {},
+    "changes": "cut, mixed to mono, levelled, looped and re-encoded"
+  },
+  {
+    "id": "rollout",
+    "kind": "loop",
+    "source": {
+      "freesoundId": 447826,
+      "title": "Plane Landing.mp3",
+      "author": "courter",
+      "url": "https://freesound.org/s/447826/",
+      "preview": "https://cdn.freesound.org/previews/447/447826_1224849-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 63,
+      "length": 3
+    },
+    "process": {
+      "filter": "lowpass=f=1500"
+    },
+    "changes": "cut, mixed to mono, levelled, looped and re-encoded"
+  },
+  {
+    "id": "gear-hydraulic",
+    "kind": "loop",
+    "source": {
+      "freesoundId": 212941,
+      "title": "hydraulics.wav",
+      "author": "nuckan",
+      "url": "https://freesound.org/s/212941/",
+      "preview": "https://cdn.freesound.org/previews/212/212941_3910980-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 4.65,
+      "length": 1.3
+    },
+    "process": {},
+    "changes": "cut, mixed to mono, levelled, looped and re-encoded"
+  },
+  {
+    "id": "touchdown-chirp",
+    "kind": "oneshot",
+    "source": {
+      "freesoundId": 104026,
+      "title": "Tires Squeaking.aif",
+      "author": "RutgerMuller",
+      "url": "https://freesound.org/s/104026/",
+      "preview": "https://cdn.freesound.org/previews/104/104026_179538-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 0.22,
+      "length": 0.4
+    },
+    "process": {
+      "fadeIn": 0.003,
+      "fadeOut": 0.12
+    },
+    "changes": "cut, mixed to mono, levelled and re-encoded"
+  },
+  {
+    "id": "reverse-thrust",
+    "kind": "oneshot",
+    "source": {
+      "freesoundId": 447826,
+      "title": "Plane Landing.mp3",
+      "author": "courter",
+      "url": "https://freesound.org/s/447826/",
+      "preview": "https://cdn.freesound.org/previews/447/447826_1224849-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 55.5,
+      "length": 4.5
+    },
+    "process": {
+      "filter": "lowpass=f=3000",
+      "fadeIn": 0.01,
+      "fadeOut": 1.2
+    },
+    "changes": "cut, mixed to mono, levelled and re-encoded"
+  },
+  {
+    "id": "gear-clunk",
+    "kind": "oneshot",
+    "source": {
+      "freesoundId": 123253,
+      "title": "MechanicalClamp.wav",
+      "author": "Skullsmasha",
+      "url": "https://freesound.org/s/123253/",
+      "preview": "https://cdn.freesound.org/previews/123/123253_2236755-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 2.22,
+      "length": 1.3
+    },
+    "process": {
+      "fadeIn": 0.003,
+      "fadeOut": 0.3
+    },
+    "changes": "cut, mixed to mono, levelled and re-encoded"
+  },
+  {
+    "id": "whoosh-1",
+    "kind": "oneshot",
+    "source": {
+      "freesoundId": 168079,
+      "title": "Jet Flyby 1",
+      "author": "unfa",
+      "url": "https://freesound.org/s/168079/",
+      "preview": "https://cdn.freesound.org/previews/168/168079_1038806-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 36,
+      "length": 2
+    },
+    "process": {
+      "fadeIn": 0.6,
+      "fadeOut": 0.8
+    },
+    "changes": "cut, mixed to mono, levelled and re-encoded"
+  },
+  {
+    "id": "whoosh-2",
+    "kind": "oneshot",
+    "source": {
+      "freesoundId": 168078,
+      "title": "Jet Flyby 2",
+      "author": "unfa",
+      "url": "https://freesound.org/s/168078/",
+      "preview": "https://cdn.freesound.org/previews/168/168078_1038806-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 15.2,
+      "length": 2
+    },
+    "process": {
+      "fadeIn": 0.6,
+      "fadeOut": 0.8
+    },
+    "changes": "cut, mixed to mono, levelled and re-encoded"
+  },
+  {
+    "id": "whoosh-3",
+    "kind": "oneshot",
+    "source": {
+      "freesoundId": 431206,
+      "title": "Airplane Flyby",
+      "author": "oscaraudiogeek",
+      "url": "https://freesound.org/s/431206/",
+      "preview": "https://cdn.freesound.org/previews/431/431206_5117035-hq.mp3",
+      "license": "CC0-1.0"
+    },
+    "cut": {
+      "start": 4.9,
+      "length": 2
+    },
+    "process": {
+      "fadeIn": 0.6,
+      "fadeOut": 0.8
+    },
     "changes": "cut, mixed to mono, levelled and re-encoded"
   }
 ]

@@ -56,7 +56,7 @@ const LICENSE_URLS = { "CC0-1.0": "https://creativecommons.org/publicdomain/zero
 const KINDS = ["loop", "oneshot", "bed"];
 
 /** Sample rate of the loops (FLAC), and of everything else (MP3). */
-const LOOP_RATE = 32000;
+const LOOP_RATE = 22050;
 const MP3_RATE = 44100;
 /** Defaults for an entry's `process` settings. */
 const DEFAULTS = {
@@ -285,7 +285,7 @@ async function analyse(freesoundId, seconds) {
   if (!existsSync(file)) fail(`no entry uses #${freesoundId} and it isn't in ${CACHE}`);
   const log = spawnSync(
     FFMPEG,
-    ["-hide_banner", "-i", file, "-af", "ebur128=framelog=verbose", "-f", "null", "-"],
+    ["-hide_banner", "-v", "verbose", "-i", file, "-af", "ebur128=framelog=verbose", "-f", "null", "-"],
     {
       maxBuffer: 1 << 30,
     },
