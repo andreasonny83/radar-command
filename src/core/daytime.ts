@@ -15,7 +15,7 @@
  */
 
 /** Real seconds of play per 24 h loop. */
-export const DAY_SECONDS = 300;
+export const DAY_SECONDS = 360; // 6 minutes
 
 /** Hour every shift (and the start screen) opens at. */
 export const SHIFT_START_HOUR = 12;

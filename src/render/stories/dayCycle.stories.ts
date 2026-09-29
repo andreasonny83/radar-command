@@ -20,7 +20,7 @@ import { DayCycle } from "../dayCycle";
 import { DAY_KEYFRAMES, setDayPalette, type DayKeyframe } from "../dayTuning";
 import { MeshFactory } from "../meshes";
 import { SceneSync } from "../sceneSync";
-import { gameCamera, mountStage, type FrameFn, type Stage } from "./stage";
+import { dragToPan, gameCamera, mountStage, type FrameFn, type Stage } from "./stage";
 
 /** Live traffic that never stops: a crash just starts a new shift. */
 function keepFlying(state: GameState, dt: number): void {
@@ -34,6 +34,7 @@ function keepFlying(state: GameState, dt: number): void {
  */
 function frameWith(stage: Stage, hourAt: (time: number) => number): FrameFn {
   const cam = gameCamera(stage);
+  dragToPan(stage, cam.controller);
   const state = createGameState(stage.aspect());
   const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
   sync.rebuildWorld(state);

@@ -15,6 +15,7 @@ export type ShortcutAction =
   | "start"
   | "togglePause"
   | "toggleHelp"
+  | "toggleLeaderboard"
   | "toggleSound"
   | "toggleMusic"
   | "rotateLeft"
@@ -75,6 +76,12 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         keys: ["h", "?"],
         caps: ["H", "?"],
         description: "Show / hide this help (Esc closes it)",
+      },
+      {
+        action: "toggleLeaderboard",
+        keys: ["l"],
+        caps: ["L"],
+        description: "Leaderboard (← → switch boards, Esc closes it)",
       },
       {
         action: "toggleSound",
@@ -179,6 +186,20 @@ export function shortcutHint(action: ShortcutAction): string {
   return shortcut ? shortcut.caps.join(" / ") : "";
 }
 
+/**
+ * Is `e` typing into a text field (the leaderboard name on the game-over
+ * screen)? Then its keys are letters, not shortcuts or pans.
+ */
+export function isTyping(e: KeyboardEvent): boolean {
+  const target = e.target;
+  return (
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable) ||
+    (target instanceof HTMLInputElement &&
+      !["button", "checkbox", "radio", "range", "submit"].includes(target.type))
+  );
+}
+
 /** Does `e` press `shortcut`? */
 function matches(shortcut: Shortcut, e: KeyboardEvent): boolean {
   if (shortcut.shift !== undefined && shortcut.shift !== e.shiftKey) return false;
@@ -218,6 +239,7 @@ export function attachShortcuts(
   const onKeyDown = (e: KeyboardEvent) => {
     // Leave browser/OS shortcuts (Cmd+R, Ctrl+−, Alt+Tab…) alone.
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isTyping(e)) return;
     // Enter on a focused link (GitHub / feedback) follows it rather than
     // starting a shift.
     if (e.key === "Enter" && e.target instanceof HTMLAnchorElement) return;

@@ -14,7 +14,8 @@ export function createGameState(viewAspect = WORLD_ASPECT): GameState {
   const world = computeWorldSize();
   return {
     phase: "start",
-    score: 0,
+    landed: 0,
+    departed: 0,
     elapsed: 0,
     spawnTimer: 0,
     spawnInterval: SPAWN_INTERVAL_START,
@@ -30,10 +31,11 @@ export function createGameState(viewAspect = WORLD_ASPECT): GameState {
   };
 }
 
-/** Clear planes/score/timers for a new shift. World and runways are kept. */
+/** Clear planes/counts/timers for a new shift. World and runways are kept. */
 export function resetGameState(state: GameState): void {
   state.phase = "playing";
-  state.score = 0;
+  state.landed = 0;
+  state.departed = 0;
   state.elapsed = 0;
   state.spawnTimer = 0;
   state.spawnInterval = SPAWN_INTERVAL_START;

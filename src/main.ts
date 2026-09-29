@@ -8,15 +8,34 @@ import "./style.css";
 import { inject } from "@vercel/analytics";
 import { injectSpeedInsights } from "@vercel/speed-insights";
 import { GameAudio, type AudioScene } from "./audio/mixer";
-import { CRASH_OVERLAY_DELAY, MAX_DT, ROTATE_STEP, ZOOM_STEP } from "./config";
+import { CONFLICT_INTERVAL, CRASH_OVERLAY_DELAY, MAX_DT, ROTATE_STEP, ZOOM_STEP } from "./config";
+import { predictConflicts } from "./core/conflicts";
+import { layoutAirports, openAirportsView } from "./core/airports";
+import { NAME_HINT, normalizeName } from "./core/leaderboard";
+import { unlockedColors } from "./core/progression";
+import { breakdownOf } from "./core/scoring";
 import { startGame, step, togglePause } from "./core/simulation";
 import { createGameState, setLiveView, setViewAspect } from "./core/state";
 import type { SimEvent } from "./core/types";
 import { attachPanKeys } from "./input/keyboard";
 import { attachPointerInput } from "./input/pointer";
 import { attachShortcuts } from "./input/shortcuts";
+import { createConflictAdvisor } from "./net/conflictAdvisor";
+import {
+  errorMessage,
+  fetchBoard,
+  isRetryable,
+  playerId,
+  saveBoard,
+  savedBoard,
+  savedName,
+  saveName,
+  startRun,
+  submitScore,
+} from "./net/leaderboardApi";
 import { arrivalMarkers } from "./render/arrivals";
 import { CameraController, trackPlane } from "./render/camera";
+import { toScene } from "./render/coords";
 import { DayCycle } from "./render/dayCycle";
 import { MeshFactory } from "./render/meshes";
 import { createScene } from "./render/scene";
@@ -70,11 +89,98 @@ cameraController.setWorld(state.world);
 sceneSync.setRunwayProgression(true);
 sceneSync.rebuildWorld(state);
 
+// --- Opening view ------------------------------------------------------------
+// A shift opens over the first airport alone: the others aren't built until
+// their first runway opens (render/sceneSync.ts `AIRPORT_REVEAL_DELAY`).
+const airports = layoutAirports(state.runways, state.world);
+/** How many airports the camera last framed (see `frameOpenAirports`). */
+let framedAirports = 0;
+
+/**
+ * Glide the camera to frame every airport with a runway open (see
+ * core/airports.ts `openAirportsView`), if that's more than it last framed:
+ * the first airport alone as a shift opens, then pulled back as each
+ * further one opens, just before it's built, so the player watches it go up.
+ */
+function frameOpenAirports(): void {
+  const open = unlockedColors(state.landed, state.runways);
+  const view = openAirportsView(airports, open, state.world, aspect());
+  if (view.count === framedAirports) return;
+  framedAirports = view.count;
+  const center = toScene(view.center, state.world, 0);
+  cameraController.glideTo({ x: center.x, z: center.z }, view.zoom);
+}
+
 /**
  * Seconds until the game-over panel appears, while a crash cinematic plays
  * without it (see `CRASH_OVERLAY_DELAY`); null otherwise.
  */
 let gameOverIn: number | null = null;
+
+// --- Leaderboard ---------------------------------------------------------------
+/**
+ * This shift's run token (net/leaderboardApi.ts), requested as it starts:
+ * resolves to null when the API can't be reached (the shift still plays,
+ * it just can't be submitted). Cleared once the run is on the board.
+ */
+let runToken: Promise<string | null> | null = null;
+
+/**
+ * Jev's take on the predicted collisions (net/conflictAdvisor.ts): asked
+ * sparingly, and only with this shift's run token. The list works without it.
+ */
+const conflictAdvisor = createConflictAdvisor(() => runToken);
+
+/** Crash screen: offer the leaderboard form if this run can go on the board. */
+async function offerSubmit(): Promise<void> {
+  const breakdown = breakdownOf(state);
+  hud.showGameOver(breakdown, savedName());
+  // Time alone doesn't qualify: the run has to have moved some traffic.
+  if (breakdown.landed + breakdown.departed === 0) {
+    hud.setSubmitState({
+      kind: "unavailable",
+      message: "Land a plane or fly a departure out to get on the leaderboard.",
+    });
+    return;
+  }
+  const token = await runToken;
+  // A new shift started while the token was still on its way.
+  if (state.phase !== "gameover") return;
+  hud.setSubmitState(
+    token
+      ? { kind: "ready" }
+      : { kind: "unavailable", message: "Leaderboard offline: this shift can't be submitted." },
+  );
+}
+
+/** SUBMIT on the game-over screen: send the run, then show where it placed. */
+async function submitRun(rawName: string): Promise<void> {
+  const name = normalizeName(rawName);
+  if (!name) {
+    hud.setSubmitState({ kind: "error", message: `Name: ${NAME_HINT}.` });
+    return;
+  }
+  const token = await runToken;
+  if (!token) return;
+  saveName(name);
+  hud.setSubmitState({ kind: "sending" });
+  // The parts, not the total: the server recomputes the score (scoreOf) and
+  // checks each part is plausible for the shift's length.
+  const result = await submitScore({ token, playerId: playerId(), name, ...breakdownOf(state) });
+  // The player moved on to a new shift meanwhile: its form is gone.
+  if (state.phase !== "gameover") return;
+  if (result.ok) {
+    runToken = null; // one submit per run
+    hud.setSubmitState({ kind: "done", ranks: result.data.ranks });
+    // Today's board, with the player's row lit up.
+    hud.setLeaderboardOpen(true, "daily");
+  } else {
+    const message = errorMessage(result.error);
+    hud.setSubmitState(
+      isRetryable(result.error) ? { kind: "error", message } : { kind: "unavailable", message },
+    );
+  }
+}
 
 // --- UI + input ----------------------------------------------------------------
 function setPaused(paused: boolean): void {
@@ -92,7 +198,13 @@ function startShift(): boolean {
   // Leave the crash site: the camera glides back to the default view.
   cameraController.release();
   startGame(state);
-  hud.setScore(state.score);
+  // Fire and forget: the token only matters if this shift gets submitted.
+  runToken = startRun();
+  conflictAdvisor.reset();
+  // Glide in over the first airport (the others are closed again).
+  framedAirports = 0;
+  frameOpenAirports();
+  hud.setScore(breakdownOf(state));
   hud.hideOverlay();
   hud.setPhase(state.phase);
   return true;
@@ -107,10 +219,24 @@ const rotate = (dir: -1 | 1) => cameraController.rotateBy(dir * ROTATE_STEP);
 const zoom = (dir: -1 | 1) => cameraController.zoomBy(dir > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
 
 /**
- * Did opening the help panel pause the game? Then closing it continues;
- * a player who had already paused stays paused.
+ * Panels that pause the shift while open (help, leaderboard; they can
+ * stack). Did opening the first one pause the game? Then closing the last
+ * one continues; a player who had already paused stays paused.
  */
-let helpPaused = false;
+const openPanels = new Set<string>();
+let panelPaused = false;
+
+function onPanel(panel: string, open: boolean): void {
+  if (open) openPanels.add(panel);
+  else openPanels.delete(panel);
+  if (openPanels.size > 0 && state.phase === "playing") {
+    setPaused(true);
+    panelPaused = true;
+  } else if (openPanels.size === 0 && panelPaused) {
+    panelPaused = false;
+    setPaused(false);
+  }
+}
 
 const hud = createHud(document.body, {
   onStart: () => void startShift(),
@@ -119,15 +245,12 @@ const hud = createHud(document.body, {
   onZoom: zoom,
   onToggleSound: toggleSound,
   onToggleMusic: toggleMusic,
-  onHelp: (open) => {
-    if (open && state.phase === "playing") {
-      setPaused(true);
-      helpPaused = true;
-    } else if (!open && helpPaused) {
-      helpPaused = false;
-      setPaused(false);
-    }
-  },
+  onHelp: (open) => onPanel("help", open),
+  onLeaderboard: (open) => onPanel("leaderboard", open),
+  onSubmitScore: (name) => void submitRun(name),
+  loadBoard: (board) => fetchBoard(board, playerId()),
+  initialBoard: savedBoard(),
+  onBoardChange: saveBoard,
 });
 
 hud.setMuted(audio.muted);
@@ -206,6 +329,8 @@ attachShortcuts(
       togglePaused();
     },
     toggleHelp: () => hud.setHelpOpen(!hud.helpOpen),
+    // Closing is the panel's own key handler (ui/leaderboard.ts).
+    toggleLeaderboard: () => hud.setLeaderboardOpen(true),
     toggleSound,
     toggleMusic,
     rotateLeft: () => rotate(-1),
@@ -242,8 +367,9 @@ function handleEvent(event: SimEvent): void {
   // Sounds for moments: the departure chime, a go-around's engines.
   audio.onSimEvent(event, panFor);
   switch (event.type) {
-    case "landed":
-      hud.setScore(state.score);
+    case "unlocked":
+      // A runway at a new airport: pull back to show it being built.
+      frameOpenAirports();
       break;
     case "goAround": {
       // The runway turned the approach away: the red X on its threshold
@@ -267,6 +393,9 @@ function handleEvent(event: SimEvent): void {
   }
 }
 
+/** Seconds until the collision-risk list is refreshed (see `CONFLICT_INTERVAL`). */
+let conflictClock = 0;
+
 // --- Game loop -------------------------------------------------------------------
 let time = 0;
 engine.runRenderLoop(() => {
@@ -280,7 +409,7 @@ engine.runRenderLoop(() => {
   for (const event of step(state, dt)) handleEvent(event);
   if (gameOverIn !== null && (gameOverIn -= dt) <= 0) {
     gameOverIn = null;
-    hud.showGameOver(state.score);
+    void offerSubmit();
   }
 
   // No panning behind the help panel (the keys still track, for release).
@@ -305,6 +434,16 @@ engine.runRenderLoop(() => {
   sceneSync.setNight(dayCycle.night);
   audio.setNight(dayCycle.night);
   hud.setClock(dayCycle.hours, dayCycle.night);
+  // Every frame, not on events: time survived adds to the score as it goes
+  // (and a departure leaving the map raises no event of its own).
+  hud.setScore(breakdownOf(state));
+  // Collision-risk list: a look-ahead flight of every plane, so a few times
+  // a second rather than every frame (paused too: a redrawn path shows up).
+  if ((conflictClock -= dt) <= 0) {
+    conflictClock = CONFLICT_INTERVAL;
+    const conflicts = predictConflicts(state);
+    hud.setConflicts(conflicts, conflictAdvisor.update(state, conflicts));
+  }
   sceneSync.setHighlighted(pointer.refreshHover());
   sceneSync.syncPlanes(state, time);
   // Sound: animation-timed cues from this frame's sync (gear, touchdown,

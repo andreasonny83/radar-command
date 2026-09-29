@@ -10,13 +10,16 @@
  * state) is filled in by `hud.ts` at runtime. Key hints in tooltips and the
  * help panel come from the shortcut table in input/shortcuts.ts.
  */
+import { BOARD_LABELS, BOARDS, NAME_MAX } from "../core/leaderboard";
+import { DEPARTURE_POINTS, LANDING_POINTS, SECONDS_PER_TIME_POINT } from "../core/scoring";
 import { POINTER_CONTROLS, SHORTCUT_GROUPS, shortcutHint } from "../input/shortcuts";
 import { CC0_TEXT, GPL_TEXT, RECORDINGS, SOURCE_URL, THIRD_PARTY } from "./licenses";
 import { GITHUB_REPO_URL } from "./links";
 
 /**
- * "Landed" counter, top-left, with the time of day under it (a sun or a
- * moon and the 24 h clock; `hud.setClock` fills them in).
+ * Score, top-left: the total (core/scoring.ts `scoreOf`), a small
+ * "landed · departed" line under it, then the time of day (a sun or a moon
+ * and the 24 h clock). `hud.setScore` and `hud.setClock` fill them in.
  */
 export function scorePanelMarkup(): string {
   return `
@@ -25,8 +28,11 @@ export function scorePanelMarkup(): string {
         data-arrow-avoid
         class="rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
       >
-        <span class="text-sm font-bold tracking-wider text-slate-400 uppercase">Landed</span>
-        <div id="scoreDisplay" class="glow-text text-3xl font-black text-sky-400">0</div>
+        <span class="text-sm font-bold tracking-wider text-slate-400 uppercase">Score</span>
+        <div id="scoreDisplay" class="glow-text text-3xl font-black text-sky-400 tabular-nums">0</div>
+        <div id="scoreBreakdown" class="text-xs font-bold text-slate-400 tabular-nums">
+          0 landed · 0 departed
+        </div>
         <div class="mt-1 flex items-center gap-1.5 text-sm font-bold text-slate-300 tabular-nums">
           <span id="clockIcon" class="text-amber-300" title="Day">${CLOCK_ICONS.sun}</span>
           <span id="clockTime">08:00</span>
@@ -235,6 +241,27 @@ export function trackingIndicatorMarkup(): string {
 }
 
 /**
+ * Conflict list, top-right under the pause and help buttons: the pairs of
+ * planes predicted to collide (core/conflicts.ts), soonest first, each as
+ * two colour dots with plane numbers and the seconds until closest
+ * approach. Hidden while there are none. `hud.setConflicts` fills the list
+ * in; rows are built there from plane data, never from markup strings.
+ */
+export function conflictPanelMarkup(): string {
+  return `
+    <div
+      id="conflictPanel"
+      data-arrow-avoid
+      role="status"
+      aria-live="polite"
+      class="pointer-events-none absolute top-18 right-4 z-10 hidden w-56 max-w-[calc(100%-2rem)] rounded-xl border border-red-500/60 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
+    >
+      <div class="text-sm font-bold tracking-wider text-red-400 uppercase">Collision risk</div>
+      <ul id="conflictList" class="mt-1 flex flex-col gap-1 text-sm font-bold text-slate-200 tabular-nums"></ul>
+    </div>`;
+}
+
+/**
  * Layer for arrival arrows (see arrivalArrows.ts). Below the other HUD
  * panels; arrows slide out from under any element marked
  * `data-arrow-avoid` (score, pause, camera buttons, tracking badge), so neither hides the other.
@@ -271,10 +298,68 @@ export function arrivalArrowMarkup(): string {
     </div>`;
 }
 
+/** Trophy (cup with handles on a stand), for the leaderboard button and link. */
+const TROPHY_ICON = `
+  <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M7 4h10v5a5 5 0 0 1-10 0z" />
+    <path d="M7 6H4a3 3 0 0 0 3.5 3.5M17 6h3a3 3 0 0 1-3.5 3.5" />
+    <path d="M12 14v4M8 20h8" />
+  </svg>`;
+
 /**
- * Start / game-over overlay. The game-over variant (text, and a see-through
- * backdrop so the crash stays visible) is patched in by `showGameOver`; keep
- * the backdrop classes here in sync with `START_BACKDROP` in hud.ts.
+ * Game-over leaderboard form: nickname (`NAME_RULE` in core/leaderboard.ts,
+ * prefilled from the last one used), SUBMIT and a status line for the
+ * result ("#4 today · …") or what went wrong. Hidden on the title screen;
+ * `showGameOver` shows it and `setSubmitState` (hud.ts) drives it.
+ */
+export function submitFormMarkup(): string {
+  return `
+      <form id="submitForm" class="mb-6 hidden w-full max-w-md flex-col items-center gap-2 px-4" novalidate>
+        <label for="playerName" class="text-xs font-bold tracking-widest text-slate-400 uppercase">
+          Put your shift on the leaderboard
+        </label>
+        <div class="flex w-full gap-2">
+          <input
+            id="playerName"
+            name="name"
+            maxlength="${NAME_MAX}"
+            autocomplete="nickname"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="Your name"
+            class="min-w-0 flex-1 rounded-xl border border-slate-600 bg-slate-900/80 px-4 py-2 text-lg font-bold text-slate-100 placeholder:text-slate-500 focus:border-sky-400 focus:outline-none disabled:opacity-50"
+          />
+          <button
+            id="submitBtn"
+            type="submit"
+            class="shrink-0 rounded-xl bg-amber-400 px-4 py-2 font-bold text-slate-950 transition hover:bg-amber-300 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-amber-400"
+          >
+            SUBMIT SCORE
+          </button>
+        </div>
+        <p id="submitStatus" role="status" aria-live="polite" class="min-h-5 text-center text-sm text-slate-400"></p>
+      </form>`;
+}
+
+/**
+ * Game-over score sheet: one row per part of the score (landed, departed,
+ * time; see core/scoring.ts) and the total. Hidden on the title screen;
+ * `showGameOver` (hud.ts) fills the rows in and shows it.
+ */
+export function scoreSummaryMarkup(): string {
+  return `
+      <dl
+        id="scoreSummary"
+        class="mb-6 hidden w-full max-w-xs grid-cols-[1fr_auto_auto] items-baseline gap-x-4 gap-y-1 px-4 text-slate-300 tabular-nums"
+      ></dl>`;
+}
+
+/**
+ * Start / game-over overlay. The game-over variant (text, the leaderboard
+ * form, and a see-through backdrop so the crash stays visible) is patched
+ * in by `showGameOver`; keep the backdrop classes here in sync with
+ * `START_BACKDROP` in hud.ts.
  */
 export function overlayMarkup(): string {
   return `
@@ -293,12 +378,25 @@ export function overlayMarkup(): string {
         Press <kbd class="kbd">H</kbd> or <span class="font-bold text-slate-300">?</span> for
         controls &amp; shortcuts
       </p>
-      <button
-        id="startBtn"
-        class="transform rounded-full bg-sky-500 px-8 py-4 text-xl font-bold text-slate-950 shadow-[0_0_20px_rgba(14,165,233,0.5)] transition-all hover:scale-105 hover:bg-sky-400 active:scale-95"
-      >
-        START SHIFT
-      </button>
+      ${scoreSummaryMarkup()}
+      ${submitFormMarkup()}
+      <div class="flex flex-wrap items-center justify-center gap-3">
+        <button
+          id="startBtn"
+          class="transform rounded-full bg-sky-500 px-8 py-4 text-xl font-bold text-slate-950 shadow-[0_0_20px_rgba(14,165,233,0.5)] transition-all hover:scale-105 hover:bg-sky-400 active:scale-95"
+        >
+          START SHIFT
+        </button>
+        <button
+          id="leaderboardBtn"
+          class="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-900/70 px-6 py-4 text-lg font-bold text-slate-200 transition-all hover:scale-105 hover:border-amber-300 hover:text-amber-300 active:scale-95"
+          title="Leaderboard (${shortcutHint("toggleLeaderboard")})"
+          aria-haspopup="dialog"
+          aria-controls="leaderboardPanel"
+        >
+          ${TROPHY_ICON}LEADERBOARD
+        </button>
+      </div>
       <div class="mt-8">${projectLinksMarkup()}</div>
     </div>`;
 }
@@ -470,11 +568,17 @@ export function helpPanelMarkup(): string {
               It lands only if it crosses the coloured threshold in the direction of the runway
               arrow. From the wrong end it just flies on; if the runway is busy it goes around.
             </li>
-            <li>New runways open as your score grows. If two planes touch, the shift is over.</li>
+            <li>
+              New runways open as you land more planes. If two planes touch, the shift is over.
+            </li>
             <li>
               Later on, <span class="font-bold text-violet-400">violet</span> planes take off from
               the airports, following a dotted route you can't change. While one uses a runway,
               arrivals there go around; once airborne, keep your planes clear of it.
+            </li>
+            <li>
+              Score: ${LANDING_POINTS} points a landing, ${DEPARTURE_POINTS} a departure that makes
+              it off the map, and 1 for every ${SECONDS_PER_TIME_POINT} seconds of shift.
             </li>
           </ul>
           <div class="grid gap-x-8 gap-y-5 md:grid-cols-2">
@@ -485,13 +589,83 @@ export function helpPanelMarkup(): string {
             ${keyboard}
           </div>
         </div>
-        <footer class="border-t border-slate-800 px-6 py-3">${projectLinksMarkup()}</footer>
+        <footer class="flex flex-wrap items-center justify-center gap-2 border-t border-slate-800 px-6 py-3 text-slate-600">
+          <button
+            type="button"
+            class="hud-link"
+            data-leaderboard-link
+            aria-haspopup="dialog"
+            aria-controls="leaderboardPanel"
+            title="Leaderboard (${shortcutHint("toggleLeaderboard")})"
+          >
+            ${TROPHY_ICON.replace("h-5 w-5", "h-4 w-4")}<span>Leaderboard</span>
+          </button>
+          <span aria-hidden="true">·</span>
+          ${projectLinksMarkup()}
+        </footer>
+      </div>
+    </div>`;
+}
+
+/**
+ * Leaderboard panel (driven by ui/leaderboard.ts): a tab per board
+ * (today / this week / all-time), the list, filled in at runtime, and how
+ * the boards work. Opened by the LEADERBOARD button on the start and
+ * game-over screens, the link in the help panel, L, or a submitted score.
+ * Stacks above the help panel (z-50, before the licenses panel in the DOM).
+ * The ✕ button, Esc, L or a click on the backdrop close it.
+ */
+export function leaderboardPanelMarkup(): string {
+  const tabs = BOARDS.map(
+    (board) => `
+      <button
+        type="button"
+        role="tab"
+        data-board="${board}"
+        aria-selected="false"
+        aria-controls="leaderboardBody"
+        class="flex-1 rounded-lg px-3 py-1.5 text-sm font-bold tracking-wider text-slate-400 uppercase transition hover:text-slate-100 aria-selected:bg-sky-500 aria-selected:text-slate-950"
+      >
+        ${BOARD_LABELS[board]}
+      </button>`,
+  ).join("");
+  return `
+    <div
+      id="leaderboardPanel"
+      class="absolute inset-0 z-50 hidden items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="leaderboardTitle"
+        class="relative flex max-h-full w-full max-w-lg flex-col rounded-2xl border border-slate-700 bg-slate-900/95 shadow-2xl"
+      >
+        <header class="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+          <h2 id="leaderboardTitle" class="glow-text flex items-center gap-2 text-2xl font-black tracking-wider text-sky-400">
+            ${TROPHY_ICON.replace("h-5 w-5", "h-6 w-6")}LEADERBOARD
+          </h2>
+          <button id="leaderboardCloseBtn" class="hud-button h-9 w-9 text-base" title="Close (Esc)" aria-label="Close leaderboard">
+            ✕
+          </button>
+        </header>
+        <div role="tablist" aria-label="Boards" class="mx-6 mt-4 flex gap-1 rounded-xl border border-slate-700 bg-slate-950/60 p-1">
+          ${tabs}
+        </div>
+        <div
+          id="leaderboardBody"
+          role="tabpanel"
+          aria-live="polite"
+          class="min-h-[23rem] overflow-y-auto px-6 py-4"
+        ></div>
+        <footer class="border-t border-slate-800 px-6 py-3 text-center text-xs text-slate-500">
+          Each player's best shift · Today and this week restart at 00:00 UTC (weeks on Monday)
+        </footer>
       </div>
     </div>`;
 }
 
 /** `text` made safe to place inside markup (text or an attribute value). */
-function escapeHtml(text: string): string {
+export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
@@ -610,10 +784,12 @@ export function hudMarkup(): string {
     pausedBannerMarkup(),
     toastMarkup(),
     trackingIndicatorMarkup(),
+    conflictPanelMarkup(),
     cameraControlsMarkup(),
     overlayMarkup(),
     helpButtonMarkup(),
     helpPanelMarkup(),
+    leaderboardPanelMarkup(),
     licensesPanelMarkup(),
   ].join("");
 }

@@ -24,6 +24,7 @@ import {
   type AircraftRig,
 } from "./aircraft";
 import { SceneGlow } from "./glow";
+import { lampMaterial, litNow, poolMaterial, setNightLevel } from "./nightLights";
 import { OVERLAY_GROUP } from "./scene";
 
 /**
@@ -44,6 +45,16 @@ const LIVERY_GLOW_DAY = 0.08;
 const LIVERY_GLOW_NIGHT = 0.85;
 const COLOR_GLOW_DAY = 0.35;
 const COLOR_GLOW_NIGHT = 0.7;
+
+/**
+ * Aircraft landing lights (see aircraft.ts `headlight` / `headBeam`): lamp
+ * and beam colour, and the beam's strength at full night. The beam is
+ * additive, so it brightens whatever it crosses: keep it soft, or planes
+ * over the lit runways wash out.
+ */
+const HEADLIGHT = "#fff4d6";
+const HEADLIGHT_BEAM = "#fff1cf";
+const HEADLIGHT_BEAM_STRENGTH = 0.35;
 
 export class MeshFactory {
   private readonly colorMaterials = new Map<PlaneColor, StandardMaterial>();
@@ -121,6 +132,14 @@ export class MeshFactory {
     // Rendering group is set per clone: it isn't copied from the template.
     for (const mesh of rig.all) mesh.renderingGroupId = OVERLAY_GROUP;
     for (const mesh of rig.lights) this.glow.add(mesh);
+    // Landing lights: a halo at night only, and shown only if it's dark
+    // now (setNight toggles them as the night comes and goes).
+    const lit = litNow(this.aircraftMaterials.headlight as StandardMaterial);
+    for (const mesh of rig.headlights) {
+      this.glow.add(mesh, true);
+      mesh.isVisible = lit;
+    }
+    for (const mesh of rig.headBeams) mesh.isVisible = lit;
     return rig;
   }
 
@@ -148,6 +167,10 @@ export class MeshFactory {
     // night the face-on side lights up too, or the boost above would only
     // ever reach the rims.
     paint.emissiveFresnelParameters?.rightColor.set(n, n, n);
+    // Landing lights: typed as Material in AircraftMaterials, built as
+    // StandardMaterials in makeAircraftMaterials.
+    setNightLevel(this.aircraftMaterials.headlight as StandardMaterial, n);
+    setNightLevel(this.aircraftMaterials.headBeam as StandardMaterial, n * HEADLIGHT_BEAM_STRENGTH);
     for (const [color, mat] of this.colorMaterials) this.tintColor(color, mat);
   }
 
@@ -285,6 +308,8 @@ export class MeshFactory {
       navGreen: lamp("nav-green", "#3bff6a"),
       strobe: lamp("strobe", "#ffffff"),
       beacon: lamp("beacon", "#ff2020"),
+      headlight: lampMaterial("headlight", HEADLIGHT, this.scene),
+      headBeam: poolMaterial("headlight-beam", HEADLIGHT_BEAM, this.scene),
     };
   }
 

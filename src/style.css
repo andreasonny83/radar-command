@@ -72,6 +72,99 @@
     animation: tracking-blink 1.1s ease-in-out infinite;
   }
 
+  /* Rolling reels (ui/reel.ts), for the score and the clock: faces round a
+     drum turned about the horizontal axis. The easing overshoots (y > 1),
+     so each reel rolls a touch past its face and bounces back. The reel's
+     window is a mask: faces fade out as they roll past its top and bottom
+     edges (the face showing sits clear of the fade), and the side padding
+     keeps the glow from being cut off; the negative margin keeps the
+     layout as wide as the text. The width (in ch) is set per reel. */
+  .reel {
+    --reel-pad-x: 0.2em;
+    position: relative;
+    display: inline-block;
+    box-sizing: content-box;
+    height: 1.2em;
+    padding: 0 var(--reel-pad-x);
+    margin: 0 calc(-1 * var(--reel-pad-x));
+    perspective: 5em;
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      #000 0.2em,
+      #000 calc(100% - 0.2em),
+      transparent
+    );
+  }
+  .reel-drum {
+    position: absolute;
+    inset: 0 var(--reel-pad-x);
+    transform-style: preserve-3d;
+    transition: transform 750ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .reel-face {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backface-visibility: hidden;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reel-drum {
+      transition: none;
+    }
+  }
+
+  /* HUD clock (ui/clockDisplay.ts). The hour sits in a one-line window
+     that clips the old and new hours as they slide past each other. */
+  .clock-hour {
+    position: relative;
+    display: inline-block;
+    width: 2ch;
+    height: 1lh;
+    overflow: clip;
+    /* A clipping inline-block sits its bottom edge on the baseline, which
+       would lift the hour above the minutes: line the tops up instead. */
+    vertical-align: top;
+  }
+  .clock-hour > span {
+    position: absolute;
+    inset: 0;
+    text-align: center;
+  }
+  /* A minute digit: a strip of numerals scrolled behind a one-line window
+     (`createDigitStrip`). Numerals fade in and out at the window's top and
+     bottom edges, so the scroll reads as smooth motion rather than
+     numerals cut off by a hard edge. */
+  .clock-digit {
+    display: inline-block;
+    width: 1ch;
+    height: 1lh;
+    overflow: clip;
+    vertical-align: top;
+    mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+  }
+  .clock-strip {
+    display: block;
+    will-change: transform;
+  }
+  .clock-strip > span {
+    display: block;
+    height: 1lh;
+    text-align: center;
+  }
+  /* The colon blinks while the clock runs (the class comes and goes with
+     it), like a digital clock's. */
+  .clock-colon-running {
+    animation: clock-colon-blink 1s steps(1) infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .clock-colon-running {
+      animation: none;
+    }
+  }
+
   /* Arrival arrow (hudMarkup.ts): the ring pulses outward to catch the eye. */
   .arrival-ring {
     transform-box: fill-box;
@@ -102,5 +195,11 @@
   to {
     transform: scale(1.35);
     opacity: 0;
+  }
+}
+
+@keyframes clock-colon-blink {
+  50% {
+    opacity: 0.25;
   }
 }

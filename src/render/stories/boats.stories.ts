@@ -21,7 +21,7 @@ import { Landscape } from "../landscape";
 import { MeshFactory } from "../meshes";
 import { RunwayFactory } from "../runway";
 import { fitShadowsToWorld } from "../scene";
-import { gameCamera, groundPad, mountStage, orbitCamera, type Stage } from "./stage";
+import { dragToPan, gameCamera, groundPad, mountStage, orbitCamera, type Stage } from "./stage";
 
 const DEG = Math.PI / 180;
 
@@ -133,6 +133,7 @@ export const RiverTraffic: StoryObj<TrafficArgs> = {
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage, args.rotationDeg * DEG, args.zoom);
+      dragToPan(stage, cam.controller);
       const factory = new MeshFactory(stage.scene);
       fitShadowsToWorld(stage.shadows, cam.world);
       const runways = layoutRunways(cam.world);

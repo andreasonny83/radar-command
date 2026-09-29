@@ -35,7 +35,7 @@ import { Landscape } from "../landscape";
 import { MeshFactory } from "../meshes";
 import { RunwayFactory, type RunwayView } from "../runway";
 import { fitShadowsToWorld } from "../scene";
-import { gameCamera, groundPad, mountStage, orbitCamera } from "./stage";
+import { dragToPan, gameCamera, groundPad, mountStage, orbitCamera } from "./stage";
 
 const DEG = Math.PI / 180;
 
@@ -230,6 +230,7 @@ export const FullLandscape: StoryObj<AirfieldArgs> = {
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage, args.rotationDeg * DEG, args.zoom);
+      dragToPan(stage, cam.controller);
       const factory = new MeshFactory(stage.scene);
       const runwayFactory = new RunwayFactory(stage.scene, (c) => factory.material(c));
       fitShadowsToWorld(stage.shadows, cam.world);

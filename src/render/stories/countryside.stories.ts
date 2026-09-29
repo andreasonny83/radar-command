@@ -8,7 +8,8 @@
  *   - Village:        the village, its church, farms and the roads, with
  *                     cars driving through;
  *   - Drawbridge:     one drawbridge on its own, its leaves and barriers
- *                     driven by the controls (or cycling on their own).
+ *                     driven by the controls (or cycling on their own),
+ *                     with a motorboat passing under the leaves.
  *
  * Drag to orbit, wheel to zoom.
  *
@@ -16,20 +17,24 @@
  * config.ts: PERIMETER_MARGIN, TERMINAL_*, CAR_PARK_*, TOWER_SETBACK,
  * COUNTRYSIDE_REACH, FIELD_*, HEDGE_GAP, ROAD_*, VILLAGE_RADIUS, CAR_*);
  * looks in render/airportGrounds.ts, render/countryside.ts, render/cars.ts,
- * render/bridges.ts (DECK_Y, LEAF_OPEN, BOOM_*), BRIDGE_LIFT_TIME in config.ts.
+ * render/bridges.ts (DECK_Y from boats.ts MOTORBOAT_HEIGHT, LEAF_OPEN, BOOM_*),
+ * BRIDGE_LIFT_TIME in config.ts.
  */
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { CreateGround } from "@babylonjs/core/Meshes/Builders/groundBuilder";
 import type { Meta, StoryObj } from "@storybook/html-vite";
+import { BOAT_TYPES } from "../../config";
 import { layoutAirports } from "../../core/airports";
+import { createBoatTraffic } from "../../core/boats";
 import { computeWorldSize, layoutRunways } from "../../core/layout";
 import { buildScenery } from "../../core/scenery";
 import type { Vec2, WorldSize } from "../../core/types";
 import type { BridgeState } from "../../core/bridges";
 import type { Bridge } from "../../core/countryside";
 import { AirfieldFactory } from "../airfield";
+import { BoatFleet } from "../boats";
 import { DrawbridgeFactory } from "../bridges";
 import { toScene } from "../coords";
 import { Landscape } from "../landscape";
@@ -115,16 +120,19 @@ interface DrawbridgeArgs {
   lift: number;
   /** Barriers down and lights flashing (when not cycling). */
   closed: boolean;
+  /** A motorboat shuttling under the bridge, to check its clearance. */
+  motorboat: boolean;
 }
 
 /**
  * A drawbridge over a 7-wide river on its own (the game's is built from the
  * road that crosses the river): ramps up from both banks, stone abutments,
- * the two leaves, and a barrier at each end.
+ * the two leaves, and a barrier at each end. The motorboat (on by default)
+ * must pass under the lowered leaves, roof lantern included.
  */
 export const Drawbridge: StoryObj<DrawbridgeArgs> = {
   argTypes: { lift: { control: { type: "range", min: 0, max: 1, step: 0.05 } } },
-  args: { auto: true, lift: 0, closed: false },
+  args: { auto: true, lift: 0, closed: false, motorboat: true },
   render: (args) =>
     mountStage((stage) => {
       groundPad(stage, 80);
@@ -135,6 +143,10 @@ export const Drawbridge: StoryObj<DrawbridgeArgs> = {
       const bridge: Bridge = { road: 0, from: 0, to: 20, points, wetFrom: 5.5, wetTo: 14.5 };
       riverStrip(stage);
       const view = new DrawbridgeFactory(stage.scene, stage.shadows).create(bridge, world);
+      // River centreline under the bridge (sim y = 50), for the motorboat.
+      const river = Array.from({ length: 41 }, (_, i) => ({ x: 30 + i, y: 50, width: 9 }));
+      const traffic = createBoatTraffic(river, world);
+      const fleet = new BoatFleet(stage.scene, stage.shadows);
       orbitCamera(stage, new Vector3(0, 0.6, 0), 22);
       const state: BridgeState = { bridge, lift: args.lift, wanted: args.closed };
       return (_dt, time) => {
@@ -148,6 +160,12 @@ export const Drawbridge: StoryObj<DrawbridgeArgs> = {
           state.wanted = args.closed;
         }
         view.update(state, time);
+        // The motorboat loops through the 30 units round the bridge (at
+        // s = 20), in full view, regardless of the leaves.
+        const speed = BOAT_TYPES.motorboat.speed;
+        const s = 5 + ((time * speed) % 30);
+        traffic.boats = args.motorboat ? [{ id: 1, kind: "motorboat", s, dir: 1, speed }] : [];
+        fleet.sync(traffic, world, time);
       };
     }),
 };

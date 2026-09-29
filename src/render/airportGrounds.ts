@@ -82,24 +82,31 @@ export class AirportView {
     private readonly phase: number,
     /** Colours of this airport's runways (see `reveal`). */
     readonly colors: readonly RunwayColor[],
-    /** Tower and windsock roots: the parts `reveal` raises. */
-    private readonly staffed: readonly TransformNode[],
+    /** Tower, windsock and fence (panel and posts): the parts `reveal` raises. */
+    private readonly raised: readonly TransformNode[],
+    /** The mown grass inside the fence: `reveal` fades it in. */
+    private readonly mown: Mesh,
   ) {}
 
   /**
-   * Raise the control tower and windsock as the airport's first runway is
-   * built (see `SceneSync`'s runway progression): 0 = not there (disabled,
-   * so no shadow either), 1 = standing. They grow up from the ground.
+   * Build the airport as its first runway is (see `SceneSync`'s runway
+   * progression): 0 = not there at all (disabled, so no shadow either),
+   * 1 = complete. The mown grass fades in while the fence, control tower
+   * and windsock grow up from the ground. The terminal and car park always
+   * stand: the roads and cars lead there.
    */
   reveal(k: number): void {
     const v = Math.max(0, Math.min(1, k));
     if (v === this.revealed) return;
     this.revealed = v;
-    for (const root of this.staffed) {
+    for (const root of this.raised) {
       root.setEnabled(v > 0);
       // A zero scale would make the world matrix singular.
       root.scaling.y = Math.max(0.001, v);
     }
+    this.mown.setEnabled(v > 0);
+    // Exactly 1 once built, so it's drawn opaque again.
+    this.mown.visibility = v;
   }
 
   /** `time` in seconds (stands still while paused). */
@@ -171,8 +178,14 @@ export class AirportGroundsFactory {
     const nodes: TransformNode[] = [];
     const mainHeading = airport.runways[0]!.heading;
 
-    nodes.push(this.mownGrass(airport.perimeter, mainHeading, MOWN_Y + index * MOWN_Y_STEP, world));
-    nodes.push(...this.fenceLine(airport.perimeter, world));
+    const mown = this.mownGrass(
+      airport.perimeter,
+      mainHeading,
+      MOWN_Y + index * MOWN_Y_STEP,
+      world,
+    );
+    const fence = this.fenceLine(airport.perimeter, world);
+    nodes.push(mown, ...fence);
 
     const { root: towerRoot, beacon } = this.tower(airport.tower, world);
     nodes.push(towerRoot);
@@ -205,7 +218,8 @@ export class AirportGroundsFactory {
       headingToRotationY(Math.atan2(wy, wx)),
       index * 1.7,
       airport.runways.map((r) => r.color),
-      [towerRoot, sockRoot],
+      [towerRoot, sockRoot, ...fence],
+      mown,
     );
   }
 

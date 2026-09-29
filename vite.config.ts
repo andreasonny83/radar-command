@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
+import { apiDev } from "./vite-plugins/apiDev.ts";
 import { espeakNgData } from "./vite-plugins/espeakNgData.ts";
 
 export default defineConfig({
@@ -9,6 +10,9 @@ export default defineConfig({
     // The speech engine's voice data (src/audio/speech.ts), trimmed to the
     // language the PA speaks (`ANNOUNCER_VOICE`).
     espeakNgData(["en"]),
+    // The leaderboard functions (api/*.ts) on the dev server, as Vercel
+    // serves them in production.
+    apiDev(),
   ],
   optimizeDeps: {
     // Served as is, so espeakNgData can trim the engine's package listing.

@@ -19,6 +19,7 @@ import {
   CAR_BAY_WIDTH,
   CAR_PARK_DEPTH,
   CAR_PARK_LENGTH,
+  OPENING_VIEW_MARGIN,
   PERIMETER_MARGIN,
   TERMINAL_DEPTH,
   TERMINAL_GAP,
@@ -26,9 +27,9 @@ import {
   TOWER_SETBACK,
 } from "../config";
 import { convexHull, convexPolygonsNear, rectCorners, roundedHull } from "./geometry";
-import { isInViewFrame } from "./layout";
+import { frameView, isInViewFrame } from "./layout";
 import { headingVector } from "./math";
-import type { OrientedRect, Runway, Vec2, WorldSize } from "./types";
+import type { OrientedRect, Runway, RunwayColor, Vec2, WorldSize } from "./types";
 
 /** A parking bay: cars drive in nose first and back out. */
 export interface Bay {
@@ -74,6 +75,34 @@ const APPROACH_LIGHTS_REACH = 7.5;
 
 /** Keep landside buildings at least this far from any other airport's fence. */
 const LANDSIDE_CLEARANCE = 4;
+
+/**
+ * Where the camera frames the airports open so far (those with a runway of
+ * an `open` colour): a shift opens over the first airport alone (the others
+ * aren't built yet), and pulls back over the middle of them as each further
+ * one opens. Their fences, with `OPENING_VIEW_MARGIN` spare round them
+ * (see `frameView`). Once every airport is open the whole field is in
+ * play: never tighter than the default view (zoom 1).
+ *
+ * @returns the view's centre and zoom, and how many airports it frames
+ *          (so a caller can move the camera only when that grows).
+ */
+export function openAirportsView(
+  airports: readonly Airport[],
+  open: readonly RunwayColor[],
+  world: WorldSize,
+  aspect: number,
+): { center: Vec2; zoom: number; count: number } {
+  const shown = airports.filter((a) => a.runways.some((r) => open.includes(r.color)));
+  const frame = frameView(
+    shown.flatMap((a) => a.perimeter),
+    OPENING_VIEW_MARGIN,
+    world,
+    aspect,
+  );
+  const zoom = shown.length === airports.length ? Math.min(1, frame.zoom) : frame.zoom;
+  return { center: frame.center, zoom, count: shown.length };
+}
 
 /** Group the runways into airports and lay out each airport's grounds. */
 export function layoutAirports(runways: readonly Runway[], world: WorldSize): Airport[] {

@@ -127,6 +127,8 @@ export class CarFleet {
     this.ensureCapacity(48);
     this.mesh.thinInstanceCount = 0;
     this.head.thinInstanceCount = this.tail.thinInstanceCount = this.beam.thinInstanceCount = 0;
+    // Disabled while there are no cars: see `sync`.
+    for (const mesh of [this.mesh, this.head, this.tail, this.beam]) mesh.setEnabled(false);
     // Cars drive all over the map: never cull them against a stale box.
     this.mesh.alwaysSelectAsActiveMesh = true;
     shadows?.addShadowCaster(this.mesh, false);
@@ -200,6 +202,11 @@ export class CarFleet {
         mesh.thinInstanceCount = cars.length;
         mesh.thinInstanceBufferUpdated("matrix");
       }
+    }
+    // With no instances Babylon draws a mesh itself, once, at its own
+    // transform: a lone car (and its lights) at the map's centre.
+    for (const mesh of [this.mesh, this.head, this.tail, this.beam]) {
+      mesh.setEnabled(cars.length > 0);
     }
   }
 

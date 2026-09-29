@@ -1,7 +1,7 @@
 /**
  * Departures: planes taking off from the field.
  *
- * Once the shift has warmed up (`DEPARTURE_START_SCORE` landings), a violet
+ * Once the shift has warmed up (`DEPARTURE_START_LANDINGS` landings), a violet
  * plane rolls out of a hangar every so often and the game flies it all the
  * way out; the player can't steer it, only keep arrivals clear of it:
  *
@@ -33,7 +33,7 @@ import {
   DEPARTURE_INTERVAL_MIN,
   DEPARTURE_MAX_TURN,
   DEPARTURE_ROUTE_SPACING,
-  DEPARTURE_START_SCORE,
+  DEPARTURE_START_LANDINGS,
   DEPARTURE_STRAIGHT_OUT,
   GROUND_SEPARATION,
   LINEUP_HOLD,
@@ -361,7 +361,7 @@ function nextDepartureInterval(rng: Rng): number {
 /**
  * Count down to the next departure and roll one out when it's due.
  *
- * The clock only runs once `DEPARTURE_START_SCORE` planes have landed. A
+ * The clock only runs once `DEPARTURE_START_LANDINGS` planes have landed. A
  * departure goes from an open runway (an unlocked colour) with no
  * departure of its own under way and a free stand to start from; if there
  * is none, it stays due and goes as soon as there is.
@@ -372,11 +372,11 @@ export function scheduleDepartures(
   rng: Rng,
   events: SimEvent[],
 ): void {
-  if (state.score < DEPARTURE_START_SCORE) return;
+  if (state.landed < DEPARTURE_START_LANDINGS) return;
   state.departureTimer += dt;
   if (state.departureTimer < state.departureInterval) return;
 
-  const open = new Set<RunwayColor>(unlockedColors(state.score, state.runways));
+  const open = new Set<RunwayColor>(unlockedColors(state.landed, state.runways));
   const candidates: { runway: Runway; stand: Stand }[] = [];
   for (const runway of state.runways) {
     if (!open.has(runway.color)) continue;

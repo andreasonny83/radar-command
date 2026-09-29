@@ -23,6 +23,11 @@
  * glides back to the view from before; so does the plane leaving the game.
  * Panning by keys or drag hands the camera straight back where it is, and
  * a crash cinematic takes over from it.
+ *
+ * Glides: `glideTo` moves the view to a new centre and zoom slowly, as a
+ * camera move rather than a snap (the shift's opening view over the first
+ * airport, and the pull-back when another airport opens; see main.ts). Any
+ * pan, zoom or follow by the player cuts it short and keeps the camera.
  */
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
 import { Camera } from "@babylonjs/core/Cameras/camera";
@@ -57,6 +62,13 @@ const DEFAULT_ALPHA = -Math.PI / 2;
  * glide over reads as a deliberate camera move rather than a jump cut.
  */
 const FOCUS_EASE_RATE = 3;
+/**
+ * Ease rate for `glideTo`, pan and zoom alike: gentler still, so the view
+ * pulls back over a second or so (≈ 95 % of the way in 1.2 s).
+ */
+const GLIDE_EASE_RATE = 2.5;
+/** A glide ends once the zoom is this close to its goal (ratio - 1). */
+const GLIDE_DONE = 0.01;
 
 /** A point on the ground in scene XZ. */
 type GroundPoint = { readonly x: number; readonly z: number };
@@ -97,6 +109,8 @@ export class CameraController {
    * player's own choice.
    */
   private followReturn: { x: number; z: number; zoom: number } | null = null;
+  /** True while a `glideTo` move is under way (slow pan and zoom ease). */
+  private gliding = false;
 
   constructor(scene: Scene, canvas: HTMLCanvasElement) {
     // alpha = -PI/2 puts the camera on the -z side looking towards +z.
@@ -169,6 +183,25 @@ export class CameraController {
   }
 
   /**
+   * Glide to a new view: centre `center` (scene XZ) at zoom `zoom` (clamped
+   * to the zoom range), panned and zoomed at the slow `GLIDE_EASE_RATE`.
+   * Ignored during a crash cinematic. While following a plane the view
+   * stays on it, and the glide becomes where `returnFromFollow` goes back to.
+   */
+  glideTo(center: GroundPoint, zoom: number): void {
+    if (this.focused) return;
+    const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
+    if (this.following && this.followReturn) {
+      this.followReturn = { x: center.x, z: center.z, zoom: z };
+      return;
+    }
+    this.targetPan.x = center.x;
+    this.targetPan.z = center.z;
+    this.targetZoom = z;
+    this.gliding = true;
+  }
+
+  /**
    * Follow a moving subject, e.g. a plane (see `trackPlane`): glide over it,
    * zoom in to `FOLLOW_ZOOM` (never out: a closer zoom is kept) and keep it
    * centred until `returnFromFollow`, `unfollow` (e.g. a pan), a crash
@@ -183,6 +216,7 @@ export class CameraController {
     if (!this.following) {
       this.followReturn = { x: this.targetPan.x, z: this.targetPan.z, zoom: this.targetZoom };
     }
+    this.gliding = false;
     this.followTarget = target;
     this.followLast = start;
     // The subject can be outside the pan limit (an inbound plane, one flying
@@ -221,6 +255,7 @@ export class CameraController {
    */
   focusOn(site: GroundPoint): void {
     this.unfollow();
+    this.gliding = false;
     this.focusAge = 0;
     this.focusSite = site;
     this.unclamped = true;
@@ -259,6 +294,7 @@ export class CameraController {
    */
   zoomBy(factor: number): void {
     const min = this.focused || this.following ? 1 : ZOOM_MIN;
+    this.gliding = false; // the player takes the camera back
     this.targetZoom = Math.min(ZOOM_MAX, Math.max(min, this.targetZoom * factor));
   }
 
@@ -270,6 +306,7 @@ export class CameraController {
     if (this.focused || (direction.x === 0 && direction.y === 0)) return;
     // Panning means the player wants the camera back.
     this.unfollow();
+    this.gliding = false;
     // Speed in view half-heights per second: same on-screen speed at any zoom.
     const step = this.orthoHalfHeight() * PAN_SPEED * dt;
     const d = this.screenToGround(direction.x * step, direction.y * step);
@@ -286,6 +323,7 @@ export class CameraController {
   dragBy(dx: number, dy: number): void {
     if (this.focused) return; // the crash site stays centred
     this.unfollow(); // the player takes the camera back
+    this.gliding = false;
     // The visible height spans 2 × the ortho half-height in world units.
     const scale = 2 * this.orthoHalfHeight();
     // Dragging the map right moves the camera left; dragging down (DOM +y)
@@ -307,11 +345,20 @@ export class CameraController {
     if (this.followTarget) this.track(target);
     // Exponential smoothing: frame-rate independent, unlike a fixed lerp factor.
     const kRotate = 1 - Math.exp(-ROTATE_EASE_RATE * dt);
-    const kZoom = 1 - Math.exp(-EASE_RATE * dt);
-    // Gliding to or from a crash site pans at the slower focus rate.
-    const kPan = this.unclamped ? 1 - Math.exp(-FOCUS_EASE_RATE * dt) : kZoom;
+    const kGlide = 1 - Math.exp(-GLIDE_EASE_RATE * dt);
+    const kZoom = this.gliding ? kGlide : 1 - Math.exp(-EASE_RATE * dt);
+    // Gliding to or from a crash site pans at the slower focus rate; a
+    // `glideTo` move slower still.
+    const kPan = this.gliding
+      ? kGlide
+      : this.unclamped
+        ? 1 - Math.exp(-FOCUS_EASE_RATE * dt)
+        : kZoom;
     this.camera.alpha += (this.targetAlpha - this.camera.alpha) * kRotate;
     this.zoom += (this.targetZoom - this.zoom) * kZoom;
+    if (this.gliding && Math.abs(this.zoom / this.targetZoom - 1) < GLIDE_DONE) {
+      this.gliding = false;
+    }
     // Zooming out shrinks how far the view may sit off-centre (see
     // `panFraction`): pull the pan back in as the zoom eases out. Not while
     // focused: the crash site is the goal, wherever it is.

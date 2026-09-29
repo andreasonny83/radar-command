@@ -79,6 +79,17 @@ export function pointInPolygon(p: Vec2, poly: readonly Vec2[]): boolean {
   return inside;
 }
 
+/** True if `p` is inside the oriented rectangle (edges count as inside). */
+export function pointInRect(p: Vec2, r: OrientedRect): boolean {
+  // Project onto the rectangle's own axes: along `heading` and across it.
+  const d = headingVector(r.heading);
+  const dx = p.x - r.center.x;
+  const dy = p.y - r.center.y;
+  const along = dx * d.x + dy * d.y;
+  const across = -dx * d.y + dy * d.x;
+  return Math.abs(along) <= r.length / 2 && Math.abs(across) <= r.width / 2;
+}
+
 /** Distance from `p` to the segment `a`–`b`. */
 export function distanceToSegment(p: Vec2, a: Vec2, b: Vec2): number {
   const abx = b.x - a.x;

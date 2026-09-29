@@ -1,8 +1,10 @@
 /**
  * Aircraft models (aircraft.ts) through the real MeshFactory: paint
  * material, glow layer, wing flex, props, strobes, landing gear (`gear`,
- * or `gearCycle` to watch it fold; GEAR_TRAVEL in sceneSync.ts) and the
- * visual wind.
+ * or `gearCycle` to watch it fold; GEAR_TRAVEL in sceneSync.ts), the
+ * visual wind and, after dark (`hour`), the landing lights: lamps and beam
+ * (`headlight` / `headBeam` in aircraft.ts, colours and HEADLIGHT_BEAM_STRENGTH
+ * in meshes.ts). "Headlights" shows the fleet at night.
  *
  * Tuning loop: edit the models / KIND_SIZE in aircraft.ts, the paint
  * material in meshes.ts or PLANE_RADIUS in config.ts, and the story
@@ -14,7 +16,8 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { FLIGHT_ALTITUDE, PLANE_RADIUS } from "../../config";
 import type { PlaneColor } from "../../core/types";
-import { animateAircraft, type AircraftKind, type AircraftRig } from "../aircraft";
+import { animateAircraft, setHeadlights, type AircraftKind, type AircraftRig } from "../aircraft";
+import { DayCycle } from "../dayCycle";
 import { MeshFactory } from "../meshes";
 import { fitShadowsToWorld } from "../scene";
 import { GEAR_TRAVEL } from "../sceneSync";
@@ -47,6 +50,10 @@ interface AircraftArgs {
   turntable: number;
   /** Multiplies time for every animation: 0.25 = slow motion. */
   timeScale: number;
+  /** Time of day (hours): lights the stage, and after dusk the landing lights. */
+  hour: number;
+  /** Landing lights switched on (the game turns them off in the hangar). */
+  headlights: boolean;
 }
 
 /**
@@ -95,6 +102,16 @@ function gearAt(args: AircraftArgs, time: number): number {
   return g * g * (3 - 2 * g);
 }
 
+/**
+ * Light the stage for `args.hour` (render/dayCycle.ts) and hand the night
+ * on to the factory, like SceneSync.setNight does in the game.
+ */
+function lightForHour(stage: Stage, factory: MeshFactory, args: AircraftArgs): void {
+  const day = new DayCycle(stage);
+  day.setHours(args.hour);
+  factory.setNight(day.night);
+}
+
 /** Camera for the chosen view; returns its per-frame update (if any). */
 function setupView(stage: Stage, view: AircraftArgs["view"], target: Vector3, radius: number) {
   if (view === "game") {
@@ -122,6 +139,7 @@ const meta: Meta<AircraftArgs> = {
     windExposure: { control: { type: "range", min: 0, max: 1, step: 0.05 } },
     turntable: { control: { type: "range", min: 0, max: 90, step: 5 } },
     timeScale: { control: { type: "range", min: 0, max: 2, step: 0.05 } },
+    hour: { control: { type: "range", min: 0, max: 23.75, step: 0.25 } },
   },
   args: {
     kind: "airliner",
@@ -135,6 +153,8 @@ const meta: Meta<AircraftArgs> = {
     windExposure: 0,
     turntable: 15,
     timeScale: 1,
+    hour: 12,
+    headlights: true,
   },
 };
 export default meta;
@@ -147,7 +167,9 @@ export const Single: Story = {
     mountStage((stage) => {
       const factory = new MeshFactory(stage.scene);
       groundPad(stage, 200);
+      lightForHour(stage, factory, args);
       const rig = factory.createAircraft(args.kind, args.color, 1, "plane");
+      setHeadlights(rig, args.headlights);
       for (const mesh of rig.shadowCasters) stage.shadows.addShadowCaster(mesh, false);
       const pos = new Vector3(0, FLIGHT_ALTITUDE, 0);
       const updateCamera = setupView(stage, args.view, pos, PLANE_RADIUS * 6);
@@ -170,12 +192,14 @@ export const Fleet: Story = {
   render: (args) =>
     mountStage((stage) => {
       const factory = new MeshFactory(stage.scene);
+      lightForHour(stage, factory, args);
       groundPad(stage, 240);
       const spacing = PLANE_RADIUS * 3.5;
       const planes = KINDS.flatMap((kind, row) =>
         COLORS.map((color, col) => {
           const id = row * COLORS.length + col + 1;
           const rig = factory.createAircraft(kind, color, id, `plane-${id}`);
+          setHeadlights(rig, args.headlights);
           for (const mesh of rig.shadowCasters) stage.shadows.addShadowCaster(mesh, false);
           const pos = new Vector3((col - 1) * spacing, FLIGHT_ALTITUDE, (1 - row) * spacing);
           return { rig, id, pos };
@@ -194,4 +218,13 @@ export const Fleet: Story = {
         }
       };
     }, args.timeScale),
+};
+
+/**
+ * The fleet at night, in the game's camera: nose and wing lamps and the
+ * cone of light each plane throws ahead of it.
+ */
+export const Headlights: Story = {
+  ...Fleet,
+  args: { ...Fleet.args, hour: 23, view: "game" },
 };

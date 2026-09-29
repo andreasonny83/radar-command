@@ -30,8 +30,10 @@ import {
   ROTATE_SPEED,
   THRESHOLD_ALTITUDE,
 } from "../config";
+import { allStands } from "../core/airfield";
+import { isInHangar } from "../core/ground";
 import { cruiseAltitude } from "../core/layout";
-import { unlockedColors } from "../core/progression";
+import { openRunways } from "../core/progression";
 import { angleDelta, distance, lerp, normalizeAngle } from "../core/math";
 import type {
   GameState,
@@ -46,6 +48,7 @@ import type {
 import {
   aircraftKindFor,
   animateAircraft,
+  setHeadlights,
   wheelDepth,
   type AircraftKind,
   type AircraftRig,
@@ -97,14 +100,18 @@ const DEPARTURE_PATH_WIDTH = 0.45;
 /**
  * Take-off attitude. The nose comes up by `ROTATION_PITCH` (radians) over
  * the last stretch of the take-off roll, from `ROTATION_START` × the
- * lift-off speed; once airborne the pitch follows the climb gradient,
- * exaggerated `CLIMB_PITCH_GAIN` times so it reads from the tilted camera,
- * and eases level again as the climb flattens out. `PITCH_EASE` (seconds)
- * smooths every change.
+ * lift-off speed. Once airborne the nose holds that rotation attitude,
+ * fading out over the climb, while the climb attitude rises to
+ * `CLIMB_PITCH` (radians) midway, where the climb is steepest, and eases
+ * level again as it flattens out (the shape of the climb profile's slope,
+ * see `departureAltitude`, but a fixed angle whatever the cruise height:
+ * the real slope would tip a high climb-out nearly vertical). The larger
+ * of the two wins, so the nose never dips at lift-off. `PITCH_EASE`
+ * (seconds) smooths every change.
  */
 export const ROTATION_PITCH = 0.16;
 export const ROTATION_START = 0.8;
-export const CLIMB_PITCH_GAIN = 2.2;
+export const CLIMB_PITCH = 0.22;
 const PITCH_EASE = 0.25;
 /**
  * A climbing departure moves back to the overlay rendering group (drawn
@@ -129,6 +136,15 @@ export const ANCHOR_RING_FADE = 0.8;
  * runway. A new shift (or a resize) just shows what's open, no animation.
  */
 export const RUNWAY_REVEAL_SECONDS = 1.6;
+/**
+ * A runway that opens a new airport (the first of its colours to open
+ * there) waits `AIRPORT_REVEAL_DELAY` seconds before it starts building:
+ * until then the airport isn't there at all, neither grounds nor fence
+ * (see render/airportGrounds.ts `AirportView.reveal`). The camera uses the
+ * pause to pull back and frame it (core/airports.ts `openAirportsView`), so the
+ * player sees it go up rather than finding it built.
+ */
+export const AIRPORT_REVEAL_DELAY = 0.9;
 /**
  * Hover highlight (a plane under the mouse, or held by a pointer; see
  * input/pointer.ts `refreshHover`). It eases in and out over roughly
@@ -187,7 +203,10 @@ const BEAM_Y = 0.1;
 const BEAM_LENGTH = 2.6;
 const BEAM_WIDTH = 1.2;
 const BEAM_STRENGTH = 0.6;
-/** Phases whose landing lights are on (not parked in a hangar or gone). */
+/**
+ * Phases whose landing lights are on (not parked in a hangar or gone):
+ * the pools on the ground and the lamps and beam on the plane itself.
+ */
 const BEAM_PHASES = new Set<PlanePhase>([
   "flying",
   "landing",
@@ -197,6 +216,11 @@ const BEAM_PHASES = new Set<PlanePhase>([
   "takeoff",
   "climbout",
 ]);
+
+/** Landing lights on: a lit phase, and not still inside the hangar. */
+function landingLightsOn(view: PlaneView, plane: Plane): boolean {
+  return BEAM_PHASES.has(plane.phase) && !view.inHangar;
+}
 
 /**
  * Height `plane` should be flying at now: its cruise altitude over the
@@ -244,20 +268,13 @@ function wantsGearDown(plane: Plane): boolean {
  * runway, climbs steepest midway, then levels off smoothly.
  *
  * @param runway  the plane's height on the ground (see `groundAltitude`)
- * @returns the height, and the climb gradient (height per unit flown).
+ * @returns the height.
  */
-export function departureAltitude(
-  plane: Plane,
-  world: WorldSize,
-  runway: number,
-): { altitude: number; gradient: number } {
+export function departureAltitude(plane: Plane, world: WorldSize, runway: number): number {
   const climbed = plane.departure?.climbed ?? CLIMB_DISTANCE;
   const t = Math.min(1, climbed / CLIMB_DISTANCE);
   const rise = cruiseAltitude(plane.pos, world) - runway;
-  return {
-    altitude: runway + rise * t * t * (3 - 2 * t),
-    gradient: (rise * 6 * t * (1 - t)) / CLIMB_DISTANCE,
-  };
+  return runway + rise * t * t * (3 - 2 * t);
 }
 
 /**
@@ -274,6 +291,17 @@ function hasPathLine(plane: Plane): boolean {
     default:
       return false;
   }
+}
+
+/**
+ * Rendering group for a plane's path line: the plane's own. Airborne, both
+ * sit in the overlay group, visible over trees, and the plane (above the
+ * line) still hides the bit under it. A departure on the ground or just
+ * off it is in the scenery group, and the overlay group clears depth, so a
+ * line left there would draw its dots straight over the plane.
+ */
+function pathGroup(view: PlaneView): number {
+  return view.grounded ? 0 : OVERLAY_GROUP;
 }
 
 /** Fraction of the way to a target that exponential easing covers in `dt`. */
@@ -324,6 +352,11 @@ interface PlaneView {
   altitude: number | null;
   /** Height at touchdown, where the flare starts (null while airborne). */
   touchdownAltitude: number | null;
+  /**
+   * Inside its hangar (core/ground.ts `isInHangar`): every light off, the
+   * landing-light pool included, as the glow would show through the roof.
+   */
+  inHangar: boolean;
 }
 
 export class SceneSync {
@@ -390,6 +423,8 @@ export class SceneSync {
     this.beams.isVisible = false;
     this.beams.thinInstanceSetBuffer("matrix", this.beamMatrices, 16, false);
     this.beams.thinInstanceCount = 0;
+    // Disabled while there are no instances: see `syncBeams`.
+    this.beams.setEnabled(false);
   }
 
   /**
@@ -445,7 +480,7 @@ export class SceneSync {
     let count = 0;
     for (const plane of state.planes) {
       const view = this.views.get(plane.id);
-      if (!view || this.wreckIds.has(plane.id) || !BEAM_PHASES.has(plane.phase)) continue;
+      if (!view || this.wreckIds.has(plane.id) || !landingLightsOn(view, plane)) continue;
       const height = view.aircraft.root.position.y;
       if (height >= BEAM_ALTITUDE) continue;
       const fade = 1 - height / BEAM_ALTITUDE;
@@ -467,6 +502,9 @@ export class SceneSync {
     }
     this.beams.thinInstanceCount = count;
     this.beams.thinInstanceBufferUpdated("matrix");
+    // With no instances Babylon draws the mesh itself, once, at its own
+    // transform: a stray pool of light on the grass at the map's centre.
+    this.beams.setEnabled(count > 0);
   }
 
   /**
@@ -492,7 +530,7 @@ export class SceneSync {
 
   /**
    * Incremental progression: draw only the runways whose colour is open at
-   * the current score (core/progression.ts `unlockedColors`). A shift
+   * the current landing count (core/progression.ts `unlockedColors`). A shift
    * starts with red alone; each colour that opens is laid down in front of
    * the player (see `RUNWAY_REVEAL_SECONDS`), and a new shift closes them
    * again. Off, every runway is drawn (stories). Applied on the next
@@ -505,9 +543,9 @@ export class SceneSync {
   /** Build static geometry (landscape, runways, taxiways, hangars) for the world. */
   rebuildWorld(state: GameState): void {
     fitShadowsToWorld(this.shadows, state.world);
-    // Airport grounds (fence, terminal) stay for every runway, open or not:
-    // the airport is there, its runway just isn't built yet. Its tower and
-    // windsock wait for the first runway (see `syncRunways`).
+    // Airport grounds are built for every runway, open or not; an airport
+    // with no runway open is kept hidden until its first one is built (see
+    // `syncRunways`). Its terminal and car park stay: the roads lead there.
     this.landscape.setWorld(state.world, state.runways);
     this.reveals.clear();
     this.buildRunways(this.shownRunways(state), state);
@@ -519,8 +557,7 @@ export class SceneSync {
   /** The runways to draw now: every one, or only the open colours. */
   private shownRunways(state: GameState): Runway[] {
     if (!this.runwayProgression) return [...state.runways];
-    const open = new Set(unlockedColors(state.score, state.runways));
-    return state.runways.filter((r) => open.has(r.color));
+    return openRunways(state.landed, state.runways);
   }
 
   /**
@@ -550,7 +587,12 @@ export class SceneSync {
       for (const color of this.reveals.keys()) {
         if (!shown.some((r) => r.color === color)) this.reveals.delete(color);
       }
-      for (const r of shown) if (!before.has(r.color)) this.reveals.set(r.color, time);
+      for (const r of shown) {
+        if (before.has(r.color)) continue;
+        // First runway open at its airport: wait for the camera to get there.
+        const opensAirport = !this.landscape.airportColors(r.color).some((c) => before.has(c));
+        this.reveals.set(r.color, time + (opensAirport ? AIRPORT_REVEAL_DELAY : 0));
+      }
     }
     // How far each colour's runway is built: 0 closed, 1 open.
     const built = new Map<RunwayColor, number>();
@@ -568,8 +610,8 @@ export class SceneSync {
       this.airfieldViews[i]?.reveal(Math.max(0, t * 2 - 1));
       if (t >= 1) this.reveals.delete(r.color);
     });
-    // An airport with no runway open yet has no tower or windsock either:
-    // they go up with its first runway.
+    // An airport with no runway open yet isn't there either (no grounds,
+    // fence, tower or windsock): it goes up with its first runway.
     this.landscape.revealAirports((color) => built.get(color) ?? 0);
   }
 
@@ -584,6 +626,7 @@ export class SceneSync {
     const dt = this.lastTime === null ? 0 : Math.max(0, time - this.lastTime);
     this.lastTime = time;
     const alive = new Set<number>();
+    const stands = allStands(state.runways);
     for (const plane of state.planes) {
       alive.add(plane.id);
       // Wreckage is animated by the crash effect instead (see `crash`).
@@ -622,11 +665,13 @@ export class SceneSync {
           grounded: false,
           altitude: null,
           touchdownAltitude: null,
+          inHangar: false,
         };
         this.views.set(plane.id, view);
         // Solid parts only: prop blur discs and lights cast no shadow.
         for (const mesh of aircraft.shadowCasters) this.shadows.addShadowCaster(mesh, false);
       }
+      view.inHangar = isInHangar(plane, stands);
       this.updateView(view, plane, state.world, time, dt);
     }
 
@@ -703,15 +748,10 @@ export class SceneSync {
     // their climb profile (see `departureAltitude`).
     const descent = ground ? Math.min(1, ground.travelled / FLARE_DISTANCE) : 0;
     let altitude: number;
-    let climbGradient = 0;
     if (departure) {
-      if (ground) {
-        altitude = view.groundAltitude;
-      } else {
-        const climb = departureAltitude(plane, world, view.groundAltitude);
-        altitude = climb.altitude;
-        climbGradient = climb.gradient;
-      }
+      altitude = ground
+        ? view.groundAltitude
+        : departureAltitude(plane, world, view.groundAltitude);
       view.altitude = altitude;
     } else if (ground) {
       view.touchdownAltitude ??= view.altitude ?? view.groundAltitude;
@@ -728,14 +768,17 @@ export class SceneSync {
 
     // On the ground, draw with the scenery (depth-tested) rather than on top
     // of it, so a plane rolling into its hangar disappears behind the walls.
+    // A departure's route line moves with it (see `pathGroup`).
     if (ground && !view.grounded) {
       view.grounded = true;
       for (const mesh of view.aircraft.all) mesh.renderingGroupId = 0;
+      if (view.path) view.path.renderingGroupId = pathGroup(view);
     }
     // A departure climbing clear of the rooftops draws over the scenery again.
     if (!ground && view.grounded && altitude > OVERLAY_ALTITUDE) {
       view.grounded = false;
       for (const mesh of view.aircraft.all) mesh.renderingGroupId = OVERLAY_GROUP;
+      if (view.path) view.path.renderingGroupId = pathGroup(view);
     }
 
     // Visual-only wind, fading out as the wheels touch the runway (and in
@@ -778,14 +821,15 @@ export class SceneSync {
     const targetBank = (plane.turnRate / MAX_TURN_RATE) * flightTuning.maxBank;
     view.bank += (targetBank - view.bank) * ease(dt, flightTuning.bankEase);
     // Pitch: nose up for the rotation at the end of a take-off roll, then
-    // with the climb gradient, levelling off as the climb flattens.
+    // the climb attitude, levelling off as the climb flattens.
     let targetPitch = 0;
     if (departure && ground && plane.phase === "takeoff") {
       const from = ROTATE_SPEED * ROTATION_START;
       targetPitch =
         ROTATION_PITCH * Math.max(0, Math.min(1, (ground.speed - from) / (ROTATE_SPEED - from)));
-    } else if (departure) {
-      targetPitch = Math.atan(climbGradient * CLIMB_PITCH_GAIN);
+    } else if (departure && !ground) {
+      const t = Math.min(1, departure.climbed / CLIMB_DISTANCE);
+      targetPitch = Math.max(ROTATION_PITCH * (1 - t), CLIMB_PITCH * 4 * t * (1 - t));
     }
     view.pitch += (targetPitch - view.pitch) * ease(dt, PITCH_EASE);
     root.rotation.set(
@@ -803,7 +847,9 @@ export class SceneSync {
       chop: wind.chop,
       rollout: ground ? 1 - Math.min(1, ground.speed / touchdownSpeed) : 0,
       gear: this.updateGear(view, plane, dt),
+      lights: !view.inHangar,
     });
+    setHeadlights(view.aircraft, landingLightsOn(view, plane));
 
     // Sound cues timed to what's drawn (see audio/cues.ts).
     view.pan = this.screenPan(root.position);
@@ -971,7 +1017,7 @@ export class SceneSync {
     line.material!.transparencyMode = Material.MATERIAL_ALPHABLEND;
 
     line.isPickable = false;
-    line.renderingGroupId = OVERLAY_GROUP; // stays visible over trees
+    line.renderingGroupId = pathGroup(view);
     view.path = line;
   }
 }

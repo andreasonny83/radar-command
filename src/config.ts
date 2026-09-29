@@ -102,6 +102,16 @@ export const AVOID_SEPARATION = COLLISION_DISTANCE * 1.8;
 export const AVOID_LOOKAHEAD = 4;
 export const AVOID_MAX_TURN = 0.9;
 
+/**
+ * Conflict prediction (see core/conflicts.ts): how far ahead (seconds) the
+ * game flies every plane along its path looking for collisions, and the
+ * time step it does so in. `CONFLICT_INTERVAL` is how often (seconds) the
+ * HUD list is refreshed.
+ */
+export const CONFLICT_HORIZON = 20;
+export const CONFLICT_STEP = 0.2;
+export const CONFLICT_INTERVAL = 0.25;
+
 /** Pointer must go down within this distance of a plane to grab it. */
 export const PLANE_GRAB_RADIUS = PLANE_RADIUS * 3;
 
@@ -438,11 +448,11 @@ export const ARRIVAL_WARNING = 2.5;
 // whole length of the strip.
 
 /** Departures begin once this many planes have landed this shift. */
-export const DEPARTURE_START_SCORE = 4;
+export const DEPARTURE_START_LANDINGS = 4;
 
 /**
  * Seconds between departures (a random pick in this range each time). The
- * first one is due `DEPARTURE_INTERVAL_MIN` after the start score is hit.
+ * first one is due `DEPARTURE_INTERVAL_MIN` after the start count is reached.
  */
 export const DEPARTURE_INTERVAL_MIN = 22;
 export const DEPARTURE_INTERVAL_MAX = 38;
@@ -512,10 +522,10 @@ export const LANDINGS_PER_EXTRA_PLANE = 2;
 export const SECONDS_PER_EXTRA_PLANE = 45;
 
 /**
- * Score at which each runway colour starts receiving planes. Runways open in
+ * Landings after which each runway colour starts receiving planes. Runways open in
  * `RUNWAY_LAYOUT` order; the first one must be 0 so a new shift has a target.
  */
-export const COLOR_UNLOCK_SCORES: Record<RunwayColor, number> = {
+export const COLOR_UNLOCK_LANDINGS: Record<RunwayColor, number> = {
   red: 0,
   blue: 3,
   yellow: 7,
@@ -723,6 +733,20 @@ export const PAN_SPEED = 1.2;
  * default view). A player already zoomed in closer keeps their zoom.
  */
 export const FOLLOW_ZOOM = 2.6;
+
+// ---------------------------------------------------------------------------
+// Opening view (main.ts, render/camera.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * A shift opens with the camera over the first airport alone: the other
+ * airports aren't there yet (no runway, grounds or fence until their first
+ * runway opens; see render/sceneSync.ts `AIRPORT_REVEAL_DELAY`). This much
+ * ground (world units) stays in view round the airport's fence, for planes
+ * on approach. When a runway opens a new airport, the camera glides out to
+ * frame every open airport (see core/airports.ts `openAirportsView`).
+ */
+export const OPENING_VIEW_MARGIN = 14;
 
 // ---------------------------------------------------------------------------
 // Crash cinematic (render/camera.ts, render/crash.ts, main.ts)

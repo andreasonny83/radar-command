@@ -7,6 +7,7 @@
  * frame-rate independent panning: the OS key-repeat rate never matters.
  */
 import type { Vec2 } from "../core/types";
+import { isTyping } from "./shortcuts";
 
 /**
  * Pan key → screen direction (+x right, +y up the screen). Letters are
@@ -37,7 +38,8 @@ export function attachPanKeys(target: Window = window): PanKeys {
   target.addEventListener("keydown", (e) => {
     const key = keyName(e);
     // Ctrl/Cmd+A, Ctrl+S… are browser shortcuts, not pans.
-    if (!(key in PAN_DIRECTIONS) || e.ctrlKey || e.metaKey || e.altKey) return;
+    // Letters typed into a text field (the leaderboard name) aren't pans either.
+    if (!(key in PAN_DIRECTIONS) || e.ctrlKey || e.metaKey || e.altKey || isTyping(e)) return;
     // Arrows would otherwise scroll the page (or a focused HUD element).
     e.preventDefault();
     held.add(key);

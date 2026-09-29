@@ -34,10 +34,12 @@ import type { GameState, Rng, Runway, SimEvent } from "./types";
 /**
  * Begin a new shift: reset state and put the first plane in the air. The
  * opening plane can't be sent off the world: the player has to land it.
+ * It flies in straight for its runway, so it crosses the opening view (the
+ * camera starts zoomed in over the first airport) and its arrow shows.
  */
 export function startGame(state: GameState, rng: Rng = Math.random): void {
   resetGameState(state);
-  const first = spawnPlane(state, rng);
+  const first = spawnPlane(state, rng, true);
   if (first) first.canDepart = false;
 }
 
@@ -66,11 +68,11 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
   // 1. Spawn. Subtract (rather than zero) the timer so leftover time carries over.
   state.spawnTimer += dt;
   if (state.spawnTimer >= state.spawnInterval) {
-    if (flyingCount(state.planes) < maxAirborne(state.score, state.elapsed)) {
+    if (flyingCount(state.planes) < maxAirborne(state.landed, state.elapsed)) {
       state.spawnTimer -= state.spawnInterval;
       const plane = spawnPlane(state, rng);
       if (plane) events.push({ type: "spawned", planeId: plane.id });
-      state.spawnInterval = nextSpawnInterval(state.spawnInterval, state.score, state.elapsed);
+      state.spawnInterval = nextSpawnInterval(state.spawnInterval, state.landed, state.elapsed);
     } else {
       // At the cap: hold the timer "due" without banking extra time, so a
       // freed slot fills on the next step but never triggers a burst.
@@ -96,9 +98,9 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
     } else if (result) {
       const { runway } = result;
       touchDown(plane, runway, state.nextGroundSeq++);
-      state.score++;
+      state.landed++;
       events.push({ type: "landed", planeId: plane.id, color: runway.color });
-      for (const color of newlyUnlockedColors(state.score - 1, state.score, state.runways)) {
+      for (const color of newlyUnlockedColors(state.landed - 1, state.landed, state.runways)) {
         events.push({ type: "unlocked", color });
       }
     }
@@ -119,7 +121,11 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
     return events;
   }
 
-  // 5. Prune.
+  // 5. Count departures that made it out, then prune. Arrivals that
+  // strayed off the map are `departed` too, but only a plane with a
+  // `departure` plan took off from the field and earns the credit. (A crash
+  // returned above, so nothing leaving on the crash frame counts.)
+  for (const p of state.planes) if (p.phase === "departed" && p.departure) state.departed++;
   state.planes = state.planes.filter((p) => p.phase !== "landed" && p.phase !== "departed");
   return events;
 }

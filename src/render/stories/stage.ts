@@ -154,8 +154,50 @@ export function gameCamera(
 }
 
 /**
+ * Let the player grab and drag the map around a `gameCamera`, like dragging
+ * empty ground in the game (input/pointer.ts `onPan`). Stories that show a
+ * static or scripted scene have no planes to route, so every left-button /
+ * touch drag pans: there is no path drawing to compete with.
+ *
+ * Stories wiring the real pointer input (`attachPointerInput` with `onPan`)
+ * already pan and must not call this too, or each drag would move twice.
+ */
+export function dragToPan(stage: Stage, controller: CameraController): void {
+  const { canvas } = stage;
+  /** The one pointer dragging the map and where it was last seen (CSS px). */
+  let pan: { pointerId: number; x: number; y: number } | null = null;
+  canvas.style.cursor = "grab";
+
+  canvas.addEventListener("pointerdown", (e) => {
+    // Primary (left) mouse button only; touch/pen report 0. One finger at a
+    // time, as in the game.
+    if (e.button !== 0 || pan !== null) return;
+    pan = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+    canvas.style.cursor = "grabbing";
+    // Keep receiving move/up for this pointer even if it leaves the canvas.
+    canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!pan || pan.pointerId !== e.pointerId) return;
+    // CameraController.dragBy wants canvas heights, +y down the screen.
+    const h = canvas.clientHeight || 1;
+    controller.dragBy((e.clientX - pan.x) / h, (e.clientY - pan.y) / h);
+    pan.x = e.clientX;
+    pan.y = e.clientY;
+  });
+  const end = (e: PointerEvent) => {
+    if (!pan || pan.pointerId !== e.pointerId) return;
+    pan = null;
+    canvas.style.cursor = "grab";
+  };
+  canvas.addEventListener("pointerup", end);
+  canvas.addEventListener("pointercancel", end);
+}
+
+/**
  * A free-orbit perspective camera for close-ups: drag to orbit, wheel to
- * zoom. (The game camera never takes drags, since those draw paths.)
+ * zoom. (The game camera never takes drags on its own: see `dragToPan`.)
  */
 export function orbitCamera(stage: Stage, target: Vector3, radius: number): ArcRotateCamera {
   const camera = new ArcRotateCamera("orbit", -Math.PI / 2.6, 1.05, radius, target, stage.scene);

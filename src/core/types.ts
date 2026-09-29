@@ -40,7 +40,9 @@ export type PlaneColor = RunwayColor | "violet";
  * - `departing`: sent off the field by the player; flies straight on out of
  *                view and can't collide. Still steerable: a new path calls
  *                it back into play (see `isSteerable` in core/path.ts).
- * - `departed` : past the scenery map edge; pruned like `landed`, no score.
+ * - `departed` : past the scenery map edge; pruned like `landed`. Only a
+ *                real departure (one with `departure` set) counts towards
+ *                the score.
  *
  * Departures (planes taking off from the field, see core/departures.ts)
  * have phases of their own. The game flies them; the player can't steer
@@ -294,8 +296,14 @@ export interface Runway {
 
 export interface GameState {
   phase: GamePhase;
-  /** Number of planes landed this shift. */
-  score: number;
+  /**
+   * Planes landed this shift. Drives progression (runway unlocks, the
+   * airborne cap, departures starting); the score shown to the player is
+   * built from this, `departed` and `elapsed` (see core/scoring.ts).
+   */
+  landed: number;
+  /** Departures that climbed out and left the map this shift. */
+  departed: number;
   /** Seconds since the current shift started. */
   elapsed: number;
   /** Seconds accumulated towards the next spawn. */
@@ -335,7 +343,7 @@ export type SimEvent =
   | { type: "spawned"; planeId: number }
   | { type: "landed"; planeId: number; color: RunwayColor }
   | { type: "crash"; planeIds: [number, number]; at: Vec2 }
-  /** A landing pushed the score far enough to open another runway colour. */
+  /** A landing brought the count far enough to open another runway colour. */
   | { type: "unlocked"; color: RunwayColor }
   /** A plane reached its threshold with the runway blocked, and flew on. */
   | { type: "goAround"; planeId: number; color: RunwayColor }

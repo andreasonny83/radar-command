@@ -30,6 +30,7 @@ import {
   rejectedLanding,
   startPath,
 } from "../core/path";
+import { openRunways } from "../core/progression";
 import type { GameState, Plane, Vec2 } from "../core/types";
 import { fromScene } from "../render/coords";
 
@@ -254,7 +255,10 @@ export function attachPointerInput(
     if (plane && isSteerable(plane) && plane.path.length > 0) {
       feedback.onPathDrawn?.(plane.id, plane.pathAnchored);
       // Let go on a runway without locking on: flag the landing as a no-go.
-      const at = rejectedLanding(plane, getState().runways);
+      // Only open runways count: one not yet unlocked isn't drawn, so a
+      // path ending on its (invisible) strip is just a route.
+      const { landed, runways } = getState();
+      const at = rejectedLanding(plane, openRunways(landed, runways));
       if (at) feedback.onLandingRejected?.(plane.id, at);
     }
   };
