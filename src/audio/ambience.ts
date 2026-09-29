@@ -148,6 +148,14 @@ export class Ambience {
   private readonly announcer: Voice;
   /** Into the PA: the tinny speaker and hall that the chime and voice go through. */
   private readonly speaker: AudioNode;
+  /** Between the PA layer and the output: closed while paused (see `setPaused`). */
+  private readonly paGate: GainNode;
+  /** Is the game paused? No announcements are booked or heard meanwhile. */
+  private paused = false;
+  /** Audio-clock time the pause began. */
+  private pausedAt = 0;
+  /** The game line being announced, so a pause mid-sentence can queue it again. */
+  private spoken: { line: string; end: number } | null = null;
   /** True once the speech engine has loaded (see audio/speech.ts). */
   private speechReady = false;
   /** Game lines waiting for the next announcement (see `onGameEvent`). */
@@ -186,9 +194,11 @@ export class Ambience {
       pa: ctx.createGain(),
       outside: ctx.createGain(),
     };
+    this.paGate = ctx.createGain();
+    this.paGate.connect(out);
     for (const [name, gain] of Object.entries(this.layers) as [AmbienceLayer, GainNode][]) {
       gain.gain.value = AMBIENCE_LEVELS[name];
-      gain.connect(out);
+      gain.connect(name === "pa" ? this.paGate : out);
     }
 
     // Terminal: the recording (already full of the hall's own echo),
@@ -263,6 +273,11 @@ export class Ambience {
     else return;
     this.gameLines.push(line);
     if (this.gameLines.length > MAX_QUEUED_LINES) this.gameLines.shift();
+    this.bringForward();
+  }
+
+  /** Bring the next announcement forward (clear of the chime, `PA_MIN_GAP` after the last). */
+  private bringForward(): void {
     const soon = Math.max(
       this.booked,
       this.ctx.currentTime + 1,
@@ -270,6 +285,27 @@ export class Ambience {
       this.lastPa + PA_MIN_GAP,
     );
     this.nextPa = Math.min(this.nextPa, soon);
+  }
+
+  /**
+   * The game is paused (or carries on): the PA falls silent, mid-sentence
+   * too, and books nothing until play resumes. A game line cut off is
+   * queued to be announced again; the rest of the schedule is pushed back
+   * by the time spent paused, so the wait picks up where it stopped.
+   */
+  setPaused(paused: boolean): void {
+    if (paused === this.paused) return;
+    this.paused = paused;
+    const now = this.ctx.currentTime;
+    this.paGate.gain.setTargetAtTime(paused ? 0 : 1, now, 0.04);
+    if (paused) {
+      this.pausedAt = now;
+      if (this.spoken && this.spoken.end > now) this.gameLines.unshift(this.spoken.line);
+      this.spoken = null;
+      return;
+    }
+    this.nextPa += now - this.pausedAt;
+    if (this.gameLines.length > 0) this.bringForward();
   }
 
   /**
@@ -295,7 +331,7 @@ export class Ambience {
     }
     const horizon = now + LOOKAHEAD;
     this.bookBed(horizon);
-    while (this.nextPa < horizon) {
+    while (!this.paused && this.nextPa < horizon) {
       // Never over the departure chime (see `noteChime`).
       if (this.nextPa - this.lastChime < PA_CLEAR_OF_CHIME) {
         this.nextPa = this.lastChime + PA_CLEAR_OF_CHIME;
@@ -378,7 +414,8 @@ export class Ambience {
       this.babble(words);
       return;
     }
-    const line = text ?? this.gameLines.shift() ?? terminalLine(this.rng);
+    const queued = text === undefined ? this.gameLines.shift() : undefined;
+    const line = text ?? queued ?? terminalLine(this.rng);
     const voice = Math.floor(this.rng() * ANNOUNCER_VOICES.length);
     void speak(this.ctx, line, voice).then((buffer) => {
       const start = Math.max(words, this.ctx.currentTime + 0.02);
@@ -392,6 +429,7 @@ export class Ambience {
       gain.gain.value = SPEECH_LEVEL;
       src.connect(gain).connect(this.speaker);
       src.start(start);
+      if (queued !== undefined) this.spoken = { line: queued, end: start + buffer.duration };
     });
   }
 

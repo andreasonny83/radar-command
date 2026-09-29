@@ -28,7 +28,7 @@ describe("step", () => {
     state.planes = [createPlane(99, runway.color, { ...runway.threshold }, runway.heading)];
     const events = step(state, 0.01, rng);
     expect(events).toContainEqual({ type: "landed", planeId: 99, color: runway.color });
-    expect(state.score).toBe(1);
+    expect(state.landed).toBe(1);
     // Roll out completely: the plane is pruned.
     for (let i = 0; i < 300; i++) step(state, 1 / 60, rng);
     expect(state.planes.find((p) => p.id === 99)).toBeUndefined();
@@ -92,11 +92,11 @@ describe("onboarding", () => {
   it("announces a runway colour when a landing unlocks it", () => {
     const state = createGameState(16 / 9);
     startGame(state, rng);
-    state.score = 2;
+    state.landed = 2;
     const runway = state.runways.find((r) => r.color === "red")!;
     state.planes = [createPlane(99, "red", { ...runway.threshold }, runway.heading)];
     const events = step(state, 0.01, rng);
-    expect(state.score).toBe(3);
+    expect(state.landed).toBe(3);
     expect(events).toContainEqual({ type: "unlocked", color: "blue" });
   });
 });

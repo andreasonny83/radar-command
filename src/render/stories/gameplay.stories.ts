@@ -44,11 +44,13 @@
  *               camera; `sound` plays the chime and engines (click the
  *               canvas first: browsers only start audio after a gesture).
  *   - RunwayProgression: the runways built as their colours open, on a
- *               loop: red alone at the start of a shift (the other
- *               airport an empty fenced field: no tower, no windsock),
- *               then blue laid down (a plain strip, its tower and windsock
+ *               loop: red alone at the start of a shift, the camera over
+ *               its airport (the other airport not there at all: no
+ *               grounds, fence, tower or windsock), then the camera pulls
+ *               back and blue is laid down (a plain strip, its airport
  *               growing up with it), then yellow (the X), with the game's
- *               toast (and, with `sound`, the PA announcement).
+ *               toast (and, with `sound`, the PA announcement). `camera`
+ *               off keeps the default view.
  *   - LiveGame: the whole game (sim, input, HUD) in a story, with slow motion
  *               (`showAirspace` draws the airspace edge). Right-click a
  *               plane to follow it, with the "track plane active" badge
@@ -74,20 +76,22 @@
  * Landing: FLIGHT_ALTITUDE / OUTER_FLIGHT_ALTITUDE / ALTITUDE_TRANSITION /
  * APPROACH_DISTANCE / THRESHOLD_ALTITUDE / ALTITUDE_SCALE_PER_UNIT and
  * FLARE_DISTANCE in config.ts, MAX_VERTICAL_SPEED in sceneSync.ts.
- * Runway progression: COLOR_UNLOCK_SCORES in config.ts, `unlockedColors` in
- * core/progression.ts, RUNWAY_REVEAL_SECONDS and `syncRunways` in
- * sceneSync.ts, `reveal` in runway.ts / airfield.ts / airportGrounds.ts.
+ * Runway progression: COLOR_UNLOCK_LANDINGS in config.ts, `unlockedColors` in
+ * core/progression.ts, RUNWAY_REVEAL_SECONDS, AIRPORT_REVEAL_DELAY and
+ * `syncRunways` in sceneSync.ts, `reveal` in runway.ts / airfield.ts /
+ * airportGrounds.ts; the camera's framing: OPENING_VIEW_MARGIN in config.ts,
+ * `openAirportsView` in core/airports.ts, `glideTo` in camera.ts.
  * Departure: DEPARTURE_* / BACKTRACK_SPEED / LINEUP_* / TAKEOFF_ACCEL /
  * ROTATE_SPEED / CLIMB_ACCEL / CLIMB_DISTANCE in config.ts, the route and
  * procedure (`planDepartureRoute`) in core/departures.ts, DEPARTURE_DOT_* /
- * ROTATION_* / CLIMB_PITCH_GAIN in sceneSync.ts, the connector in
+ * ROTATION_* / CLIMB_PITCH in sceneSync.ts, the connector in
  * render/airfield.ts, chime and engine sound in audio/sfx.ts (mixed by
  * audio/mixer.ts; the background music has its own story, "Audio/Music").
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { GameAudio } from "../../audio/mixer";
 import {
-  COLOR_UNLOCK_SCORES,
+  COLOR_UNLOCK_LANDINGS,
   CRASH_OVERLAY_DELAY,
   PATH_MIN_SPACING,
   PLANE_SPEED,
@@ -103,7 +107,9 @@ import { resolveOuterTraffic } from "../../core/avoidance";
 import { airspaceBounds, isInAirspace } from "../../core/layout";
 import { createPlane, updatePlane } from "../../core/plane";
 import { startGame, step, togglePause } from "../../core/simulation";
-import { newlyUnlockedColors } from "../../core/progression";
+import { newlyUnlockedColors, unlockedColors } from "../../core/progression";
+import { layoutAirports, openAirportsView } from "../../core/airports";
+import { breakdownOf } from "../../core/scoring";
 import { pickSpawn } from "../../core/spawner";
 import { createGameState, setLiveView } from "../../core/state";
 import type { GameState, Plane, Runway, RunwayColor, Vec2 } from "../../core/types";
@@ -116,7 +122,8 @@ import { arrivalMarkers } from "../arrivals";
 import { MeshFactory } from "../meshes";
 import { ANCHOR_RING_FADE, ANCHOR_RING_HOLD, SceneSync } from "../sceneSync";
 import { trackPlane } from "../camera";
-import { gameCamera, mountStage, type Stage } from "./stage";
+import { toScene } from "../coords";
+import { dragToPan, gameCamera, mountStage, type Stage } from "./stage";
 
 const DEG = Math.PI / 180;
 
@@ -246,6 +253,7 @@ export const Markers: StoryObj<MarkersArgs> = {
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage, args.rotationDeg * DEG, args.zoom);
+      dragToPan(stage, cam.controller);
       const state = createGameState(stage.aspect());
       const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
       sync.rebuildWorld(state);
@@ -347,7 +355,7 @@ export const Crash: StoryObj<CrashArgs> = {
           const before = sinceCrash;
           sinceCrash += dt;
           if (args.overlay && before < CRASH_OVERLAY_DELAY && sinceCrash >= CRASH_OVERLAY_DELAY) {
-            hud.showGameOver(state.score);
+            hud.showGameOver(breakdownOf(state));
           }
           if (sinceCrash >= args.replayAfter) {
             // Clear the wreckage (new plane ids) and fly it all again.
@@ -421,6 +429,7 @@ export const Landing: StoryObj<LandingArgs> = {
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage);
+      dragToPan(stage, cam.controller);
       const state = createGameState(stage.aspect());
       const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
       sync.rebuildWorld(state);
@@ -518,6 +527,7 @@ export const InvalidApproach: StoryObj<InvalidApproachArgs> = {
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage);
+      dragToPan(stage, cam.controller);
       const state = createGameState(stage.aspect());
       const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
       sync.rebuildWorld(state);
@@ -605,6 +615,7 @@ export const Departure: StoryObj<DepartureArgs> = {
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage, 0, args.follow ? 1 : 1.6);
+      dragToPan(stage, cam.controller);
       const state = createGameState(stage.aspect());
       const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
       sync.rebuildWorld(state);
@@ -659,25 +670,30 @@ interface RunwayProgressionArgs {
   hold: number;
   /** The PA announcing each runway opening (click the canvas once first). */
   sound: boolean;
+  /** Frame the open airports as the game does (off: the default view). */
+  camera: boolean;
   timeScale: number;
 }
 
 /**
  * The incremental progression the game plays (`setRunwayProgression`): a
- * shift starts with the red runway alone, then the score jumps to each
- * colour's `COLOR_UNLOCK_SCORES` in turn and that runway is laid down
+ * shift starts with the red runway alone, then the landing count jumps to each
+ * colour's `COLOR_UNLOCK_LANDINGS` in turn and that runway is laid down
  * (RUNWAY_REVEAL_SECONDS in sceneSync.ts: the strip unrolls, taxiways and
- * hangars fade in; the tower and windsock of an airport rise with its
- * first runway) with the game's toast. Blue opens as a plain strip and
- * only gets its X once yellow opens. Then a new shift closes them again,
- * on a loop. The sim doesn't run: no traffic, just the field.
+ * hangars fade in; an airport's grounds, fence, tower and windsock rise
+ * with its first runway, after AIRPORT_REVEAL_DELAY) with the game's
+ * toast. The camera frames the open airports like the game (main.ts
+ * `frameOpenAirports`): over red's airport alone, then pulled back over
+ * both as blue opens. Blue opens as a plain strip and only gets its X once
+ * yellow opens. Then a new shift closes them again, on a loop. The sim
+ * doesn't run: no traffic, just the field.
  */
 export const RunwayProgression: StoryObj<RunwayProgressionArgs> = {
   argTypes: {
     hold: { control: { type: "range", min: 1, max: 10, step: 0.5 } },
     timeScale: { control: { type: "range", min: 0.1, max: 3, step: 0.05 } },
   },
-  args: { hold: 3.5, sound: false, timeScale: 1 },
+  args: { hold: 3.5, sound: false, camera: true, timeScale: 1 },
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage);
@@ -689,17 +705,31 @@ export const RunwayProgression: StoryObj<RunwayProgressionArgs> = {
       const toast = stage.root.querySelector<HTMLElement>("#toast")!;
       let toastLeft = 0;
       const audio = storyAudio(stage, args.sound);
+      // The game's framing (main.ts `frameOpenAirports`), re-run on every
+      // step: back over red alone when the loop starts a new shift.
+      const airports = layoutAirports(state.runways, state.world);
+      let framed = 0;
+      const frameAirports = () => {
+        if (!args.camera) return;
+        const open = unlockedColors(state.landed, state.runways);
+        const view = openAirportsView(airports, open, state.world, stage.aspect());
+        if (view.count === framed) return;
+        framed = view.count;
+        const center = toScene(view.center, state.world, 0);
+        cam.controller.glideTo({ x: center.x, z: center.z }, view.zoom);
+      };
+      frameAirports();
 
-      // Score at each step: a new shift, then each colour's unlock score.
-      const steps = [0, ...state.runways.map((r) => COLOR_UNLOCK_SCORES[r.color])]
+      // Landings at each step: a new shift, then each colour's unlock count.
+      const steps = [0, ...state.runways.map((r) => COLOR_UNLOCK_LANDINGS[r.color])]
         .filter((s, i, all) => all.indexOf(s) === i)
         .sort((a, b) => a - b);
       let index = 0;
       const goTo = (i: number) => {
-        const before = state.score;
+        const before = state.landed;
         index = i % steps.length;
-        state.score = steps[index]!;
-        for (const color of newlyUnlockedColors(before, state.score, state.runways)) {
+        state.landed = steps[index]!;
+        for (const color of newlyUnlockedColors(before, state.landed, state.runways)) {
           const event = { type: "unlocked", color } as const;
           const t = toastFor(event);
           if (t) {
@@ -710,6 +740,7 @@ export const RunwayProgression: StoryObj<RunwayProgressionArgs> = {
           }
           audio?.onSimEvent(event, () => 0);
         }
+        frameAirports();
       };
 
       let time = 0;
@@ -862,7 +893,7 @@ export const LiveGame: StoryObj<LiveArgs> = {
         gameOverIn = null;
         cam.controller.release();
         startGame(state);
-        hud.setScore(state.score);
+        hud.setScore(breakdownOf(state));
         hud.hideOverlay();
         hud.setPhase(state.phase);
       };
@@ -904,8 +935,7 @@ export const LiveGame: StoryObj<LiveArgs> = {
         if (state.phase !== "paused") time += dt;
         for (const event of step(state, dt)) {
           audio?.onSimEvent(event, (id) => sync.panFor(id));
-          if (event.type === "landed") hud.setScore(state.score);
-          else if (event.type === "goAround") {
+          if (event.type === "goAround") {
             // Same as main.ts: the X on the threshold, and the toast.
             const runway = state.runways.find((r) => r.color === event.color);
             if (runway) sync.showRejectMark(runway.threshold, state.world);
@@ -921,9 +951,11 @@ export const LiveGame: StoryObj<LiveArgs> = {
             if (toast) hud.showToast(toast.text, toast.color);
           }
         }
+        // Every frame, like main.ts: time survived moves the score too.
+        hud.setScore(breakdownOf(state));
         if (gameOverIn !== null && (gameOverIn -= dt) <= 0) {
           gameOverIn = null;
-          hud.showGameOver(state.score);
+          hud.showGameOver(breakdownOf(state));
         }
         if (args.autoFollow && !autoFollowed && state.planes[0]) {
           autoFollowed = true;

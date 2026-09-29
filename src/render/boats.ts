@@ -29,6 +29,22 @@ const WATER_Y = 0.04;
  */
 const BOAT_SCALE = 1.6;
 
+/** Bobbing amplitude on the swell (scene units, see `BoatFleet.sync`). */
+const BOB = 0.03;
+/** Motorboat cabin roof and roof lantern heights (model units, pre-scale). */
+const CABIN_TOP = 0.78;
+const CABIN_LANTERN_Y = 0.86;
+const LANTERN_DIAMETER = 0.14;
+
+/**
+ * Highest point of a motorboat above the ground plane (scene units): the
+ * top of its roof lantern, scaled, on the crest of the swell. Drawbridges
+ * sit their leaves above this, so motorboats pass under them
+ * (render/bridges.ts `DECK_Y`).
+ */
+export const MOTORBOAT_HEIGHT =
+  WATER_Y + BOB + (CABIN_LANTERN_Y + LANTERN_DIAMETER / 2) * BOAT_SCALE;
+
 const HULL_WHITE = Color3.FromHexString("#f2efe8");
 const HULL_NAVY = Color3.FromHexString("#2d4b78");
 const DECK_WOOD = Color3.FromHexString("#c49a63");
@@ -146,7 +162,7 @@ function sailboatModel(scene: Scene): Mesh {
 function motorboatModel(scene: Scene): Mesh {
   const b = new ModelBuilder();
   hull(b, 2.6, 1.15, HULL_WHITE, DECK_GREY);
-  b.box([-0.55, 0.32, -0.38], [0.35, 0.78, 0.38], HULL_WHITE, CABIN_ROOF, GLASS);
+  b.box([-0.55, 0.32, -0.38], [0.35, CABIN_TOP, 0.38], HULL_WHITE, CABIN_ROOF, GLASS);
   return b.build("motorboat", scene);
 }
 
@@ -174,7 +190,11 @@ export class BoatFleet {
     // A lantern at the masthead (sailboat) or on the cabin roof: a child
     // of the template, so every clone carries its own.
     const lantern = (body: Mesh, x: number, y: number) => {
-      const lamp = CreateSphere(`${body.name}-lantern`, { diameter: 0.14, segments: 6 }, scene);
+      const lamp = CreateSphere(
+        `${body.name}-lantern`,
+        { diameter: LANTERN_DIAMETER, segments: 6 },
+        scene,
+      );
       lamp.parent = body;
       lamp.position.set(x, y, 0);
       lamp.material = this.lanternMat;
@@ -193,7 +213,7 @@ export class BoatFleet {
       motorboat: make(motorboatModel(scene)),
     };
     lantern(this.templates.sailboat, 0.17, 3.48);
-    lantern(this.templates.motorboat, -0.1, 0.86);
+    lantern(this.templates.motorboat, -0.1, CABIN_LANTERN_Y);
   }
 
   /** Create/move/dispose boat meshes to match `traffic`. `time` in seconds. */
@@ -213,7 +233,7 @@ export class BoatFleet {
       // away from the wind.
       const phase = boat.id * 1.7;
       const heel = boat.kind === "sailboat" ? 0.1 : 0;
-      toScene(pose.pos, world, WATER_Y + 0.03 * Math.sin(time * 2.1 + phase), body.position);
+      toScene(pose.pos, world, WATER_Y + BOB * Math.sin(time * 2.1 + phase), body.position);
       body.rotation.set(
         heel + 0.05 * Math.sin(time * 1.6 + phase),
         yaw,

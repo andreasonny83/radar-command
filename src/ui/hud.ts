@@ -2,14 +2,27 @@
  * HTML HUD layered over the canvas: score, start/game-over overlay, pause
  * button, toast notices, arrival arrows, the "track plane" badge, the
  * sound, music and camera buttons, the help button + panel, the GitHub /
- * feedback / licenses links and the licenses panel.
+ * feedback / licenses links, the licenses panel, and the leaderboard (the
+ * game-over submit form and the boards panel, see ui/leaderboard.ts).
  * Markup lives in hudMarkup.ts (shared with Storybook); this module injects
  * and wires it up.
  */
+import type { Board, BoardResponse } from "../core/leaderboard";
+import {
+  DEPARTURE_POINTS,
+  LANDING_POINTS,
+  scoreOf,
+  timePoints,
+  type ScoreBreakdown,
+} from "../core/scoring";
 import type { GamePhase } from "../core/types";
 import { shortcutHint } from "../input/shortcuts";
+import type { Result } from "../net/leaderboardApi";
 import { createArrivalArrows, type ArrivalMarker } from "./arrivalArrows";
-import { CLOCK_ICONS, hudMarkup } from "./hudMarkup";
+import { formatDuration, hudMarkup } from "./hudMarkup";
+import { createClockDisplay, createClockIcon } from "./clockDisplay";
+import { createScoreRoll } from "./scoreRoll";
+import { createLeaderboardPanel, formatRanks, type SubmitState } from "./leaderboard";
 import { licenseTextUrl, PROJECT_LICENSE_TEXT } from "./licenses";
 import { feedbackIssueUrl } from "./links";
 
@@ -31,18 +44,52 @@ export interface HudCallbacks {
    * game behind them leave it out.
    */
   onHelp?: (open: boolean) => void;
+  /**
+   * SUBMIT pressed (or Enter in the name field) on the game-over screen,
+   * with the name as typed. Optional: without it the form does nothing.
+   */
+  onSubmitScore?: (name: string) => void;
+  /** Fetch a board for the leaderboard panel. Missing: it shows as offline. */
+  loadBoard?: (board: Board) => Promise<Result<BoardResponse>>;
+  /** Board tab the panel first opens on (the one last viewed). */
+  initialBoard?: Board;
+  /** The panel switched board tabs (to remember the choice). */
+  onBoardChange?: (board: Board) => void;
+  /** The leaderboard panel opened or closed (to pause the game, like help). */
+  onLeaderboard?: (open: boolean) => void;
 }
 
 export interface Hud {
-  setScore(score: number): void;
   /**
-   * Time of day under the score: `hours` as HH:MM, and a moon once
-   * `night` ≥ 0.5 (a sun before). Cheap every frame: the DOM is only
-   * touched when the minute or the icon changes.
+   * The score panel: the total (`scoreOf`) and the "landed · departed"
+   * line. Cheap every frame (the time trickle moves the total without any
+   * event): the DOM is only touched when something shown changes.
+   */
+  setScore(breakdown: ScoreBreakdown): void;
+  /**
+   * Time of day under the score: `hours` as HH:MM on the neon clock (its
+   * glow follows `night`), and a moon once `night` ≥ 0.5 (a sun before).
+   * Call it every frame, paused or not: the colon blinks only while the
+   * time moves (see ui/clockDisplay.ts). At rest nothing in the DOM is
+   * touched.
    */
   setClock(hours: number, night: number): void;
   hideOverlay(): void;
-  showGameOver(score: number): void;
+  /**
+   * Crash screen: the final score with its breakdown (landed, departed,
+   * time), and the leaderboard form with `name` (the last one used) filled
+   * in. Call `setSubmitState` next.
+   */
+  showGameOver(breakdown: ScoreBreakdown, name?: string): void;
+  /** Drive the game-over leaderboard form (see `SubmitState`). */
+  setSubmitState(state: SubmitState): void;
+  /** Is the leaderboard panel showing? */
+  readonly leaderboardOpen: boolean;
+  /**
+   * Open the leaderboard panel (on `board`, else the last tab) or close
+   * it (fires `onLeaderboard` on change). Opening always reloads the board.
+   */
+  setLeaderboardOpen(open: boolean, board?: Board): void;
   /** Sync the pause button and banner with the current game phase. */
   setPhase(phase: GamePhase): void;
   /** Briefly show a notice at the top of the screen, optionally tinted. */
@@ -71,6 +118,15 @@ export interface Hud {
   setLicensesOpen(open: boolean): void;
 }
 
+/** Status line colour for each game-over form state. */
+const SUBMIT_TONES: Record<SubmitState["kind"], string> = {
+  ready: "text-slate-400",
+  unavailable: "text-slate-400",
+  sending: "text-slate-400",
+  done: "font-bold text-sky-300",
+  error: "text-amber-300",
+};
+
 /** How long a toast stays fully visible before fading out (ms). */
 const TOAST_MS = 2500;
 
@@ -90,18 +146,18 @@ const CRASH_BACKDROP = [
   "to-transparent",
 ];
 
+/** One line of the game-over score sheet: label, how it adds up, points. */
+function summaryRow(label: string, detail: string, points: number): string {
+  return `
+    <dt class="font-bold text-slate-400">${label}</dt>
+    <dd class="text-right text-slate-400">${detail}</dd>
+    <dd class="text-right font-black text-sky-300">${points}</dd>`;
+}
+
 /**
  * Inject the HUD markup at the start of `root` (so it stacks above a canvas
  * that follows it) and wire it to `callbacks`.
  */
-/** "HH:MM" for a time of day in hours (0 ≤ h < 24; wraps). */
-export function formatClock(hours: number): string {
-  const minutes = Math.floor((((hours % 24) + 24) % 24) * 60);
-  const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
-  const mm = String(minutes % 60).padStart(2, "0");
-  return `${hh}:${mm}`;
-}
-
 export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   root.insertAdjacentHTML("afterbegin", hudMarkup());
   // Scoped to `root` rather than `document`, so Storybook can mount a HUD
@@ -111,15 +167,22 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     if (!el) throw new Error(`Missing #${id} in hudMarkup.ts`);
     return el;
   };
-  const score = byId("scoreDisplay");
-  const clockIcon = byId("clockIcon");
-  const clockTime = byId("clockTime");
-  let clockText = "";
-  let clockNight: boolean | null = null;
+  // The total rolls on drums, one per digit (ui/scoreRoll.ts).
+  const score = createScoreRoll(byId("scoreDisplay"));
+  const scoreBreakdown = byId("scoreBreakdown");
+  let breakdownText = "";
+  const scoreSummary = byId("scoreSummary");
+  const clockIcon = createClockIcon(byId("clockIcon"));
+  // HH:MM as a neon display (ui/clockDisplay.ts).
+  const clockTime = createClockDisplay(byId("clockTime"));
   const overlay = byId("overlay");
   const title = byId("overlayTitle");
   const message = byId("overlayMessage");
   const startBtn = byId<HTMLButtonElement>("startBtn");
+  const submitForm = byId<HTMLFormElement>("submitForm");
+  const nameInput = byId<HTMLInputElement>("playerName");
+  const submitBtn = byId<HTMLButtonElement>("submitBtn");
+  const submitStatus = byId("submitStatus");
   const pauseBtn = byId<HTMLButtonElement>("pauseBtn");
   const pausedBanner = byId("pausedBanner");
   const toast = byId("toast");
@@ -188,6 +251,56 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     if (e.target === helpPanel) setHelpOpen(false);
   });
 
+  // Leaderboard (ui/leaderboard.ts): the boards panel, opened from the
+  // overlay's button and the help panel's link (on top of help), and the
+  // game-over form that submits a run.
+  const leaderboard = createLeaderboardPanel(root, {
+    load: callbacks.loadBoard,
+    initialBoard: callbacks.initialBoard,
+    onBoardChange: callbacks.onBoardChange,
+    onOpenChange: callbacks.onLeaderboard,
+  });
+  byId("leaderboardBtn").addEventListener("click", () => leaderboard.setOpen(true));
+  root
+    .querySelectorAll<HTMLElement>("[data-leaderboard-link]")
+    .forEach((link) => link.addEventListener("click", () => leaderboard.setOpen(true)));
+  submitForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!submitBtn.disabled) callbacks.onSubmitScore?.(nameInput.value);
+  });
+  // Esc in the name field just leaves it, so Enter / Space go back to
+  // meaning "try again".
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") nameInput.blur();
+  });
+  const setSubmitState = (state: SubmitState) => {
+    const editable = state.kind === "ready" || state.kind === "error";
+    nameInput.disabled = !editable;
+    submitBtn.disabled = !editable;
+    submitBtn.textContent =
+      state.kind === "sending"
+        ? "SENDING…"
+        : state.kind === "done"
+          ? "SUBMITTED ✓"
+          : state.kind === "error"
+            ? "RETRY"
+            : "SUBMIT SCORE";
+    submitStatus.className = `min-h-5 text-center text-sm ${SUBMIT_TONES[state.kind]}`;
+    submitStatus.textContent =
+      state.kind === "done"
+        ? formatRanks(state.ranks)
+        : state.kind === "unavailable" || state.kind === "error"
+          ? state.message
+          : "";
+    // Ready on a keyboard-and-mouse screen: straight into the name, so
+    // Enter submits. (Touch screens would pop up a keyboard: no.)
+    const visible = !submitForm.classList.contains("hidden");
+    if (state.kind === "ready" && visible && matchMedia("(pointer: fine)").matches) {
+      nameInput.focus();
+    }
+    if (!editable) nameInput.blur();
+  };
+
   // Licenses panel (ui/licenses.ts): opened from the "Licenses" links on
   // the overlay and in the help panel, on top of either.
   const licensesPanel = byId("licensesPanel");
@@ -249,33 +362,45 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   );
 
   return {
-    setScore(value) {
-      score.textContent = String(value);
+    setScore(b) {
+      score.set(scoreOf(b));
+      const parts = `${b.landed} landed · ${b.departed} departed`;
+      if (parts !== breakdownText) {
+        breakdownText = parts;
+        scoreBreakdown.textContent = parts;
+      }
     },
     setClock(hours, night) {
-      const text = formatClock(hours);
-      if (text !== clockText) {
-        clockText = text;
-        clockTime.textContent = text;
-      }
-      const isNight = night >= 0.5;
-      if (isNight !== clockNight) {
-        clockNight = isNight;
-        clockIcon.innerHTML = isNight ? CLOCK_ICONS.moon : CLOCK_ICONS.sun;
-        clockIcon.title = isNight ? "Night" : "Day";
-        clockIcon.classList.toggle("text-amber-300", !isNight);
-        clockIcon.classList.toggle("text-sky-200", isNight);
-      }
+      clockTime.set(hours);
+      clockTime.setNight(night);
+      clockIcon.set(night >= 0.5);
     },
     hideOverlay() {
       overlay.classList.add("opacity-0", "pointer-events-none");
+      // Nothing on the hidden overlay keeps focus (keys would type into it).
+      nameInput.blur();
     },
-    showGameOver(value) {
+    showGameOver(b, name = "") {
       title.textContent = "CRASH!";
       title.classList.replace("text-sky-400", "text-red-500");
       title.classList.replace("glow-text", "glow-text-red");
-      message.textContent = `You safely landed ${value} aircraft.`;
+      message.textContent = `Score ${scoreOf(b)}`;
+      message.classList.replace("text-lg", "text-3xl");
+      message.classList.add("font-black", "text-slate-100");
+      // Numbers only, so building the rows as HTML is safe.
+      scoreSummary.innerHTML = [
+        summaryRow("Landed", `${b.landed} × ${LANDING_POINTS}`, b.landed * LANDING_POINTS),
+        summaryRow(
+          "Departed",
+          `${b.departed} × ${DEPARTURE_POINTS}`,
+          b.departed * DEPARTURE_POINTS,
+        ),
+        summaryRow("Time (2 runways)", formatDuration(b.seconds), timePoints(b)),
+      ].join("");
+      scoreSummary.classList.replace("hidden", "grid");
       startBtn.textContent = "TRY AGAIN";
+      nameInput.value = name;
+      submitForm.classList.replace("hidden", "flex");
       overlay.classList.remove(...START_BACKDROP);
       overlay.classList.add(...CRASH_BACKDROP);
       overlay.classList.remove("opacity-0", "pointer-events-none");
@@ -331,5 +456,10 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       return licensesShown;
     },
     setLicensesOpen,
+    setSubmitState,
+    get leaderboardOpen() {
+      return leaderboard.open;
+    },
+    setLeaderboardOpen: leaderboard.setOpen,
   };
 }

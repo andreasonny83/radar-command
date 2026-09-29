@@ -150,6 +150,9 @@ export function anchorPath(
  * fly, another colour's runway, or a runway a departure has closed. A path
  * ending anywhere else is just a route, and gets no X.
  *
+ * @param runways the runways the player can see: in the game only the open
+ *                ones (core/progression.ts `openRunways`), since a runway
+ *                not yet unlocked isn't drawn and mustn't reject a path.
  * @returns the path's end point, where the X goes; null if the path
  *          anchored, is empty, or doesn't end on a runway.
  */

@@ -3,18 +3,21 @@
  *
  * Useful for styling a single piece without the rest of the HUD on top.
  * Elements that start hidden in the game (pause button, paused banner,
- * toast, tracking badge, help panel) are forced visible here.
+ * toast, tracking badge, help panel, leaderboard form and panel) are
+ * forced visible here.
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
-import { nightFactor } from "../core/daytime";
+import { DAY_SECONDS, nightFactor } from "../core/daytime";
+import { DEPARTURE_POINTS, LANDING_POINTS, scoreOf } from "../core/scoring";
 import { createArrivalArrows } from "./arrivalArrows";
-import { formatClock } from "./hud";
+import { createClockDisplay, createClockIcon } from "./clockDisplay";
+import { createScoreRoll } from "./scoreRoll";
 import {
-  CLOCK_ICONS,
   arrivalLayerMarkup,
   cameraControlsMarkup,
   helpButtonMarkup,
   helpPanelMarkup,
+  leaderboardPanelMarkup,
   musicButtonMarkup,
   overlayMarkup,
   pauseButtonMarkup,
@@ -22,6 +25,7 @@ import {
   projectLinksMarkup,
   scorePanelMarkup,
   soundButtonMarkup,
+  submitFormMarkup,
   toastMarkup,
   trackingIndicatorMarkup,
 } from "./hudMarkup";
@@ -46,18 +50,103 @@ export default meta;
 
 type Story = StoryObj;
 
-export const ScorePanel: StoryObj<{ score: number; hours: number }> = {
-  args: { score: 42, hours: 8 },
+/**
+ * The score panel: the total from `scoreOf` (core/scoring.ts: LANDING_POINTS,
+ * DEPARTURE_POINTS, SECONDS_PER_TIME_POINT), the "landed · departed" line
+ * and the clock.
+ */
+export const ScorePanel: StoryObj<{
+  landed: number;
+  departed: number;
+  seconds: number;
+  hours: number;
+}> = {
+  args: { landed: 12, departed: 3, seconds: 262, hours: 8 },
   argTypes: {
-    score: { control: { type: "number", min: 0, step: 1 } },
+    landed: { control: { type: "number", min: 0, step: 1 } },
+    departed: { control: { type: "number", min: 0, step: 1 } },
+    seconds: { control: { type: "number", min: 0, step: 1 } },
     hours: { control: { type: "range", min: 0, max: 23.99, step: 0.25 } },
   },
-  render: ({ score, hours }) => {
+  render: ({ landed, departed, seconds, hours }) => {
     const root = stage(scorePanelMarkup());
-    part(root, "scoreDisplay").textContent = String(score);
-    part(root, "clockTime").textContent = formatClock(hours);
-    part(root, "clockIcon").innerHTML =
-      nightFactor(hours) >= 0.5 ? CLOCK_ICONS.moon : CLOCK_ICONS.sun;
+    createScoreRoll(part(root, "scoreDisplay")).set(scoreOf({ landed, departed, seconds }));
+    part(root, "scoreBreakdown").textContent = `${landed} landed · ${departed} departed`;
+    const clock = createClockDisplay(part(root, "clockTime"));
+    clock.set(hours);
+    clock.setNight(nightFactor(hours));
+    createClockIcon(part(root, "clockIcon")).set(nightFactor(hours) >= 0.5);
+    return root;
+  },
+};
+
+/**
+ * The score panel animating as it does in a shift.
+ *
+ * Score (ui/scoreRoll.ts): a drum per digit turns forward to each new total
+ * and bounces as it settles; every `interval` seconds it gains a time
+ * point, a landing or a departure (LANDING_POINTS, DEPARTURE_POINTS), so
+ * single digits, carries and a new leading digit all come round (it starts
+ * over past 999). The drums are ui/reel.ts (FACE_EM), easing and window
+ * `.reel` / `.reel-drum` in style.css.
+ *
+ * Clock (ui/clockDisplay.ts), running at `clockSpeed` × the game's (1 =
+ * DAY_SECONDS per day): a neon seven-segment display (`createSegmentDigit`,
+ * `.neon-clock` / `.seg` in style.css) with faint unlit segments, a glow
+ * that grows with the dark
+ * (GLOW_DAY / GLOW_NIGHT), digits switching instantly, the colon blinking while it runs (`.clock-colon-running`;
+ * `paused` stops the clock), and the sun / moon spinning in at dusk and
+ * dawn (`createClockIcon`). Starts just before 21:00 to show both.
+ */
+export const Animated: StoryObj<{
+  start: number;
+  interval: number;
+  startHour: number;
+  clockSpeed: number;
+  /** Stop the clock, as a paused game does (it's still set every frame). */
+  paused: boolean;
+}> = {
+  args: { start: 88, interval: 1.2, startHour: 20.75, clockSpeed: 1, paused: false },
+  argTypes: {
+    start: { control: { type: "number", min: 0, step: 1 } },
+    interval: { control: { type: "range", min: 0.2, max: 3, step: 0.1 } },
+    startHour: { control: { type: "range", min: 0, max: 23.99, step: 0.05 } },
+    clockSpeed: { control: { type: "range", min: 0.05, max: 1, step: 0.05 } },
+  },
+  render: ({ start, interval, startHour, clockSpeed, paused }) => {
+    const root = stage(scorePanelMarkup());
+    const clock = createClockDisplay(part(root, "clockTime"));
+    const icon = createClockIcon(part(root, "clockIcon"));
+    let hours = startHour;
+    let last = performance.now();
+    let mounted = false;
+    clock.set(hours);
+    clock.setNight(nightFactor(hours));
+    icon.set(nightFactor(hours) >= 0.5);
+    const tickClock = (now: number) => {
+      // Stop once Storybook has swapped the story out.
+      if (root.isConnected) mounted = true;
+      else if (mounted) return;
+      if (!paused) hours = (hours + (((now - last) / 1000) * 24 * clockSpeed) / DAY_SECONDS) % 24;
+      last = now;
+      clock.set(hours);
+      clock.setNight(nightFactor(hours));
+      icon.set(nightFactor(hours) >= 0.5);
+      requestAnimationFrame(tickClock);
+    };
+    requestAnimationFrame(tickClock);
+    const roll = createScoreRoll(part(root, "scoreDisplay"));
+    const gains = [1, 1, LANDING_POINTS, 1, DEPARTURE_POINTS, LANDING_POINTS];
+    let value = start;
+    let tick = 0;
+    roll.set(value);
+    const timer = setInterval(() => {
+      // Stop once Storybook has swapped the story out.
+      if (!root.isConnected) return clearInterval(timer);
+      value += gains[tick++ % gains.length]!;
+      if (value > 999) value = start;
+      roll.set(value);
+    }, interval * 1000);
     return root;
   },
 };
@@ -137,7 +226,39 @@ export const MusicButton: StoryObj<{ on: boolean }> = {
   },
 };
 
+/** Start overlay: START SHIFT and LEADERBOARD buttons (the form stays hidden until game over). */
 export const Overlay: Story = { render: () => stage(overlayMarkup()) };
+
+/**
+ * Game-over leaderboard form on its own (name field, SUBMIT, status line).
+ * Its states are in HUD/Leaderboard; here the plain template.
+ */
+export const SubmitForm: Story = {
+  render: () => {
+    const root = stage(
+      `<div class="flex h-full items-center justify-center">${submitFormMarkup()}</div>`,
+    );
+    part(root, "submitForm").classList.replace("hidden", "flex");
+    return root;
+  },
+};
+
+/**
+ * Leaderboard panel frame: tabs, empty list area, pager bar and footer.
+ * The list is filled by ui/leaderboard.ts, which also shows the pager only
+ * on boards of more than one page (shown here as page 1 of 5): see
+ * HUD/Leaderboard for it with data.
+ */
+export const LeaderboardPanel: Story = {
+  render: () => {
+    const root = stage(leaderboardPanelMarkup());
+    part(root, "leaderboardPanel").classList.replace("hidden", "flex");
+    part(root, "leaderboardPager").classList.replace("hidden", "flex");
+    part(root, "leaderboardPageLabel").textContent = "Page 1 of 5";
+    (part(root, "leaderboardPrevBtn") as HTMLButtonElement).disabled = true;
+    return root;
+  },
+};
 
 /**
  * "GitHub · Send feedback" links, shown under the start / game-over button

@@ -171,9 +171,17 @@ export class Landscape {
   }
 
   /**
-   * Raise each airport's control tower and windsock as far as its most
-   * built runway (see `AirportView.reveal`): `built(color)` is 0 for a
-   * closed colour, 1 for an open one, in between while it's being laid.
+   * Colours of the runways at `color`'s airport, itself included (blue and
+   * yellow share one): just `[color]` for a runway with no airport.
+   */
+  airportColors(color: RunwayColor): readonly RunwayColor[] {
+    return this.airports.find((a) => a.colors.includes(color))?.colors ?? [color];
+  }
+
+  /**
+   * Build each airport (grounds, fence, control tower, windsock) as far as
+   * its most built runway (see `AirportView.reveal`): `built(color)` is 0
+   * for a closed colour, 1 for an open one, in between while it's being laid.
    */
   revealAirports(built: (color: RunwayColor) => number): void {
     for (const airport of this.airports) airport.reveal(Math.max(0, ...airport.colors.map(built)));

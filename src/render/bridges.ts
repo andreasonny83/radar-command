@@ -28,18 +28,22 @@ import { closedToCars, type BridgeState } from "../core/bridges";
 import type { Bridge } from "../core/countryside";
 import { arcLengths, nearestOnPolyline } from "../core/geometry";
 import type { Vec2, WorldSize } from "../core/types";
+import { MOTORBOAT_HEIGHT } from "./boats";
 import { headingToRotationY, toScene } from "./coords";
 import { SceneGlow } from "./glow";
 
 /** Road height off the bridge (matches countryside.ts). */
 const ROAD_Y = 0.03;
-/**
- * Deck height over the water: a motorboat's cabin (~0.85 with the swell)
- * passes under the leaves, a sailboat's mast needs them up.
- */
-export const DECK_Y = 1.15;
 /** Leaf thickness (hangs below the deck surface). */
 const LEAF_T = 0.16;
+/** Headroom between a motorboat's highest point and the leaves' underside. */
+const DECK_CLEARANCE = 0.12;
+/**
+ * Deck height over the water, derived from the (scaled) motorboat so the two
+ * can't drift apart: a motorboat, roof lantern included, passes under the
+ * leaves; a sailboat's mast needs them up.
+ */
+export const DECK_Y = MOTORBOAT_HEIGHT + DECK_CLEARANCE + LEAF_T;
 /** How far the leaves swing up when fully open (radians, ~75°). */
 const LEAF_OPEN = 1.3;
 /** Deck is this much wider than the road. */

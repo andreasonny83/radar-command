@@ -10,6 +10,10 @@
  *   - props:  spin about the nose axis, with a faint blur disc behind them;
  *   - lights: steady red/green nav lights on the wingtips, white strobes and
  *             a red beacon that flash (these feed the glow layer);
+ *   - headlights: white landing lights on the nose and wings, each plane
+ *             throwing a cone of light ahead of it. Night only: their
+ *             materials fade in with `night` (see meshes.ts `setNight`),
+ *             and the sync layer switches them off in the hangar;
  *   - gear:   tricycle landing gear (a strut and a wheel per leg). The
  *             airliner's main legs fold inward and its nose leg forward; the
  *             turboprop's legs all fold forward; the light plane's gear is
@@ -68,7 +72,8 @@ const DARK = Color3.FromHexString("#1e293b");
 const GLASS = Color3.FromHexString("#1d3557");
 
 /** Roles of child meshes, stored in `metadata` (copied by reference on clone). */
-type PartRole = "wing" | "prop" | "disc" | "nav" | "strobe" | "beacon" | "gear";
+type PartRole =
+  "wing" | "prop" | "disc" | "nav" | "strobe" | "beacon" | "gear" | "headlight" | "headBeam";
 
 /**
  * How a landing-gear leg retracts: swinging in towards the centreline
@@ -102,6 +107,10 @@ export interface AircraftMaterials {
   navGreen: Material;
   strobe: Material;
   beacon: Material;
+  /** Landing-light lamps: off (alpha 0) by day, see meshes.ts `setNight`. */
+  headlight: Material;
+  /** Additive cone of light ahead of the nose, faded like `headlight`. */
+  headBeam: Material;
 }
 
 /** A live plane's meshes, sorted by what the animation does with them. */
@@ -113,6 +122,8 @@ export interface AircraftRig {
   props: Mesh[];
   strobes: Mesh[];
   beacons: Mesh[];
+  /** Steady red/green wingtip lights. */
+  navs: Mesh[];
   /** Landing-gear legs, each hinged where it meets the airframe. */
   gear: { mesh: Mesh; side: 1 | -1; fold: GearFold }[];
   /** Root + every child, for fading the whole plane out together. */
@@ -121,6 +132,10 @@ export interface AircraftRig {
   shadowCasters: Mesh[];
   /** Emissive lights, to register with the glow layer. */
   lights: Mesh[];
+  /** Landing-light lamps (night-only glow; not in `lights`). */
+  headlights: Mesh[];
+  /** The cone of light ahead of the nose (one per plane). */
+  headBeams: Mesh[];
   /** Per-plane offset (seconds) so the fleet's strobes don't flash in sync. */
   phase: number;
 }
@@ -389,6 +404,68 @@ function light(
   return attach([box], parent, parentPivot, at, { role }, material);
 }
 
+/** Landing-light lamp at a model-space point (a `light`, night only). */
+function headlight(
+  scene: Scene,
+  parent: Mesh,
+  parentPivot: Vector3,
+  at: Vector3,
+  size: number,
+  mats: AircraftMaterials,
+): Mesh {
+  const box = CreateBox("headlight", { size }, scene);
+  box.position.copyFrom(at);
+  return attach([box], parent, parentPivot, at, { role: "headlight" }, mats.headlight);
+}
+
+/** Segments round the rim of a headlight cone. */
+const BEAM_SEGMENTS = 14;
+/**
+ * Headlight cone, in units of the model size `r`: how far ahead of the
+ * lamp it reaches, its radius at the far end, and how far it's aimed
+ * below the nose (radians; landing lights point a little down).
+ */
+const BEAM_REACH = 2.6;
+const BEAM_SPREAD = 0.55;
+const BEAM_TILT = 0.14;
+
+/**
+ * Cone of light from the lamp at `at` (model space, on the root), along
+ * the nose and tilted down. Bright at the lamp and fading to nothing at
+ * the far rim (vertex alpha), drawn additively: seen from above it reads
+ * as a soft wedge of light ahead of the plane.
+ */
+function headBeam(scene: Scene, root: Mesh, at: Vector3, r: number, mats: AircraftMaterials): Mesh {
+  const reach = BEAM_REACH * r;
+  const spread = BEAM_SPREAD * r;
+  // Apex at the origin, rim `reach` ahead along +x: one fan of triangles.
+  const positions = [0, 0, 0];
+  const colors = [1, 1, 1, 1];
+  const indices: number[] = [];
+  for (let i = 0; i < BEAM_SEGMENTS; i++) {
+    const a = (i / BEAM_SEGMENTS) * Math.PI * 2;
+    positions.push(reach, Math.sin(a) * spread * 0.6, Math.cos(a) * spread);
+    colors.push(1, 1, 1, 0);
+  }
+  for (let i = 0; i < BEAM_SEGMENTS; i++) indices.push(0, 1 + i, 1 + ((i + 1) % BEAM_SEGMENTS));
+  const normals: number[] = [];
+  VertexData.ComputeNormals(positions, indices, normals);
+  const cone = new Mesh("headBeam", scene);
+  const data = new VertexData();
+  data.positions = positions;
+  data.colors = colors;
+  data.normals = normals;
+  data.indices = indices;
+  data.applyToMesh(cone);
+  // Aim it: tilt the nose axis down, then move the apex onto the lamp.
+  // `attach` bakes this transform into the vertices.
+  cone.rotation.z = -BEAM_TILT;
+  cone.position.copyFrom(at);
+  const mesh = attach([cone], root, Vector3.Zero(), at, { role: "headBeam" }, mats.headBeam);
+  mesh.hasVertexAlpha = true;
+  return mesh;
+}
+
 /**
  * Propeller at `hub` (model space): `blades` flat blades plus a spinner cone
  * and a translucent blur disc. Returns the spinning mesh.
@@ -598,6 +675,15 @@ const buildAirliner: Builder = (scene, root, r, team, teamDark, mats) => {
   light(scene, root, O, new Vector3(0, f / 2 + s(0.03), 0), s(0.08), "beacon", mats.beacon);
   light(scene, root, O, new Vector3(s(-1.13), s(0.6), 0), s(0.08), "strobe", mats.strobe);
 
+  // Landing lights: one under the nose, one in each wing root's leading
+  // edge; the beam starts at the nose lamp.
+  const noseLamp = new Vector3(s(0.9), s(-0.08), 0);
+  headlight(scene, root, O, noseLamp, s(0.06), mats);
+  for (const side of [1, -1] as const) {
+    headlight(scene, root, O, new Vector3(s(0.27), s(-0.06), side * s(0.22)), s(0.06), mats);
+  }
+  headBeam(scene, root, noseLamp, r, mats);
+
   // Wings: swept, low-mounted, each with an engine and winglet.
   const wingY = s(-0.06);
   for (const side of [1, -1] as const) {
@@ -695,6 +781,12 @@ const buildTurboprop: Builder = (scene, root, r, team, teamDark, mats) => {
   light(scene, root, O, new Vector3(s(-1.14), s(0.57), 0), s(0.08), "strobe", mats.strobe);
   light(scene, root, O, new Vector3(0, -f / 2 - s(0.02), 0), s(0.08), "beacon", mats.beacon);
 
+  // Landing light under the nose, where the beam starts (the wing lamps
+  // are added with the wings below).
+  const noseLamp = new Vector3(s(0.88), s(-0.075), 0);
+  headlight(scene, root, O, noseLamp, s(0.06), mats);
+  headBeam(scene, root, noseLamp, r, mats);
+
   // High, straight, slightly tapered wing on the fuselage roof.
   const wingY = f / 2 + s(0.02);
   for (const side of [1, -1] as const) {
@@ -715,6 +807,8 @@ const buildTurboprop: Builder = (scene, root, r, team, teamDark, mats) => {
     propeller(scene, mats, wing, pivot, new Vector3(s(0.34), wingY - s(0.06), z(0.4)), s(0.22), 4);
     const tip = new Vector3(s(0.04), wingY, z(1.22));
     light(scene, wing, pivot, tip, s(0.08), "nav", side === 1 ? mats.navRed : mats.navGreen);
+    // Landing light in the leading edge, outboard of the engine.
+    headlight(scene, wing, pivot, new Vector3(s(0.17), wingY, z(0.7)), s(0.06), mats);
   }
 
   // Gear: all three legs fold forward, the mains into sponsons low on the
@@ -829,7 +923,12 @@ const buildLight: Builder = (scene, root, r, team, teamDark, mats) => {
     const wing = attach(parts, root, O, pivot, { role: "wing", side }, mats.paint);
     const tip = new Vector3(s(0.22), wingY, z(1.27));
     light(scene, wing, pivot, tip, s(0.09), "nav", side === 1 ? mats.navRed : mats.navGreen);
+    // Landing light in the leading edge, halfway out.
+    headlight(scene, wing, pivot, new Vector3(s(0.37), wingY, z(0.5)), s(0.07), mats);
   }
+  // No room in the nose for a lamp (the prop's there): the beam starts
+  // under the cowling.
+  headBeam(scene, root, new Vector3(s(0.62), s(-0.12), 0), r, mats);
 
   // Fixed tricycle gear: always down.
   gearLeg(scene, mats, root, r, new Vector3(s(0.5), s(-0.1), 0), s(0.09), 1, "fixed");
@@ -860,10 +959,13 @@ export function rigFromClone(kind: AircraftKind, root: Mesh, id: number): Aircra
     props: [],
     strobes: [],
     beacons: [],
+    navs: [],
     gear: [],
     all: [root],
     shadowCasters: [root],
     lights: [],
+    headlights: [],
+    headBeams: [],
     // Golden-ratio spread, like the wind phases.
     phase: (id * 0.618034) % 1,
   };
@@ -889,7 +991,16 @@ export function rigFromClone(kind: AircraftKind, root: Mesh, id: number): Aircra
         rig.lights.push(mesh);
         break;
       case "nav":
+        rig.navs.push(mesh);
         rig.lights.push(mesh);
+        break;
+      case "headlight":
+        rig.headlights.push(mesh);
+        break;
+      case "headBeam":
+        // Not reliably copied by `clone`; without it the rim wouldn't fade.
+        mesh.hasVertexAlpha = true;
+        rig.headBeams.push(mesh);
         break;
       case "gear":
         rig.gear.push({ mesh, side: meta.side ?? 1, fold: meta.fold ?? "fixed" });
@@ -918,6 +1029,12 @@ export interface AircraftMotion {
    * ignores it.
    */
   gear: number;
+  /**
+   * Nav lights, strobes and beacon on (default) or all off, as in a hangar
+   * (see core/ground.ts `isInHangar`). The glow layer draws only the
+   * lights, so nothing hides their halos: off is the only way to hide them.
+   */
+  lights?: boolean;
 }
 
 /** Advance a plane's moving parts: wing flex, prop spin and light flashes. */
@@ -936,11 +1053,13 @@ export function animateAircraft(rig: AircraftRig, m: AircraftMotion): void {
   for (const prop of rig.props) prop.rotation.x = (prop.rotation.x + spin * m.dt) % (Math.PI * 2);
 
   // Strobes: two quick white flashes per cycle. Beacon: one longer red blink.
+  const lit = m.lights ?? true;
   const ts = (m.time / t.strobePeriod + rig.phase) % 1;
-  const strobeOn = ts < 0.04 || (ts > 0.12 && ts < 0.16);
+  const strobeOn = lit && (ts < 0.04 || (ts > 0.12 && ts < 0.16));
   for (const strobe of rig.strobes) strobe.setEnabled(strobeOn);
   const tb = (m.time / t.beaconPeriod + rig.phase * 1.7) % 1;
-  for (const beacon of rig.beacons) beacon.setEnabled(tb < 0.12);
+  for (const beacon of rig.beacons) beacon.setEnabled(lit && tb < 0.12);
+  for (const nav of rig.navs) nav.setEnabled(lit);
 
   // Gear: each leg swings up to 90° from down. A retracted leg is hidden:
   // folded, it would poke through the skin of these simple bodies.
@@ -953,6 +1072,16 @@ export function animateAircraft(rig: AircraftRig, m: AircraftMotion): void {
     if (leg.fold === "inward") leg.mesh.rotation.x = leg.side * fold;
     else leg.mesh.rotation.z = fold;
   }
+}
+
+/**
+ * Landing lights on or off (lamps and beam). Whether they show at all is
+ * up to their materials, faded in with `night` (meshes.ts `setNight`); this
+ * switches them off where a real plane's would be: in the hangar.
+ */
+export function setHeadlights(rig: AircraftRig, on: boolean): void {
+  for (const mesh of rig.headlights) mesh.setEnabled(on);
+  for (const mesh of rig.headBeams) mesh.setEnabled(on);
 }
 
 /** Fade the whole plane, children included (Babylon doesn't inherit it). */

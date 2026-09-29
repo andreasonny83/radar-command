@@ -159,6 +159,40 @@ export function defaultViewBounds(world: WorldSize, aspect: number): Bounds {
 }
 
 /**
+ * A camera framing that fits `points` (sim coordinates) on screen, with
+ * `margin` world units spare round them, at the default heading: the view's
+ * centre and its zoom (1 = the default view; see `viewHalfHeight`, whose
+ * measure it shares: ground depth foreshortened by cos(tilt), padded by
+ * `CAMERA_FIT_PADDING`). Not clamped to the camera's zoom range.
+ */
+export function frameView(
+  points: readonly Vec2[],
+  margin: number,
+  world: WorldSize,
+  aspect: number,
+): { center: Vec2; zoom: number } {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  // Nothing to frame: the default view.
+  if (minX > maxX) return { center: { x: world.width / 2, y: world.height / 2 }, zoom: 1 };
+  const halfX = (maxX - minX) / 2 + margin;
+  const halfY = ((maxY - minY) / 2 + margin) * Math.cos(CAMERA_TILT);
+  const halfH = Math.max(halfY, halfX / safeViewAspect(aspect)) * CAMERA_FIT_PADDING;
+  return {
+    center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 },
+    zoom: viewHalfHeight(world, aspect) / halfH,
+  };
+}
+
+/**
  * Largest ground half-diagonal of the default view over every window shape
  * in `VIEW_ASPECT_MIN`..`VIEW_ASPECT_MAX`: what the static scenery map and
  * shadow frustum are sized for, so neither changes on a resize.

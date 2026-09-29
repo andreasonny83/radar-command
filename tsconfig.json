@@ -16,5 +16,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", ".storybook", "vite.config.ts", "vite-plugins"]
+  "include": ["src", "api", ".storybook", "vite.config.ts", "vite-plugins"]
 }

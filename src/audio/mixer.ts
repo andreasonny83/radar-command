@@ -8,13 +8,18 @@
  *   ambience ─► ambience bus ─┼─► master ─► speakers
  *   music ────► music bus ────┘
  *
- * - master: the sound on / off setting (speaker button, M);
+ * - master: the fixed output level (no setting touches it);
  * - music bus: the music on / off setting (music button, N), and the scene's
  *   music level: full on the title screen and during a shift, dipped while
  *   paused, faded out after a crash;
- * - ambience bus: the airport carries on quietly while paused and after a
- *   crash; the music button doesn't touch it (it's the world, not the soundtrack);
- * - sfx bus: silenced while paused, so held engines don't drone on.
+ * - ambience bus: the sound on / off setting (speaker button, M); the airport
+ *   carries on quietly while paused and after a crash; the music button
+ *   doesn't touch it (it's the world, not the soundtrack);
+ * - sfx bus: the sound on / off setting too; silenced while paused, so held
+ *   engines don't drone on.
+ *
+ * So the two buttons are independent: sound off leaves the music playing,
+ * music off leaves the effects and the airport.
  *
  * main.ts feeds it three ways: game state every frame (`update`), the
  * renderer's animation-timed cues (`cue`, see audio/cues.ts), and moments
@@ -127,7 +132,10 @@ export class GameAudio {
     return this.graph?.samples ?? null;
   }
 
-  /** All sound on or off (remembered across visits). */
+  /**
+   * Effects and airport ambience on or off (remembered across visits). The
+   * music has its own setting (`setMusicOn`) and plays on either way.
+   */
   setMuted(muted: boolean): void {
     this.isMuted = muted;
     this.storage?.setItem(MUTE_KEY, muted ? "1" : "0");
@@ -145,6 +153,7 @@ export class GameAudio {
   setScene(scene: AudioScene): void {
     if (scene === this.scene) return;
     this.scene = scene;
+    this.graph?.ambience.setPaused(scene === "paused");
     this.applyLevels(scene === "crash" ? CRASH_FADE : FADE);
   }
 
@@ -215,6 +224,7 @@ export class GameAudio {
       // It may already be night by the first click.
       this.graph.music.setNight(this.night);
       this.graph.ambience.setNight(this.night);
+      this.graph.ambience.setPaused(this.scene === "paused");
       this.applyLevels(0);
     }
     if (!this.hidden && this.graph.ctx.state === "suspended") void this.graph.ctx.resume();
@@ -283,8 +293,9 @@ export class GameAudio {
     if (!g) return;
     g.sfx.update(state, pan);
     const levels = SCENE_LEVELS[this.scene];
-    if (this.isMuted) return;
-    if (levels.ambience > 0) g.ambience.update();
+    // Each scheduler follows only its own setting: sound off stops the
+    // ambience booking, but the music keeps going if it's on.
+    if (!this.isMuted && levels.ambience > 0) g.ambience.update();
     if (this.isMusicOn && levels.music > 0) g.music.update();
   }
 
@@ -317,10 +328,11 @@ export class GameAudio {
       fade > 0
         ? node.gain.setTargetAtTime(value, now, fade / 3)
         : node.gain.setValueAtTime(value, now);
-    set(g.master, this.isMuted ? 0 : MASTER_VOLUME);
+    // Master stays put; each setting silences only its own buses.
+    set(g.master, MASTER_VOLUME);
     set(g.musicBus, this.isMusicOn ? MUSIC_VOLUME * levels.music : 0);
-    set(g.ambienceBus, AMBIENCE_VOLUME * levels.ambience);
-    set(g.sfxBus, levels.sfx);
+    set(g.ambienceBus, this.isMuted ? 0 : AMBIENCE_VOLUME * levels.ambience);
+    set(g.sfxBus, this.isMuted ? 0 : levels.sfx);
   }
 }
 

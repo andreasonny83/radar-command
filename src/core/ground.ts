@@ -42,6 +42,7 @@ import {
   TURNOFF_SPEED,
 } from "../config";
 import { allStands } from "./airfield";
+import { pointInRect } from "./geometry";
 import { distance, headingVector } from "./math";
 import {
   appendSamples,
@@ -69,6 +70,19 @@ const MIN_STRAIGHT_BEFORE_EXIT = 3;
 /** True from touchdown until the plane is stowed in its hangar. */
 export function isOnGround(plane: Plane): plane is Plane & { ground: GroundState } {
   return plane.ground !== null;
+}
+
+/**
+ * True while the plane's centre is inside the hangar of the stand it holds:
+ * an arrival rolling in to park, or a departure waiting to roll out. The
+ * renderer switches the plane's lights off there (their halos would shine
+ * through the hangar roof). `stands` is `allStands(state.runways)`.
+ */
+export function isInHangar(plane: Plane, stands: readonly Stand[]): boolean {
+  const standId = plane.ground?.standId;
+  if (standId === null || standId === undefined) return false;
+  const stand = stands[standId];
+  return stand !== undefined && pointInRect(plane.pos, stand.hangar);
 }
 
 // ---------------------------------------------------------------------------

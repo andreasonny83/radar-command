@@ -174,6 +174,7 @@ export const Effects: StoryObj<EffectsArgs> = {
                 lineupTime: 0,
                 speed: 0,
                 climbed: 0,
+                credited: false,
               };
               p.phase = "outbound";
             },

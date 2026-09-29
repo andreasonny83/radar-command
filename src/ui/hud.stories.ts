@@ -6,7 +6,8 @@
  * driving a game. Tweak classes in hudMarkup.ts, the glow/button/arrow/key
  * cap/link styles in style.css, the shortcut table in input/shortcuts.ts,
  * `TOAST_MS` in hud.ts, `AVOID_RADIUS` in arrivalArrows.ts or the GitHub /
- * feedback URLs in links.ts, and the story hot-reloads.
+ * feedback URLs in links.ts, and the story hot-reloads. The leaderboard
+ * panel and game-over form have their own stories (HUD/Leaderboard).
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { fn } from "storybook/test";
@@ -17,7 +18,12 @@ import { createHud, type Hud, type HudCallbacks } from "./hud";
 
 interface HudArgs extends HudCallbacks {
   phase: GamePhase;
-  score: number;
+  /** Planes landed (the score is built from these three; see core/scoring.ts). */
+  landed: number;
+  /** Departures flown out. */
+  departed: number;
+  /** Seconds flown since the second runway opened (1 point per SECONDS_PER_TIME_POINT). */
+  seconds: number;
   /** Toast text; empty = no toast. */
   toast: string;
   /**
@@ -67,9 +73,10 @@ function stage(): HTMLElement {
 
 /** Put a freshly mounted HUD into the state described by `args`. */
 function applyArgs(hud: Hud, args: HudArgs): void {
-  hud.setScore(args.score);
+  const breakdown = { landed: args.landed, departed: args.departed, seconds: args.seconds };
+  hud.setScore(breakdown);
   hud.setClock(args.hours, nightFactor(args.hours));
-  if (args.phase === "gameover") hud.showGameOver(args.score);
+  if (args.phase === "gameover") hud.showGameOver(breakdown);
   else if (args.phase !== "start") hud.hideOverlay();
   hud.setPhase(args.phase);
   hud.setTracking(args.tracking);
@@ -111,7 +118,9 @@ const meta: Meta<HudArgs> = {
   },
   argTypes: {
     phase: { control: "inline-radio", options: ["start", "playing", "paused", "gameover"] },
-    score: { control: { type: "number", min: 0, step: 1 } },
+    landed: { control: { type: "number", min: 0, step: 1 } },
+    departed: { control: { type: "number", min: 0, step: 1 } },
+    seconds: { control: { type: "number", min: 0, step: 1 } },
     hours: { control: { type: "range", min: 0, max: 23.99, step: 0.25 } },
     toastColor: {
       control: "inline-radio",
@@ -128,7 +137,9 @@ const meta: Meta<HudArgs> = {
   },
   args: {
     phase: "start",
-    score: 0,
+    landed: 0,
+    departed: 0,
+    seconds: 0,
     toast: "",
     toastColor: "none",
     arrivals: false,
@@ -154,36 +165,38 @@ type Story = StoryObj<HudArgs>;
 /** Title screen shown on load. */
 export const StartScreen: Story = {};
 
-/** Mid-shift: score, pause button and camera controls. */
-export const Playing: Story = { args: { phase: "playing", score: 12 } };
+/** Mid-shift: score (total, then landed · departed), pause button and camera controls. */
+export const Playing: Story = {
+  args: { phase: "playing", landed: 12, departed: 3, seconds: 262 },
+};
 
 /** A shift after dark: the clock shows the moon. */
-export const Night: Story = { args: { phase: "playing", score: 14, hours: 23.5 } };
+export const Night: Story = { args: { phase: "playing", landed: 14, hours: 23.5 } };
 
 /**
  * Arrival arrows on the screen edge, as planes are about to fly in. Arrows
  * that would sit under the score panel or camera buttons slide clear of them
  * (`data-arrow-avoid` in hudMarkup.ts).
  */
-export const Arrivals: Story = { args: { phase: "playing", score: 8, arrivals: true } };
+export const Arrivals: Story = { args: { phase: "playing", landed: 8, arrivals: true } };
 
 /**
  * Following a plane (right-click one in the game): the "track plane active"
  * badge bottom-left, with its blinking dot. Arrival arrows slide clear of it.
  */
 export const Tracking: Story = {
-  args: { phase: "playing", score: 5, arrivals: true, tracking: true },
+  args: { phase: "playing", landed: 5, arrivals: true, tracking: true },
 };
 
 /** Paused banner over the (frozen) game. */
-export const Paused: Story = { args: { phase: "paused", score: 12 } };
+export const Paused: Story = { args: { phase: "paused", landed: 12 } };
 
 /**
  * A runway-unlock toast. It fades after `TOAST_MS` (hud.ts); change any arg
  * to replay it.
  */
 export const Toast: Story = {
-  args: { phase: "playing", score: 3, toast: "BLUE runway open", toastColor: "blue" },
+  args: { phase: "playing", landed: 3, toast: "BLUE runway open", toastColor: "blue" },
 };
 
 /**
@@ -191,20 +204,24 @@ export const Toast: Story = {
  * violet like the plane, naming the runway it takes off from.
  */
 export const DepartureToast: Story = {
-  args: { phase: "playing", score: 6, toast: "Departure — RED runway", toastColor: "violet" },
+  args: { phase: "playing", landed: 6, toast: "Departure — RED runway", toastColor: "violet" },
 };
 
 /** Sound off: the sound button (bottom-right, or M) is dimmed and struck through. */
-export const Muted: Story = { args: { phase: "playing", score: 5, muted: true } };
+export const Muted: Story = { args: { phase: "playing", landed: 5, muted: true } };
 
 /** Music off: the music button (or N) is dimmed and struck through; effects play on. */
-export const MusicOff: Story = { args: { phase: "playing", score: 5, musicOn: false } };
+export const MusicOff: Story = { args: { phase: "playing", landed: 5, musicOn: false } };
 
 /**
- * Crash overlay with the final score. See-through (CRASH_BACKDROP in hud.ts)
- * so the crash cinematic stays visible above it: see Scene/Gameplay/Crash.
+ * Crash overlay with the final score, its breakdown (landed, departed,
+ * time: `showGameOver` in hud.ts) and the leaderboard form (its states
+ * are in HUD/Leaderboard). See-through (CRASH_BACKDROP in hud.ts) so the
+ * crash cinematic stays visible above it: see Scene/Gameplay/Crash.
  */
-export const GameOver: Story = { args: { phase: "gameover", score: 27 } };
+export const GameOver: Story = {
+  args: { phase: "gameover", landed: 27, departed: 5, seconds: 614 },
+};
 
 /**
  * Help panel over a running shift: how to play, mouse/touch controls and
@@ -212,7 +229,7 @@ export const GameOver: Story = { args: { phase: "gameover", score: 27 } };
  * the "?" button (top-right, on every screen) or H / ? opens it and pauses
  * the shift; ✕, the backdrop, H, ? or Esc close it and continue.
  */
-export const Help: Story = { args: { phase: "playing", score: 9, help: true } };
+export const Help: Story = { args: { phase: "playing", landed: 9, help: true } };
 
 /** Help opened from the title screen: the "?" button sits above the overlay. */
 export const HelpFromStart: Story = { args: { phase: "start", help: true } };

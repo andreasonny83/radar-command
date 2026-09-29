@@ -27,7 +27,7 @@ import {
 } from "../flightTuning";
 import { MeshFactory } from "../meshes";
 import { SceneSync } from "../sceneSync";
-import { gameCamera, mountStage } from "./stage";
+import { dragToPan, gameCamera, mountStage } from "./stage";
 
 type View = "game" | "chase airliner" | "chase turboprop" | "chase light";
 
@@ -269,6 +269,9 @@ function renderWorkbench(args: TuningArgs, storyId: string, presetName: string):
       const target = stage.scene.getMeshByName(`plane-${id}`);
       if (target) chase.setTarget(target);
       stage.scene.activeCamera = chase;
+    } else {
+      // Game view: drag the map around, as in the game.
+      dragToPan(stage, game.controller);
     }
 
     return (dt, time) => {

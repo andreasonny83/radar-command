@@ -13,7 +13,16 @@ import { distance, headingVector } from "./math";
 import { createPlane } from "./plane";
 import { unlockedColors } from "./progression";
 import type { Bounds } from "./scenery";
-import type { GameState, OrientedRect, Plane, Rng, RunwayColor, Vec2, WorldSize } from "./types";
+import type {
+  GameState,
+  OrientedRect,
+  Plane,
+  Rng,
+  Runway,
+  RunwayColor,
+  Vec2,
+  WorldSize,
+} from "./types";
 
 export interface SpawnSpec {
   color: RunwayColor;
@@ -60,6 +69,14 @@ const ENTRY_CORNER_INSET = 0.12;
  * out, rotated or panned, that reaches past the default view, and a plane
  * started only beyond the default view would pop up in plain sight. The
  * cost: zoomed out, arrivals fly in from further away, so they take longer.
+ *
+ * `aimAt`, when given, replaces the random inward heading: the track runs
+ * from the entry point straight for the centre of the plane's own runway
+ * among them (if it has one). A shift's opening plane uses it (see
+ * `spawnPlane`): the camera opens zoomed in over the first airport (see
+ * main.ts `frameOpenAirports`), and a random heading could carry the plane
+ * across the airspace without ever crossing that view, so the player would
+ * see neither the plane nor, once it's in the airspace, its arrow.
  */
 export function pickSpawn(
   world: WorldSize,
@@ -67,6 +84,7 @@ export function pickSpawn(
   colors: readonly RunwayColor[],
   rng: Rng,
   liveView: OrientedRect | null = null,
+  aimAt: readonly Runway[] | null = null,
 ): SpawnSpec {
   const color = colors[Math.floor(rng() * colors.length)] ?? colors[0] ?? "red";
   const edge = pickEdge(edgeWeights(world, viewAspect), rng()); // 0 top, 1 right, 2 bottom, 3 left
@@ -94,6 +112,12 @@ export function pickSpawn(
     default:
       entry = { x: b.minX, y };
       heading = jitter;
+  }
+  // Head straight for the plane's runway instead. The runway lies inside
+  // the airspace, so this still points inward from any edge.
+  const runway = aimAt?.find((r) => r.color === color);
+  if (runway) {
+    heading = Math.atan2(runway.center.y - entry.y, runway.center.x - entry.x);
   }
 
   const dir = headingVector(heading);
@@ -212,20 +236,23 @@ const SPAWN_ATTEMPTS = 5;
 
 /**
  * Add a new plane to `state`, only using colours whose runway exists and
- * has been unlocked at the current score (see `unlockedColors`). The plane
+ * has been unlocked at the current landing count (see `unlockedColors`). The plane
  * starts `inbound`: off-screen, flying in towards `entry`. Re-rolls a few times to
  * keep new arrivals from bunching up with other planes.
  *
+ * @param aimAtRunway  fly the plane in straight for its runway rather than
+ *                     on a random inward heading (a shift's opening plane;
+ *                     see `pickSpawn`).
  * @returns the new plane, or null if there are no runways.
  */
-export function spawnPlane(state: GameState, rng: Rng): Plane | null {
-  const colors = unlockedColors(state.score, state.runways);
+export function spawnPlane(state: GameState, rng: Rng, aimAtRunway = false): Plane | null {
+  const colors = unlockedColors(state.landed, state.runways);
   if (colors.length === 0) return null;
 
-  let spec = pickSpawn(state.world, state.viewAspect, colors, rng, state.liveView);
-  for (let i = 1; i < SPAWN_ATTEMPTS && isCrowded(spec, state.planes); i++) {
-    spec = pickSpawn(state.world, state.viewAspect, colors, rng, state.liveView);
-  }
+  const aimAt = aimAtRunway ? state.runways : null;
+  const pick = () => pickSpawn(state.world, state.viewAspect, colors, rng, state.liveView, aimAt);
+  let spec = pick();
+  for (let i = 1; i < SPAWN_ATTEMPTS && isCrowded(spec, state.planes); i++) spec = pick();
 
   const plane = createPlane(state.nextPlaneId++, spec.color, spec.pos, spec.heading);
   plane.inbound = true;
@@ -265,20 +292,20 @@ function isCrowded(spec: SpawnSpec, planes: readonly Plane[]): boolean {
  * Called once right after each spawn.
  *
  * @param current  the interval that was just used (seconds)
- * @param score    planes landed so far this shift
+ * @param landed   planes landed so far this shift
  * @param elapsed  seconds since the shift started
  * @returns        the next interval in seconds (clamp to SPAWN_INTERVAL_MIN!)
  *
  * The prototype shaved a fixed 50 ms off after every spawn, down to a 1 s
  * floor — a purely time-based ramp. Alternatives worth considering:
- *   - score-based: reward skill, so a struggling player isn't buried;
+ *   - landing-based: reward skill, so a struggling player isn't buried;
  *   - stepped "waves": hold steady, then jump, giving breathing room;
  *   - exponential decay towards the floor: fast early ramp, gentle late game.
  *
  * TODO(you): implement the curve. Until then difficulty stays constant.
  */
-export function nextSpawnInterval(current: number, score: number, elapsed: number): number {
-  void score;
+export function nextSpawnInterval(current: number, landed: number, elapsed: number): number {
+  void landed;
   void elapsed;
   return current;
 }

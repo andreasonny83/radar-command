@@ -162,6 +162,8 @@ export class RunwayView {
   reveal(k: number): void {
     // A zero scale would make the world matrix singular.
     const s = Math.max(0.001, Math.min(1, k));
+    // Not started yet (see sceneSync.ts `AIRPORT_REVEAL_DELAY`): not even a sliver.
+    this.root.setEnabled(k > 0);
     this.root.scaling.x = s;
     const shift = (-this.length / 2) * (1 - s);
     this.root.position.copyFrom(this.center).addInPlace(this.along.scale(shift));
