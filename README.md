@@ -4,8 +4,9 @@ A 3D air traffic control game for the browser, in the spirit of _Flight Control_
 in from the edges of the map; drag a flight path from each one to the runway of its colour and land
 as many as you can. If two planes touch, the shift is over.
 
-Built with [Babylon.js](https://www.babylonjs.com/), TypeScript and Vite. No backend: it's a static
-site that runs entirely in the browser, on desktop and mobile.
+Built with [Babylon.js](https://www.babylonjs.com/), TypeScript and Vite. The game is a static
+site that runs entirely in the browser, on desktop and mobile; only the optional online leaderboard
+uses a backend.
 
 ## How to play
 
@@ -43,19 +44,58 @@ npm install
 npm run dev        # game at http://localhost:5173
 ```
 
-| Script                    | What it does                                      |
-| ------------------------- | ------------------------------------------------- |
-| `npm run dev`             | Vite dev server with hot reload                   |
-| `npm run build`           | Type-check and build the static site into `dist/` |
-| `npm run preview`         | Serve the production build locally                |
-| `npm run storybook`       | Storybook workbench at http://localhost:6006      |
-| `npm run build-storybook` | Build Storybook as a static site                  |
-| `npm test`                | Vitest unit tests for the simulation layer        |
-| `npm run typecheck`       | `tsc --noEmit`                                    |
-| `npm run lint`            | ESLint                                            |
-| `npm run format`          | Prettier                                          |
+| Script                    | What it does                                                   |
+| ------------------------- | -------------------------------------------------------------- |
+| `npm run dev`             | Vite dev server with hot reload (also serves `api/`)           |
+| `npm run build`           | Type-check and build the site into `dist/`                     |
+| `npm run preview`         | Serve the production build locally                             |
+| `npm run storybook`       | Storybook workbench at http://localhost:6006                   |
+| `npm run build-storybook` | Build Storybook as a static site                               |
+| `npm test`                | Vitest unit tests for the simulation layer (single run)        |
+| `npm run test:watch`      | Vitest in watch mode                                           |
+| `npm run typecheck`       | `tsc --noEmit`                                                 |
+| `npm run lint`            | ESLint                                                         |
+| `npm run format`          | Prettier, rewriting files in place                             |
+| `npm run audio:build`     | Rebuild the sound recordings from `scripts/audio/sources.json` |
+| `npm run db:migrate`      | Apply pending leaderboard database migrations                  |
+| `npm run db:seed`         | Fill the leaderboard with made-up runs, to see it with data    |
 
-`dist/` is plain static files: host it on GitHub Pages, Netlify, or any static file server.
+The game itself is plain static files in `dist/`: host it on GitHub Pages, Netlify, or any static
+file server. Only the online leaderboard needs a backend (see below), and the game stays fully
+playable without it.
+
+### Audio script
+
+`npm run audio:build` downloads the CC0 previews listed in `scripts/audio/sources.json`, cuts and
+encodes them into `src/audio/assets/` and regenerates the credits. It needs ffmpeg (bundled through
+the `ffmpeg-static` dev dependency) and the network the first time; the outputs are checked in, so
+a normal build needs neither.
+
+```bash
+npm run audio:build                              # rebuild everything
+npm run audio:build -- <id> [<id>]               # only these entries (credits still cover all)
+npm run audio:build -- --analyse <freesoundId> [seconds]   # find steady windows to cut (default 5 s)
+```
+
+### Leaderboard database scripts
+
+The leaderboard (`api/`, Vercel Functions over Neon Postgres) reads two variables from `.env` (copy
+`.env.example`): `DATABASE_URL` and `LEADERBOARD_SECRET`. Both scripts use `.env`'s `DATABASE_URL`
+unless your shell environment sets one, which wins. Quote the URL: Neon URLs contain `&`.
+
+```bash
+npm run db:migrate                # apply every pending migration in db/migrations/
+npm run db:migrate -- --status    # list applied and pending, change nothing
+
+npm run db:seed                   # 100 made-up runs from 70 players
+npm run db:seed -- --count 300 --players 120 --days 90
+npm run db:seed -- --status       # how many seeded rows exist
+npm run db:seed -- --clear        # delete every seeded row
+```
+
+Schema changes are new numbered files (`NNNN_what_it_does.sql`); never edit one that has been
+applied. Seeded rows are tagged `ip_hash = 'seed-test'`. Don't seed the database the deployed game
+uses: the fake names would show on its public boards.
 
 ## Project structure
 
