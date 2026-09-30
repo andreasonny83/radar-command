@@ -32,7 +32,8 @@
  *               locked approach that has to go around at the threshold.
  *   - OuterTraffic: planes crossing paths outside the airspace (magenta
  *               dashed edge), flown by the real flight model with the
- *               automatic collision avoidance on or off: head-on, crossing
+ *               automatic collision avoidance on or off (`drawnPaths`: planes
+ *               on a player-drawn path are never steered): head-on, crossing
  *               and converging arrivals all swerve apart, then resume
  *               course. Replays on a loop.
  *   - Departure: one violet departure (core/departures.ts) flown by the
@@ -76,7 +77,9 @@
  * Landing: FLIGHT_ALTITUDE / OUTER_FLIGHT_ALTITUDE / ALTITUDE_TRANSITION /
  * APPROACH_DISTANCE / THRESHOLD_ALTITUDE / ALTITUDE_SCALE_PER_UNIT and
  * FLARE_DISTANCE in config.ts, MAX_VERTICAL_SPEED in sceneSync.ts.
- * Runway progression: COLOR_UNLOCK_LANDINGS in config.ts, `unlockedColors` in
+ * Runway progression: COLOR_UNLOCK_LANDINGS and NEW_RUNWAY_GRACE_SECONDS
+ * (planes wait this long after a runway opens; the sim isn't run here, so
+ * not shown) in config.ts, `unlockedColors` / `trafficColors` in
  * core/progression.ts, RUNWAY_REVEAL_SECONDS, AIRPORT_REVEAL_DELAY and
  * `syncRunways` in sceneSync.ts, `reveal` in runway.ts / airfield.ts /
  * airportGrounds.ts; the camera's framing: OPENING_VIEW_MARGIN in config.ts,
@@ -767,6 +770,11 @@ export const RunwayProgression: StoryObj<RunwayProgressionArgs> = {
 interface OuterTrafficArgs {
   /** Run the automatic avoidance (core/avoidance.ts); off, they fly through each other. */
   avoidance: boolean;
+  /**
+   * Give the crossing pair a drawn path each, as the player would. Planes on
+   * a path fly it as drawn, so with this on they cross without swerving.
+   */
+  drawnPaths: boolean;
   /** Seconds before the encounters replay. */
   replayAfter: number;
   timeScale: number;
@@ -777,10 +785,11 @@ interface OuterTrafficArgs {
  * the planes would meet if nobody swerved:
  *
  * - head-on: two departures flying at each other above the field;
- * - crossing: two departures meeting at right angles left of it;
+ * - crossing: two departures meeting at right angles left of it (with
+ *   `drawnPaths` they fly a path each instead, and don't swerve);
  * - converging: two arrivals whose tracks to the right-hand edge cross.
  */
-function stageOuterTraffic(state: GameState): void {
+function stageOuterTraffic(state: GameState, drawnPaths: boolean): void {
   const b = airspaceBounds(state.world);
   const planes: Plane[] = [];
   const add = (color: Plane["color"], pos: Vec2, heading: number): Plane => {
@@ -809,6 +818,17 @@ function stageOuterTraffic(state: GameState): void {
   const meetY = (b.minY + b.maxY) / 2;
   depart("yellow", { x: leftX, y: meetY - 22 }, Math.PI / 2);
   depart("red", { x: leftX - 22, y: meetY }, 0);
+  if (drawnPaths) {
+    // Player-routed: a straight path through the meeting point each.
+    for (const [plane, end] of [
+      [planes[planes.length - 2]!, { x: leftX, y: meetY + 30 }],
+      [planes[planes.length - 1]!, { x: leftX + 30, y: meetY }],
+    ] as const) {
+      plane.phase = "flying";
+      plane.path = [end];
+      plane.pathVersion++;
+    }
+  }
 
   // Converging arrivals right of the field, tracks crossing halfway in.
   const farX = b.maxX + 24;
@@ -823,7 +843,7 @@ export const OuterTraffic: StoryObj<OuterTrafficArgs> = {
     replayAfter: { control: { type: "range", min: 4, max: 20, step: 0.5 } },
     timeScale: { control: { type: "range", min: 0.1, max: 3, step: 0.05 } },
   },
-  args: { avoidance: true, replayAfter: 8, timeScale: 1 },
+  args: { avoidance: true, drawnPaths: false, replayAfter: 8, timeScale: 1 },
   render: (args) =>
     mountStage((stage) => {
       const cam = gameCamera(stage);
@@ -831,7 +851,7 @@ export const OuterTraffic: StoryObj<OuterTrafficArgs> = {
       const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
       sync.rebuildWorld(state);
       sync.setAirspaceVisible(true);
-      stageOuterTraffic(state);
+      stageOuterTraffic(state, args.drawnPaths);
 
       let time = 0;
       let sinceStart = 0;
@@ -845,7 +865,7 @@ export const OuterTraffic: StoryObj<OuterTrafficArgs> = {
         state.planes = state.planes.filter((p) => p.phase !== "departed");
         if (sinceStart >= args.replayAfter) {
           sinceStart = 0;
-          stageOuterTraffic(state); // new plane ids: fresh meshes
+          stageOuterTraffic(state, args.drawnPaths); // new plane ids: fresh meshes
         }
         cam.frame(dt, time);
         sync.syncPlanes(state, time);

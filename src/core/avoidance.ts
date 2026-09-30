@@ -8,7 +8,9 @@
  * would still draw the eye away from the field. So out there the game
  * separates them itself, like a TCAS on every aircraft: each plane looks a
  * few seconds ahead and, if other traffic would pass too close, turns away
- * from it.
+ * from it. A plane the player has given a path is the exception: it flies
+ * that path as drawn, and only planes without one (fresh arrivals, planes
+ * whose path ran out, departures) are steered.
  *
  * The result is a heading offset, `Plane.avoidTurn`, that core/plane.ts
  * adds to wherever the plane was heading anyway (its path, its entry point
@@ -26,13 +28,32 @@ function isAirborne(plane: Plane): boolean {
 }
 
 /**
+ * True if the player has routed `plane`: it is flying a path they drew. A
+ * departure's dotted route (climbout) is the game's own, so it doesn't count.
+ */
+function isPlayerRouted(plane: Plane): boolean {
+  return plane.phase === "flying" && plane.path.length > 0;
+}
+
+/**
  * True if the avoidance system may steer `plane`: airborne and outside the
- * airspace. Planes on an anchored approach are left alone: their final is
- * committed (and was checked to land, see `anchorPath` in core/path.ts), so
- * the other traffic gives way to them instead.
+ * airspace. Two kinds of plane are left alone:
+ *
+ * - Planes the player has given a path (see `isPlayerRouted`): they fly
+ *   exactly what was drawn, and the automatic pilot takes over again only
+ *   once the path is used up. Other traffic still swerves round them.
+ * - Planes on an anchored approach: their final is committed (and was
+ *   checked to land, see `anchorPath` in core/path.ts), so the other
+ *   traffic gives way to them instead. This holds even after the path's
+ *   last waypoint is used up.
  */
 function isManaged(plane: Plane, world: WorldSize): boolean {
-  return isAirborne(plane) && !plane.pathAnchored && !isInAirspace(plane.pos, world);
+  return (
+    isAirborne(plane) &&
+    !plane.pathAnchored &&
+    !isPlayerRouted(plane) &&
+    !isInAirspace(plane.pos, world)
+  );
 }
 
 /**

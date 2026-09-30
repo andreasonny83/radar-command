@@ -105,6 +105,7 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
       state.landed++;
       events.push({ type: "landed", planeId: plane.id, color: runway.color });
       for (const color of newlyUnlockedColors(state.landed - 1, state.landed, state.runways)) {
+        state.unlockedAt[color] = state.elapsed;
         events.push({ type: "unlocked", color });
       }
     }

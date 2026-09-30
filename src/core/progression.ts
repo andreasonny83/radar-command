@@ -10,10 +10,11 @@ import {
   COLOR_UNLOCK_LANDINGS,
   LANDINGS_PER_EXTRA_PLANE,
   MAX_AIRBORNE,
+  NEW_RUNWAY_GRACE_SECONDS,
   RUNWAY_LAYOUT,
   SECONDS_PER_EXTRA_PLANE,
 } from "../config";
-import type { Plane, Runway, RunwayColor } from "./types";
+import type { GameState, Plane, Runway, RunwayColor } from "./types";
 
 /**
  * Cap on simultaneously *flying* planes (rolling-out planes don't count).
@@ -64,6 +65,23 @@ export function unlockedColors(landed: number, runways: readonly Runway[]): Runw
 export function openRunways(landed: number, runways: readonly Runway[]): Runway[] {
   const open = new Set(unlockedColors(landed, runways));
   return runways.filter((r) => open.has(r.color));
+}
+
+/**
+ * Colours that may receive traffic (arrivals and departures) right now: the
+ * open ones, minus any that opened less than `NEW_RUNWAY_GRACE_SECONDS` ago.
+ * The runway is drawn and can be aimed at from the moment it opens (see
+ * `openRunways`); only new planes wait, so the player can get used to it
+ * before anything arrives. Never empty while a runway is open: the first
+ * runway has no `unlockedAt`, so it is never held back.
+ */
+export function trafficColors(
+  state: Pick<GameState, "landed" | "runways" | "elapsed" | "unlockedAt">,
+): RunwayColor[] {
+  return unlockedColors(state.landed, state.runways).filter((c) => {
+    const at = state.unlockedAt[c];
+    return at === undefined || state.elapsed - at >= NEW_RUNWAY_GRACE_SECONDS;
+  });
 }
 
 /**

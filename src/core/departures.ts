@@ -49,7 +49,7 @@ import {
 import { runwayFrame } from "./airfield";
 import { distance, headingVector, lerp, normalizeAngle } from "./math";
 import { createPlane } from "./plane";
-import { unlockedColors } from "./progression";
+import { trafficColors } from "./progression";
 import {
   appendSamples,
   appendToRoute,
@@ -363,7 +363,7 @@ function nextDepartureInterval(rng: Rng): number {
  * Count down to the next departure and roll one out when it's due.
  *
  * The clock only runs once `DEPARTURE_START_LANDINGS` planes have landed. A
- * departure goes from an open runway (an unlocked colour) with no
+ * departure goes from a runway open for traffic (see `trafficColors`) with no
  * departure of its own under way and a free stand to start from; if there
  * is none, it stays due and goes as soon as there is.
  */
@@ -377,7 +377,7 @@ export function scheduleDepartures(
   state.departureTimer += dt;
   if (state.departureTimer < state.departureInterval) return;
 
-  const open = new Set<RunwayColor>(unlockedColors(state.landed, state.runways));
+  const open = new Set<RunwayColor>(trafficColors(state));
   const candidates: { runway: Runway; stand: Stand }[] = [];
   for (const runway of state.runways) {
     if (!open.has(runway.color)) continue;

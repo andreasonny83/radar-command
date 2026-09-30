@@ -18,6 +18,7 @@ export function createGameState(viewAspect = WORLD_ASPECT): GameState {
     departed: 0,
     elapsed: 0,
     scoredSeconds: 0,
+    unlockedAt: {},
     spawnTimer: 0,
     spawnInterval: SPAWN_INTERVAL_START,
     departureTimer: 0,
@@ -39,6 +40,7 @@ export function resetGameState(state: GameState): void {
   state.departed = 0;
   state.elapsed = 0;
   state.scoredSeconds = 0;
+  state.unlockedAt = {};
   state.spawnTimer = 0;
   state.spawnInterval = SPAWN_INTERVAL_START;
   state.departureTimer = 0;
