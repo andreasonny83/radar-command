@@ -85,7 +85,39 @@ export interface NameClient {
   systemOne(request: {
     state: unknown;
     questions: { offensive: ReturnType<typeof noul> };
-  }): PromiseLike<{ answers: { offensive: { noul: number } } }>;
+  }): PromiseLike<{
+    model?: string;
+    usage?: { input_tokens: number; output_tokens: number };
+    answers: { offensive: { noul: number } };
+  }>;
+}
+
+/** What Jev answered: the probability, and which model and how many tokens it took. */
+export interface JevAnswer {
+  probability: number;
+  model?: string;
+  usage?: { input_tokens: number; output_tokens: number };
+}
+
+/**
+ * One JSON line per Jev event, for debugging from Vercel's function logs:
+ * search for "nameFilter.jev" (filter by level to see only the errors).
+ * Events, in `outcome`: `allowed` / `flagged` (Jev answered: `probability`,
+ * `threshold`, `ms`, `model`, `usage`), `cached` (answered from memory,
+ * Jev not asked), `error` (Jev didn't answer: `error`, and the name is let
+ * through), `budget_exceeded` (an address used up its checks), and, once
+ * per server instance, `no_key` (the Jev layer is off). The API key is
+ * never logged. Nicknames are: a name Jev refuses is otherwise invisible.
+ */
+function logJev(level: "log" | "warn" | "error", fields: Record<string, unknown>): void {
+  console[level]("nameFilter.jev", JSON.stringify(fields));
+}
+
+/** `err` reduced to what helps debugging: never headers or bodies. */
+function describeError(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) return { message: String(err) };
+  const { status } = err as { status?: unknown };
+  return { type: err.name, message: err.message, ...(status !== undefined && { status }) };
 }
 
 /** Is a TypeSafe key configured? (Without one the Jev layer is off.) */
@@ -101,12 +133,15 @@ function defaultClient(): NameClient {
 }
 
 /**
- * Jev's probability that `name` is unacceptable on a public leaderboard.
- * Throws when it can't get an answer (no key, network, timeout): callers
- * choose what that means (`flaggedByJev` lets the name through).
+ * Jev's answer on whether `name` is unacceptable on a public leaderboard.
+ * Throws when it can't get one (no key, network, timeout): callers choose
+ * what that means (`flaggedByJev` lets the name through).
  */
-export async function askJev(name: string, client: NameClient = defaultClient()): Promise<number> {
-  const { answers } = await client.systemOne({
+export async function askJevDetailed(
+  name: string,
+  client: NameClient = defaultClient(),
+): Promise<JevAnswer> {
+  const { answers, model, usage } = await client.systemOne({
     state: {
       context:
         "A player's chosen nickname for the public leaderboard of a family-friendly arcade game.",
@@ -125,29 +160,67 @@ export async function askJev(name: string, client: NameClient = defaultClient())
       ),
     },
   });
-  return answers.offensive.noul;
+  return { probability: answers.offensive.noul, model, usage };
+}
+
+/** Just the probability (0-1) from `askJevDetailed`. */
+export async function askJev(name: string, client?: NameClient): Promise<number> {
+  return (await askJevDetailed(name, client)).probability;
 }
 
 /** Verdicts already given, so a retried submit doesn't ask again (oldest dropped first). */
-const verdicts = new Map<string, boolean>();
+const verdicts = new Map<string, { flagged: boolean; probability: number }>();
 const VERDICTS_MAX = 500;
+
+/** Has this instance said the Jev layer is off (no key) yet? Once is enough. */
+let warnedNoKey = false;
 
 /**
  * Does Jev find `name` offensive (at `NAME_OFFENSIVE_THRESHOLD`)? False
- * when there is no key or no answer: this layer fails open.
+ * when there is no key or no answer: this layer fails open. Every outcome
+ * is logged (see `logJev`).
  */
 export async function flaggedByJev(name: string, client?: NameClient): Promise<boolean> {
-  if (!client && !jevConfigured()) return false;
+  if (!client && !jevConfigured()) {
+    if (!warnedNoKey) {
+      warnedNoKey = true;
+      logJev("warn", {
+        outcome: "no_key",
+        note: "TYPESAFE_API_KEY is not set: only the word list applies",
+      });
+    }
+    return false;
+  }
   const key = name.toLowerCase();
   const known = verdicts.get(key);
-  if (known !== undefined) return known;
+  if (known) {
+    logJev("log", { outcome: "cached", name, ...known, threshold: NAME_OFFENSIVE_THRESHOLD });
+    return known.flagged;
+  }
+  const started = Date.now();
   try {
-    const flagged = (await askJev(name, client)) >= NAME_OFFENSIVE_THRESHOLD;
+    const { probability, model, usage } = await askJevDetailed(name, client);
+    const flagged = probability >= NAME_OFFENSIVE_THRESHOLD;
     if (verdicts.size >= VERDICTS_MAX) verdicts.delete(verdicts.keys().next().value as string);
-    verdicts.set(key, flagged);
+    verdicts.set(key, { flagged, probability });
+    logJev("log", {
+      outcome: flagged ? "flagged" : "allowed",
+      name,
+      probability,
+      threshold: NAME_OFFENSIVE_THRESHOLD,
+      ms: Date.now() - started,
+      model,
+      usage,
+    });
     return flagged;
   } catch (err) {
-    console.error("nameFilter: Jev unavailable, letting the name through", err);
+    logJev("error", {
+      outcome: "error",
+      name,
+      ms: Date.now() - started,
+      error: describeError(err),
+      note: "letting the name through",
+    });
     return false;
   }
 }
@@ -169,6 +242,12 @@ export function takeJevCheck(who: string, now = Date.now()): boolean {
   const times = (recentChecks.get(who) ?? []).filter((t) => now - t < 60_000);
   const ok = times.length < JEV_CHECKS_PER_MINUTE;
   if (ok) times.push(now);
+  else
+    logJev("warn", {
+      outcome: "budget_exceeded",
+      address: who,
+      limitPerMinute: JEV_CHECKS_PER_MINUTE,
+    });
   recentChecks.set(who, times);
   // Don't let the map grow without bound on a long-lived instance.
   if (recentChecks.size > 5000) {

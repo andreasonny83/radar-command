@@ -114,6 +114,11 @@ is set, [Jev](https://docs.typesafe.ai) judges what a list can't. The Jev layer 
 or TypeSafe down: the list alone applies), so it never stops a score being submitted. A refused
 name returns `bad_name`; nothing is stored and the player can pick another name and resubmit.
 
+Every Jev call is logged as one JSON line in the function logs (Vercel → Logs, search
+`nameFilter.jev`): `outcome` (`allowed`, `flagged`, `cached`, `error`, `budget_exceeded`, `no_key`),
+the name, Jev's `probability` against the `threshold`, latency, model and token usage. Errors are
+logged at error level and the name is let through. The API key is never logged.
+
 For names already on the boards:
 
 ```bash
