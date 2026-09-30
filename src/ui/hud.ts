@@ -16,6 +16,7 @@ import {
   type ScoreBreakdown,
 } from "../core/scoring";
 import type { GamePhase } from "../core/types";
+import { GAME_SPEEDS } from "../config";
 import { shortcutHint } from "../input/shortcuts";
 import type { Result } from "../net/leaderboardApi";
 import { createArrivalArrows, type ArrivalMarker } from "./arrivalArrows";
@@ -30,6 +31,8 @@ export interface HudCallbacks {
   onStart: () => void;
   /** Pause button pressed (pause while playing, continue while paused). */
   onTogglePause: () => void;
+  /** Set the simulation speed multiplier. */
+  onSpeedChange?: (speed: (typeof GAME_SPEEDS)[number]) => void;
   /** -1 = rotate counter-clockwise, +1 = clockwise. */
   onRotate: (direction: -1 | 1) => void;
   /** +1 = zoom in, -1 = zoom out. */
@@ -92,6 +95,8 @@ export interface Hud {
   setLeaderboardOpen(open: boolean, board?: Board): void;
   /** Sync the pause button and banner with the current game phase. */
   setPhase(phase: GamePhase): void;
+  /** Show the current simulation speed. */
+  setSpeed(speed: (typeof GAME_SPEEDS)[number]): void;
   /** Briefly show a notice at the top of the screen, optionally tinted. */
   showToast(text: string, color?: string): void;
   /** Arrows on the screen edge for planes about to fly in (call every frame). */
@@ -184,6 +189,7 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   const submitBtn = byId<HTMLButtonElement>("submitBtn");
   const submitStatus = byId("submitStatus");
   const pauseBtn = byId<HTMLButtonElement>("pauseBtn");
+  const speedBtn = byId<HTMLButtonElement>("speedBtn");
   const pausedBanner = byId("pausedBanner");
   const toast = byId("toast");
   const tracking = byId("trackingIndicator");
@@ -197,6 +203,12 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     Array.from(root.querySelectorAll<HTMLElement>("[data-arrow-avoid]")),
   );
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  const updateSpeed = (speed: (typeof GAME_SPEEDS)[number]) => {
+    speedBtn.dataset.speed = String(speed);
+    speedBtn.textContent = `${speed}×`;
+    speedBtn.title = `Game speed ${speed}× (1 / 2 / 3 / 4)`;
+    speedBtn.setAttribute("aria-label", `Game speed ${speed} times`);
+  };
 
   startBtn.addEventListener("click", () => {
     callbacks.onStart();
@@ -208,6 +220,15 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     callbacks.onTogglePause();
     // Drop focus so a later Space/Enter doesn't re-press the button by accident.
     pauseBtn.blur();
+  });
+  speedBtn.addEventListener("click", () => {
+    const current = GAME_SPEEDS.indexOf(
+      Number(speedBtn.dataset.speed) as (typeof GAME_SPEEDS)[number],
+    );
+    const next = GAME_SPEEDS[(current + 1) % GAME_SPEEDS.length] ?? GAME_SPEEDS[0];
+    callbacks.onSpeedChange?.(next);
+    updateSpeed(next);
+    speedBtn.blur();
   });
   // Feedback links: pre-fill the issue form on click, just before the
   // browser follows the href (so the screen size it reports is current).
@@ -417,6 +438,10 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       // `hidden` and `flex` both set `display`, so swap them rather than stack.
       pausedBanner.classList.toggle("hidden", !paused);
       pausedBanner.classList.toggle("flex", paused);
+      speedBtn.classList.toggle("hidden", !inShift);
+    },
+    setSpeed(speed) {
+      updateSpeed(speed);
     },
     showToast(text, color) {
       toast.textContent = text;

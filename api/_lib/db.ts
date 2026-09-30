@@ -8,7 +8,10 @@
  * functions. `DATABASE_URL` is only ever read here, on the server.
  *
  * One row per submitted run; every board shows each player's best run in
- * its window (ties: the earlier run ranks higher).
+ * its window (ties: the earlier run ranks higher). A "player" is a nickname
+ * on a browser: `player_id` is per browser, so several people sharing one
+ * each get their own entry, told apart by nickname (case-insensitively:
+ * "Ann" and "ann" are one player).
  */
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import type { BoardEntry, BoardStanding } from "../../src/core/leaderboard.js";
@@ -24,14 +27,17 @@ function sql(): NeonQueryFunction<false, false> {
   return client;
 }
 
-/** Each player's best run submitted at or after `since`: one row per player. */
+/**
+ * Each player's best run submitted at or after `since`: one row per
+ * (browser, nickname). Shows the nickname as typed on that best run.
+ */
 function bestRuns(since: Date) {
   return sql()`
-    select distinct on (player_id)
+    select distinct on (player_id, lower(name))
       player_id, name, score, landed, departed, flown_s, created_at
     from scores
     where created_at >= ${since}
-    order by player_id, score desc, created_at asc`;
+    order by player_id, lower(name), score desc, created_at asc`;
 }
 
 /** A new run. Returns false when `runId` was already submitted. */
@@ -68,16 +74,21 @@ export async function recentSubmits(ipHash: string): Promise<number> {
 
 /**
  * The top `limit` players since `since` (core/leaderboard.ts `boardLimit`),
- * `me` set on `playerId`'s row.
+ * `me` set on the row of `playerId` playing as `name`.
  */
 export async function topEntries(
   since: Date,
   playerId: string | null,
+  name: string | null,
   limit: number,
 ): Promise<BoardEntry[]> {
   const rows = await sql()`
     select name, score, landed, departed, flown_s, created_at,
-      coalesce(player_id = ${playerId}::uuid, false) as me
+      -- Without a name, every nickname used on that browser is "me".
+      coalesce(
+        player_id = ${playerId}::uuid
+          and (${name}::text is null or lower(name) = lower(${name}::text)),
+        false) as me
     from (${bestRuns(since)}) best
     order by score desc, created_at asc
     limit ${limit}`;
@@ -101,16 +112,24 @@ function standing(r: Record<string, unknown>, rank: number): BoardStanding {
 }
 
 /**
- * `playerId`'s standing since `since` (rank, best run and its breakdown),
- * or null when they have no run in that window. Rank = 1 + players whose
- * best beats theirs.
+ * The standing since `since` (rank, best run and its breakdown) of `playerId`
+ * playing as `name`, or null when they have no run in that window. Rank =
+ * 1 + players whose best beats theirs.
  */
-export async function playerRank(since: Date, playerId: string): Promise<BoardStanding | null> {
+export async function playerRank(
+  since: Date,
+  playerId: string,
+  name: string | null,
+): Promise<BoardStanding | null> {
   const rows = await sql()`
     with best as (${bestRuns(since)}),
     mine as (
       select score, landed, departed, flown_s, created_at
-      from best where player_id = ${playerId}::uuid
+      from best
+      where player_id = ${playerId}::uuid
+        and (${name}::text is null or lower(name) = lower(${name}::text))
+      order by score desc, created_at asc
+      limit 1
     )
     select mine.*,
       1 + (

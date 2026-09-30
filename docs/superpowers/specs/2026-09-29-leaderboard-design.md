@@ -54,7 +54,7 @@ src/net/leaderboardApi.ts  ──►  api/run.ts         (sign token)
 One row per submitted run (`run_id` unique, `player_id`, `name`, `score`,
 `duration_s`, `ip_hash`, `created_at`), indexes on `created_at`,
 `(player_id, score desc, created_at)` and `(ip_hash, created_at)`.
-Boards use `distinct on (player_id)` for each player's best in the window;
+Boards use `distinct on (player_id, lower(name))` for each player's best in the window (a player is a nickname on a browser, so people sharing one browser each get an entry);
 rank = 1 + players whose best beats it.
 
 ## API

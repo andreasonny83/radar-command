@@ -11,7 +11,7 @@
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { fn } from "storybook/test";
-import { COLOR_HEX } from "../config";
+import { COLOR_HEX, GAME_SPEEDS } from "../config";
 import { nightFactor } from "../core/daytime";
 import type { GamePhase, PlaneColor, RunwayColor } from "../core/types";
 import { createHud, type Hud, type HudCallbacks } from "./hud";
@@ -39,6 +39,8 @@ interface HudArgs extends HudCallbacks {
   arrivals: boolean;
   /** Show the "track plane active" badge, as while following a plane. */
   tracking: boolean;
+  /** Game speed multiplier on the speed button (see `GAME_SPEEDS` in config.ts). */
+  speed: (typeof GAME_SPEEDS)[number];
   /** Open the help panel (the "?" button, or H / ? in the game). */
   help: boolean;
   /** Open the licenses panel (the "Licenses" link on the overlay / in help). */
@@ -80,6 +82,7 @@ function applyArgs(hud: Hud, args: HudArgs): void {
   else if (args.phase !== "start") hud.hideOverlay();
   hud.setPhase(args.phase);
   hud.setTracking(args.tracking);
+  hud.setSpeed(args.speed);
   hud.setMuted(args.muted);
   hud.setMusicOn(args.musicOn);
   hud.setHelpOpen(args.help);
@@ -118,6 +121,7 @@ const meta: Meta<HudArgs> = {
   },
   argTypes: {
     phase: { control: "inline-radio", options: ["start", "playing", "paused", "gameover"] },
+    speed: { control: "inline-radio", options: [...GAME_SPEEDS] },
     landed: { control: { type: "number", min: 0, step: 1 } },
     departed: { control: { type: "number", min: 0, step: 1 } },
     seconds: { control: { type: "number", min: 0, step: 1 } },
@@ -129,6 +133,7 @@ const meta: Meta<HudArgs> = {
     // Callbacks are wired to the Actions panel; no control needed.
     onStart: { table: { disable: true } },
     onTogglePause: { table: { disable: true } },
+    onSpeedChange: { table: { disable: true } },
     onRotate: { table: { disable: true } },
     onZoom: { table: { disable: true } },
     onToggleSound: { table: { disable: true } },
@@ -144,6 +149,7 @@ const meta: Meta<HudArgs> = {
     toastColor: "none",
     arrivals: false,
     tracking: false,
+    speed: 1,
     muted: false,
     musicOn: true,
     help: false,
@@ -151,6 +157,7 @@ const meta: Meta<HudArgs> = {
     hours: 8,
     onStart: fn(),
     onTogglePause: fn(),
+    onSpeedChange: fn(),
     onRotate: fn(),
     onZoom: fn(),
     onToggleSound: fn(),
@@ -187,6 +194,12 @@ export const Arrivals: Story = { args: { phase: "playing", landed: 8, arrivals: 
 export const Tracking: Story = {
   args: { phase: "playing", landed: 5, arrivals: true, tracking: true },
 };
+
+/**
+ * Game speed button (top-right, left of pause), set to 3×. Click it, or press
+ * 1-4 in the game, to cycle 1×, 1.5×, 2×, 3×; a new shift starts back at 1×.
+ */
+export const FastForward: Story = { args: { phase: "playing", landed: 12, speed: 3 } };
 
 /** Paused banner over the (frozen) game. */
 export const Paused: Story = { args: { phase: "paused", landed: 12 } };

@@ -8,6 +8,9 @@
  */
 import type { PlaneColor, RunwayColor } from "./core/types";
 
+/** Available simulation speed multipliers. */
+export const GAME_SPEEDS = [1, 1.5, 2, 3] as const;
+
 // ---------------------------------------------------------------------------
 // World
 // ---------------------------------------------------------------------------
