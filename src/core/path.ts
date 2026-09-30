@@ -67,9 +67,11 @@ export function appendPathPoint(
 /**
  * Keep a drawn path point on the map (see `mapBounds`). Paths may run
  * anywhere the player can see, past the airspace edge included: out there
- * planes can't collide (see core/collision.ts) and the automatic avoidance
- * keeps them apart (core/avoidance.ts), so the countryside round the field
- * is a safe holding area rather than a wall. Only the map's own edge is a
+ * planes can't collide (see core/collision.ts), and the automatic avoidance
+ * (core/avoidance.ts) keeps apart the planes that have no path, so the
+ * countryside round the field is a safe holding area rather than a wall.
+ * A plane on a drawn path is never steered by it: it flies the path as
+ * drawn, crossing other traffic if the path says so. Only the map's own edge is a
  * limit, so a path never leads a plane off the scenery. A plane whose path
  * ends past the airspace edge, heading out, leaves the world (see
  * `departing` in core/plane.ts).

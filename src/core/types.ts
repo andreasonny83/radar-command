@@ -139,7 +139,8 @@ export interface Plane {
   /**
    * Heading offset (radians, positive = turn right) the automatic
    * collision avoidance adds to this plane's course this step. Only planes
-   * outside the airspace get one (see core/avoidance.ts); 0 otherwise.
+   * outside the airspace and without a player-drawn path get one (see
+   * core/avoidance.ts); 0 otherwise.
    */
   avoidTurn: number;
   /** Take-off state for departures (see core/departures.ts); null for arrivals. */
