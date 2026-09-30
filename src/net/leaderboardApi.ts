@@ -79,7 +79,7 @@ export function errorMessage(error: LeaderboardError): string {
     case "offline":
       return "Leaderboard unreachable. Check your connection.";
     case "bad_name":
-      return "That name isn't allowed.";
+      return "That name isn't allowed. Try another one.";
     case "bad_token":
     case "expired":
       return "This shift can't be submitted any more.";
@@ -95,9 +95,15 @@ export function errorMessage(error: LeaderboardError): string {
   }
 }
 
-/** Can the same run be sent again after `error` (vs. never for this run)? */
+/**
+ * Can the same run be sent again after `error` (vs. never for this run)?
+ * A refused name is: nothing was stored and the run token is still good, so
+ * the player can pick another name and resubmit.
+ */
 export function isRetryable(error: LeaderboardError): boolean {
-  return error === "offline" || error === "rate_limited" || error === "server";
+  return (
+    error === "offline" || error === "rate_limited" || error === "server" || error === "bad_name"
+  );
 }
 
 // ---------------------------------------------------------------------------

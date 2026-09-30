@@ -60,6 +60,7 @@ npm run dev        # game at http://localhost:5173
 | `npm run audio:build`     | Rebuild the sound recordings from `scripts/audio/sources.json` |
 | `npm run db:migrate`      | Apply pending leaderboard database migrations                  |
 | `npm run vercel-build`    | What Vercel runs: migrate the database, then `build`           |
+| `npm run db:clean-names`  | Find (and optionally clean up) offensive leaderboard names     |
 | `npm run db:seed`         | Fill the leaderboard with made-up runs, to see it with data    |
 
 The game itself is plain static files in `dist/`: host it on GitHub Pages, Netlify, or any static
@@ -103,6 +104,27 @@ gets its own Neon branch). It skips, with a note in the build log, when `DATABAS
 `SKIP_DB_MIGRATE=1` is; set that on Preview if it shares the production database, or a pull
 request's migrations would run on the live one. It needs Vercel's default build command (a custom
 "Build Command" in the project settings replaces `vercel-build`) and Node 22+.
+
+### Nickname filter
+
+A nickname is checked when a score is submitted (`api/_lib/nameFilter.ts`, server-side): first a
+word list (the `obscenity` library, which sees through leetspeak, repeated letters and spacing,
+plus a short list of extra terms and an allowlist such as "cockpit"), then, if `TYPESAFE_API_KEY`
+is set, [Jev](https://docs.typesafe.ai) judges what a list can't. The Jev layer fails open (no key,
+or TypeSafe down: the list alone applies), so it never stops a score being submitted. A refused
+name returns `bad_name`; nothing is stored and the player can pick another name and resubmit.
+
+For names already on the boards:
+
+```bash
+npm run db:clean-names                       # list what the word list rejects; changes nothing
+npm run db:clean-names -- --jev              # also ask Jev about every other name
+npm run db:clean-names -- --apply            # rename those runs to "Anonymous"
+npm run db:clean-names -- --apply --delete   # delete those runs instead
+```
+
+Read the list before `--apply`: no filter is perfect. It can't be undone from the script, so take a
+Neon branch first if the data matters.
 
 Schema changes are new numbered files (`NNNN_what_it_does.sql`); never edit one that has been
 applied. Seeded rows are tagged `ip_hash = 'seed-test'`. Don't seed the database the deployed game
