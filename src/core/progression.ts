@@ -95,6 +95,15 @@ export function timeScoringOpen(landed: number, runways: readonly Runway[]): boo
 }
 
 /**
+ * Whether the airspace is still the small one round the first airport (see
+ * `airspaceBounds` in core/layout.ts): until a second runway opens. Same
+ * rule as `timeScoringOpen`, inverted.
+ */
+export function isAirspaceCompact(landed: number, runways: readonly Runway[]): boolean {
+  return !timeScoringOpen(landed, runways);
+}
+
+/**
  * Colours that open exactly when the landing count goes from `before` to
  * `after` (only those with a runway on the field).
  */

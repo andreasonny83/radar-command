@@ -61,7 +61,7 @@ export function viewFrameBounds(world: WorldSize): Bounds {
   return { minX: -mx, minY: -my, maxX: world.width + mx, maxY: world.height + my };
 }
 
-/** Airspace per world size; `layoutRunways` is too heavy to redo per query. */
+/** Airspace per world size and mode; `layoutRunways` is too heavy to redo per query. */
 const airspaceCache = new Map<string, Bounds>();
 
 /**
@@ -78,10 +78,16 @@ const airspaceCache = new Map<string, Bounds>();
  * - new planes fly in across its edge (see core/spawner.ts), and a plane
  *   whose path ends past it, heading out, leaves the world.
  *
+ * While `world.compactAirspace` is set (a new shift, before the second
+ * runway opens) only the first runway's airport counts, so the area the
+ * player must watch starts small and grows to the whole field when blue
+ * opens. It only ever grows, so no plane is left outside it by the change.
+ *
  * Players never see the edge; `DEBUG_SHOW_AIRSPACE` draws it for tuning.
  */
 export function airspaceBounds(world: WorldSize): Bounds {
-  const key = `${world.width}x${world.height}`;
+  const compact = world.compactAirspace === true;
+  const key = `${world.width}x${world.height}${compact ? "c" : ""}`;
   const cached = airspaceCache.get(key);
   if (cached) return cached;
 
@@ -89,7 +95,8 @@ export function airspaceBounds(world: WorldSize): Bounds {
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const runway of layoutRunways(world)) {
+  const runways = layoutRunways(world);
+  for (const runway of compact ? runways.slice(0, 1) : runways) {
     for (const p of rectCorners(runway.airfield.footprint)) {
       minX = Math.min(minX, p.x);
       minY = Math.min(minY, p.y);

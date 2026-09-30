@@ -82,6 +82,13 @@ export type GamePhase = "start" | "playing" | "paused" | "gameover";
 export interface WorldSize {
   width: number;
   height: number;
+  /**
+   * True while only the first runway is open: the airspace then hugs that
+   * runway's airport instead of the whole field (see `airspaceBounds` in
+   * core/layout.ts). Set by the game as runways open; absent means the full
+   * airspace.
+   */
+  compactAirspace?: boolean;
 }
 
 export interface Plane {
@@ -125,8 +132,8 @@ export interface Plane {
    * New planes start off-screen and fly in towards `entry` (see
    * core/spawner.ts); until they appear the HUD shows an arrow on the
    * screen edge. Like every plane outside the airspace it can't collide
-   * (see core/collision.ts), but the player may already grab it and give
-   * it a path.
+   * (see core/collision.ts) until the player gives it a path, which the
+   * player may do at once.
    */
   inbound: boolean;
   /**

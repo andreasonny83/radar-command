@@ -376,6 +376,8 @@ export class SceneSync {
   private readonly runwayFactory: RunwayFactory;
   private readonly airfieldFactory: AirfieldFactory;
   private readonly boundary: AirspaceBoundary;
+  /** Which airspace the outline shows (`WorldSize.compactAirspace`); redrawn when it changes. */
+  private boundaryCompact = false;
   /** Camera view direction, refreshed every sync (see `placeOverTrack`). */
   private readonly viewDir = new Vector3(0, -1, 0);
   /** `time` of the previous sync, for frame-to-frame easing. */
@@ -550,6 +552,7 @@ export class SceneSync {
     this.reveals.clear();
     this.buildRunways(this.shownRunways(state), state);
     this.boundary.setWorld(state.world);
+    this.boundaryCompact = state.world.compactAirspace === true;
     // Path lines were built with the old world→scene mapping; force a rebuild.
     for (const view of this.views.values()) view.pathVersion = -1;
   }
@@ -618,6 +621,11 @@ export class SceneSync {
   /** Create/update/dispose plane meshes to match `state.planes`. */
   syncPlanes(state: GameState, time: number): void {
     this.cues = [];
+    // The airspace grows when the second runway opens (and shrinks on a new shift).
+    if (this.boundaryCompact !== (state.world.compactAirspace === true)) {
+      this.boundary.setWorld(state.world);
+      this.boundaryCompact = state.world.compactAirspace === true;
+    }
     this.landscape.update(time);
     this.syncRunways(state, time);
     for (const runway of this.runwayViews) runway.update(time);

@@ -33,9 +33,11 @@
  *   - OuterTraffic: planes crossing paths outside the airspace (magenta
  *               dashed edge), flown by the real flight model with the
  *               automatic collision avoidance on or off (`drawnPaths`: planes
- *               on a player-drawn path are never steered): head-on, crossing
- *               and converging arrivals all swerve apart, then resume
- *               course. Replays on a loop.
+ *               on a player-drawn path are never steered, and in the game
+ *               they can crash outside the edge, see core/collision.ts;
+ *               this story runs the move step only, so they just pass
+ *               through): head-on, crossing and converging arrivals all
+ *               swerve apart, then resume course. Replays on a loop.
  *   - Departure: one violet departure (core/departures.ts) flown by the
  *               real sim, on a loop: out of its hangar, onto the stand,
  *               cleared, along the taxiway and connector, backtracking down
@@ -772,7 +774,8 @@ interface OuterTrafficArgs {
   avoidance: boolean;
   /**
    * Give the crossing pair a drawn path each, as the player would. Planes on
-   * a path fly it as drawn, so with this on they cross without swerving.
+   * a path fly it as drawn, so with this on they cross without swerving
+   * (in the game that is a crash; this story has no collision step).
    */
   drawnPaths: boolean;
   /** Seconds before the encounters replay. */

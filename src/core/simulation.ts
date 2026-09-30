@@ -16,7 +16,8 @@
  *                ground route; a landing may open a new runway colour. A
  *                runway closed for a departure sends arrivals around
  *   4. collide – any remaining flying planes that overlap inside the
- *                airspace end the game (outside it they never collide)
+ *                airspace, or on a player-drawn path anywhere, end the
+ *                game (other planes outside it never collide)
  *   5. prune   – planes stowed in a hangar, or flown off the world, are
  *                removed
  */
@@ -27,7 +28,13 @@ import { detectCollisions } from "./collision";
 import { isInAirspace } from "./layout";
 import { isTouchdownZoneClear, touchDown, updateGround } from "./ground";
 import { updatePlane } from "./plane";
-import { flyingCount, maxAirborne, newlyUnlockedColors, timeScoringOpen } from "./progression";
+import {
+  flyingCount,
+  isAirspaceCompact,
+  maxAirborne,
+  newlyUnlockedColors,
+  timeScoringOpen,
+} from "./progression";
 import { nextSpawnInterval, spawnPlane } from "./spawner";
 import { resetGameState } from "./state";
 import type { GameState, Rng, Runway, SimEvent } from "./types";
@@ -103,6 +110,7 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
       const { runway } = result;
       touchDown(plane, runway, state.nextGroundSeq++);
       state.landed++;
+      state.world.compactAirspace = isAirspaceCompact(state.landed, state.runways);
       events.push({ type: "landed", planeId: plane.id, color: runway.color });
       for (const color of newlyUnlockedColors(state.landed - 1, state.landed, state.runways)) {
         state.unlockedAt[color] = state.elapsed;

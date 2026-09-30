@@ -805,5 +805,8 @@ export const COLOR_HEX: Record<PlaneColor, string> = {
  * Draw the airspace edge (see `airspaceBounds` in core/layout.ts) as a
  * dashed outline in the game. Players never see it; turn it on only while
  * tuning `AIRSPACE_MARGIN` to decide where the controlled area should end.
+ * It is small round the first airport until the second runway opens, then
+ * covers the whole field. Set `VITE_DEBUG_SHOW_AIRSPACE=true` in `.env` to turn it on (Vite only
+ * exposes `VITE_`-prefixed variables to the browser); unset, it is off.
  */
-export const DEBUG_SHOW_AIRSPACE = false;
+export const DEBUG_SHOW_AIRSPACE = import.meta.env.VITE_DEBUG_SHOW_AIRSPACE === "true";

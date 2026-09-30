@@ -4,6 +4,7 @@
  */
 import { DEPARTURE_INTERVAL_MIN, SPAWN_INTERVAL_START, WORLD_ASPECT } from "../config";
 import { computeWorldSize, layoutRunways, safeViewAspect } from "./layout";
+import { isAirspaceCompact } from "./progression";
 import type { GameState, OrientedRect } from "./types";
 
 /**
@@ -47,6 +48,8 @@ export function resetGameState(state: GameState): void {
   state.departureInterval = DEPARTURE_INTERVAL_MIN;
   state.nextGroundSeq = 0;
   state.planes = [];
+  // Only the first runway is open again: the airspace shrinks back round it.
+  state.world.compactAirspace = isAirspaceCompact(0, state.runways);
 }
 
 /**

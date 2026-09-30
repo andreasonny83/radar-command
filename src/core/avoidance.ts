@@ -31,7 +31,7 @@ function isAirborne(plane: Plane): boolean {
  * True if the player has routed `plane`: it is flying a path they drew. A
  * departure's dotted route (climbout) is the game's own, so it doesn't count.
  */
-function isPlayerRouted(plane: Plane): boolean {
+export function isPlayerRouted(plane: Plane): boolean {
   return plane.phase === "flying" && plane.path.length > 0;
 }
 
