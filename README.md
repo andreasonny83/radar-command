@@ -20,17 +20,18 @@ uses a backend.
 
 ### Controls
 
-| Action                    | Mouse / touch          | Keyboard                |
-| ------------------------- | ---------------------- | ----------------------- |
-| Draw a flight path        | Drag from a plane      |                         |
-| Pan the map               | Drag empty ground      | Arrow keys / WASD       |
-| Zoom                      | Mouse wheel, + / − HUD | `+` / `−`               |
-| Rotate the view           | ⟲ / ⟳ HUD buttons      | `Q` / `E`               |
-| Follow a plane            | Right-click a plane    | `F` (next), `Shift + F` |
-| Stop following            | Right-click again      | `X`                     |
-| Start a shift / try again | START button           | `Enter` / `Space`       |
-| Pause / continue          | ⏸ button               | `P` / `Esc` / `Space`   |
-| Help (all controls)       | `?` button             | `H` / `?`               |
+| Action                    | Mouse / touch          | Keyboard                                     |
+| ------------------------- | ---------------------- | -------------------------------------------- |
+| Draw a flight path        | Drag from a plane      |                                              |
+| Pan the map               | Drag empty ground      | Arrow keys / WASD                            |
+| Zoom                      | Mouse wheel, + / − HUD | `+` / `−`                                    |
+| Rotate the view           | ⟲ / ⟳ HUD buttons      | `Q` / `E`                                    |
+| Follow a plane            | Right-click a plane    | `F` (next), `Shift + F`                      |
+| Stop following            | Right-click again      | `X`                                          |
+| Start a shift / try again | START button           | `Enter` / `Space`                            |
+| Pause / continue          | ⏸ button               | `P` / `Esc` / `Space`                        |
+| Game speed                | Speed button           | `1` (normal), `2` (1.5×), `3` (2×), `4` (3×) |
+| Help (all controls)       | `?` button             | `H` / `?`                                    |
 
 The in-game help panel is generated from the same shortcut table as the key handler
 (`src/input/shortcuts.ts`), so it's always the up-to-date list.
@@ -58,6 +59,8 @@ npm run dev        # game at http://localhost:5173
 | `npm run format`          | Prettier, rewriting files in place                             |
 | `npm run audio:build`     | Rebuild the sound recordings from `scripts/audio/sources.json` |
 | `npm run db:migrate`      | Apply pending leaderboard database migrations                  |
+| `npm run vercel-build`    | What Vercel runs: migrate the database, then `build`           |
+| `npm run db:clean-names`  | Find (and optionally clean up) offensive leaderboard names     |
 | `npm run db:seed`         | Fill the leaderboard with made-up runs, to see it with data    |
 
 The game itself is plain static files in `dist/`: host it on GitHub Pages, Netlify, or any static
@@ -92,6 +95,41 @@ npm run db:seed -- --count 300 --players 120 --days 90
 npm run db:seed -- --status       # how many seeded rows exist
 npm run db:seed -- --clear        # delete every seeded row
 ```
+
+On Vercel the migrations run by themselves: the `vercel-build` script runs
+`scripts/db/vercel-migrate.mjs` before `npm run build` on Production and Preview builds, so a
+deployment only goes live once the database is up to date, and a failing migration stops the
+deploy. It uses that environment's `DATABASE_URL` (with the Vercel ↔ Neon integration each preview
+gets its own Neon branch). It skips, with a note in the build log, when `DATABASE_URL` isn't set or
+`SKIP_DB_MIGRATE=1` is; set that on Preview if it shares the production database, or a pull
+request's migrations would run on the live one. It needs Vercel's default build command (a custom
+"Build Command" in the project settings replaces `vercel-build`) and Node 22+.
+
+### Nickname filter
+
+A nickname is checked when a score is submitted (`api/_lib/nameFilter.ts`, server-side): first a
+word list (the `obscenity` library, which sees through leetspeak, repeated letters and spacing,
+plus a short list of extra terms and an allowlist such as "cockpit"), then, if `TYPESAFE_API_KEY`
+is set, [Jev](https://docs.typesafe.ai) judges what a list can't. The Jev layer fails open (no key,
+or TypeSafe down: the list alone applies), so it never stops a score being submitted. A refused
+name returns `bad_name`; nothing is stored and the player can pick another name and resubmit.
+
+Every Jev call is logged as one JSON line in the function logs (Vercel → Logs, search
+`nameFilter.jev`): `outcome` (`allowed`, `flagged`, `cached`, `error`, `budget_exceeded`, `no_key`),
+the name, Jev's `probability` against the `threshold`, latency, model and token usage. Errors are
+logged at error level and the name is let through. The API key is never logged.
+
+For names already on the boards:
+
+```bash
+npm run db:clean-names                       # list what the word list rejects; changes nothing
+npm run db:clean-names -- --jev              # also ask Jev about every other name
+npm run db:clean-names -- --apply            # rename those runs to "Anonymous"
+npm run db:clean-names -- --apply --delete   # delete those runs instead
+```
+
+Read the list before `--apply`: no filter is perfect. It can't be undone from the script, so take a
+Neon branch first if the data matters.
 
 Schema changes are new numbered files (`NNNN_what_it_does.sql`); never edit one that has been
 applied. Seeded rows are tagged `ip_hash = 'seed-test'`. Don't seed the database the deployed game

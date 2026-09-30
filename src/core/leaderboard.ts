@@ -93,6 +93,13 @@ export const MAX_RUN_COUNT = 10_000;
 export const RUN_CLOCK_SLACK = 5;
 
 /**
+ * Fastest game speed a shift can be flown at (the largest of `GAME_SPEEDS`
+ * in config.ts, mirrored here because this file stays import-free): sim
+ * seconds pass this many times faster than wall-clock ones.
+ */
+export const MAX_GAME_SPEED = 3;
+
+/**
  * Could an honest player have produced this run?
  *
  * `run` is what the client reports: planes landed, departures flown out
@@ -104,7 +111,8 @@ export const RUN_CLOCK_SLACK = 5;
  * token was issued) to the submit. It includes pauses, the crash cinematic
  * and the time spent typing a name, so it is only ever an upper bound on
  * the time actually flown: `run.seconds`, a part of that, can't honestly
- * exceed it (give or take `RUN_CLOCK_SLACK`).
+ * exceed it (give or take `RUN_CLOCK_SLACK`), except that a faster game speed
+ * makes sim time run ahead of the wall clock: up to `MAX_GAME_SPEED` times.
  *
  * Called with whole numbers in [0, MAX_RUN_COUNT] and `wallSeconds` ≥ 0
  * (the API checks both before asking).
@@ -113,7 +121,7 @@ export function isPlausibleRun(
   run: { landed: number; departed: number; seconds: number },
   wallSeconds: number,
 ): boolean {
-  if (run.seconds > wallSeconds + RUN_CLOCK_SLACK) return false;
+  if (run.seconds > wallSeconds * MAX_GAME_SPEED + RUN_CLOCK_SLACK) return false;
   // TODO(you): bound each part by what the shift's length allows, against
   // `run.seconds` (sim time, now known not to be inflated):
   //   - landed: planes arrive at most one per spawn interval
@@ -216,5 +224,9 @@ export type ApiErrorCode =
   | "rate_limited" // too many submits from one address
   | "server"; // database or configuration trouble
 
-/** Loose UUID check for `playerId` (any version: it's only a grouping key). */
+/**
+ * Loose UUID check for `playerId` (any version: it's only a grouping key).
+ * It identifies a browser, not a person: on a board a player is a
+ * `playerId` plus a nickname.
+ */
 export const UUID_RULE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

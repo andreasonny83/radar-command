@@ -15,8 +15,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "audio:build": "node scripts/audio/build-audio.mjs",
+    "vercel-build": "node scripts/db/vercel-migrate.mjs && npm run build",
     "db:migrate": "node --env-file-if-exists=.env scripts/db/migrate.mjs",
-    "db:seed": "node --env-file-if-exists=.env scripts/db/seed.mjs"
+    "db:seed": "node --env-file-if-exists=.env scripts/db/seed.mjs",
+    "db:clean-names": "node --env-file-if-exists=.env scripts/db/clean-names.mjs"
   },
   "keywords": [],
   "author": "",
@@ -25,8 +27,10 @@
     "@babylonjs/core": "^9.27.1",
     "@echogarden/espeak-ng-emscripten": "^0.3.5",
     "@neondatabase/serverless": "^1.1.0",
+    "@typesafe-ai/sdk": "^0.6.0",
     "@vercel/analytics": "^2.0.1",
-    "@vercel/speed-insights": "^2.0.0"
+    "@vercel/speed-insights": "^2.0.0",
+    "obscenity": "^0.4.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
