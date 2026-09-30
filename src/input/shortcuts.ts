@@ -18,6 +18,10 @@ export type ShortcutAction =
   | "toggleLeaderboard"
   | "toggleSound"
   | "toggleMusic"
+  | "speed1"
+  | "speed15"
+  | "speed2"
+  | "speed3"
   | "rotateLeft"
   | "rotateRight"
   | "zoomIn"
@@ -94,6 +98,30 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         keys: ["n"],
         caps: ["N"],
         description: "Music on / off",
+      },
+      {
+        action: "speed1",
+        keys: ["1"],
+        caps: ["1"],
+        description: "Normal game speed",
+      },
+      {
+        action: "speed15",
+        keys: ["2"],
+        caps: ["2"],
+        description: "Game speed 1.5×",
+      },
+      {
+        action: "speed2",
+        keys: ["3"],
+        caps: ["3"],
+        description: "Game speed 2×",
+      },
+      {
+        action: "speed3",
+        keys: ["4"],
+        caps: ["4"],
+        description: "Game speed 3×",
       },
     ],
   },
