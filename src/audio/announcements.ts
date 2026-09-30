@@ -38,6 +38,7 @@ export const ANNOUNCEMENT_LINES = {
     "We regret to announce that flight {flight} to {city} is delayed by approximately {minutes} minutes.",
     "Please keep your baggage with you at all times. Unattended baggage may be removed.",
     "Passengers are reminded that smoking is not permitted anywhere in the terminal.",
+    "Attention please. This is a final boarding call for passengers Luurrry - and - Geeena, booked on flight {flight} to {city}. Please proceed immediately to Gate {gate} where your flight is ready to depart.",
   ],
   departure: ["Flight {flight} to {city} is now departing from the {runway} runway."],
   runwayOpen: ["Ladies and gentlemen, the {runway} runway is now open."],

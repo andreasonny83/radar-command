@@ -33,7 +33,7 @@ const ANNOUNCER_SPEED = 145;
  * eSpeak NG voice name. Only English voice data is bundled: another
  * language needs adding to `espeakNgData` in vite.config.ts too.
  */
-const ANNOUNCER_VOICE = "en-gb-x-rp";
+const ANNOUNCER_VOICE = "en-US";
 
 let engine: Promise<eSpeakNGWorker | null> | null = null;
 
@@ -81,7 +81,7 @@ export async function speak(
     // all: voice first, then the rate and pitch to speak it at.
     if (worker.set_voice(`${ANNOUNCER_VOICE}+${variant}`) !== 0) return null;
     worker.set_rate(ANNOUNCER_SPEED);
-    worker.set_pitch(pitch);
+    // worker.set_pitch(pitch);
     // Rendering is synchronous; the samples arrive in chunks.
     const chunks: Int16Array[] = [];
     let length = 0;
