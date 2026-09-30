@@ -20,17 +20,18 @@ uses a backend.
 
 ### Controls
 
-| Action                    | Mouse / touch          | Keyboard                |
-| ------------------------- | ---------------------- | ----------------------- |
-| Draw a flight path        | Drag from a plane      |                         |
-| Pan the map               | Drag empty ground      | Arrow keys / WASD       |
-| Zoom                      | Mouse wheel, + / − HUD | `+` / `−`               |
-| Rotate the view           | ⟲ / ⟳ HUD buttons      | `Q` / `E`               |
-| Follow a plane            | Right-click a plane    | `F` (next), `Shift + F` |
-| Stop following            | Right-click again      | `X`                     |
-| Start a shift / try again | START button           | `Enter` / `Space`       |
-| Pause / continue          | ⏸ button               | `P` / `Esc` / `Space`   |
-| Help (all controls)       | `?` button             | `H` / `?`               |
+| Action                    | Mouse / touch          | Keyboard                                     |
+| ------------------------- | ---------------------- | -------------------------------------------- |
+| Draw a flight path        | Drag from a plane      |                                              |
+| Pan the map               | Drag empty ground      | Arrow keys / WASD                            |
+| Zoom                      | Mouse wheel, + / − HUD | `+` / `−`                                    |
+| Rotate the view           | ⟲ / ⟳ HUD buttons      | `Q` / `E`                                    |
+| Follow a plane            | Right-click a plane    | `F` (next), `Shift + F`                      |
+| Stop following            | Right-click again      | `X`                                          |
+| Start a shift / try again | START button           | `Enter` / `Space`                            |
+| Pause / continue          | ⏸ button               | `P` / `Esc` / `Space`                        |
+| Game speed                | Speed button           | `1` (normal), `2` (1.5×), `3` (2×), `4` (3×) |
+| Help (all controls)       | `?` button             | `H` / `?`                                    |
 
 The in-game help panel is generated from the same shortcut table as the key handler
 (`src/input/shortcuts.ts`), so it's always the up-to-date list.

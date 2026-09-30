@@ -62,6 +62,22 @@ export function pauseButtonMarkup(): string {
     </div>`;
 }
 
+/** Game speed button, top-right, left of pause. */
+export function speedButtonMarkup(): string {
+  return `
+    <div class="absolute top-4 right-30 z-10">
+      <button
+        id="speedBtn"
+        data-arrow-avoid
+        class="hud-button hidden min-w-12 text-sm"
+        title="Game speed (1 / 2 / 3 / 4)"
+        aria-label="Game speed"
+      >
+        1×
+      </button>
+    </div>`;
+}
+
 /** Paused banner: pointer-events-none so the camera buttons still work. */
 export function pausedBannerMarkup(): string {
   return `
@@ -784,6 +800,7 @@ export function hudMarkup(): string {
   return [
     arrivalLayerMarkup(),
     scorePanelMarkup(),
+    speedButtonMarkup(),
     pauseButtonMarkup(),
     pausedBannerMarkup(),
     toastMarkup(),

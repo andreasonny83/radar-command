@@ -2,8 +2,8 @@
  * HUD elements one at a time, straight from their hudMarkup.ts templates.
  *
  * Useful for styling a single piece without the rest of the HUD on top.
- * Elements that start hidden in the game (pause button, paused banner,
- * toast, tracking badge, help panel, leaderboard form and panel) are
+ * Elements that start hidden in the game (speed and pause buttons, paused
+ * banner, toast, tracking badge, help panel, leaderboard form and panel) are
  * forced visible here.
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
@@ -25,6 +25,7 @@ import {
   projectLinksMarkup,
   scorePanelMarkup,
   soundButtonMarkup,
+  speedButtonMarkup,
   submitFormMarkup,
   toastMarkup,
   trackingIndicatorMarkup,
@@ -158,6 +159,20 @@ export const PauseButton: StoryObj<{ paused: boolean }> = {
     const btn = part(root, "pauseBtn");
     btn.classList.remove("hidden");
     btn.textContent = paused ? "▶" : "⏸";
+    return root;
+  },
+};
+
+/** Game speed control shown during a shift. */
+export const SpeedButton: StoryObj<{ speed: number }> = {
+  args: { speed: 1 },
+  argTypes: { speed: { control: { type: "select" }, options: [1, 1.5, 2, 3] } },
+  render: ({ speed }) => {
+    const root = stage(speedButtonMarkup());
+    const button = part(root, "speedBtn");
+    button.classList.remove("hidden");
+    button.textContent = `${speed}×`;
+    button.setAttribute("aria-label", `Game speed ${speed} times`);
     return root;
   },
 };
