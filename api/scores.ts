@@ -10,7 +10,12 @@
  * 2. the run token's signature, and its age (`RUN_MAX_AGE`);
  * 3. each part against the time since the token was issued
  *    (`isPlausibleRun`), and the resulting score against `MAX_SCORE`;
- * 4. no more than `SUBMITS_PER_MINUTE` runs from the caller's address.
+ * 4. no more than `SUBMITS_PER_MINUTE` runs from the caller's address;
+ * 5. the nickname isn't offensive (api/_lib/nameFilter.ts): the word list
+ *    first, before anything else is asked (free), then Jev, once the caller
+ *    has proven itself with a real token and is under the rate limit
+ *    (Jev costs credit). A refused name is `bad_name` and stores nothing:
+ *    the run token stays valid, so the player can pick another name.
  * The insert itself refuses a token that was already used (unique
  * `run_id`). None of this proves a run was honest; it makes faking one
  * cost more than it's worth.
@@ -30,6 +35,7 @@ import {
 import { scoreOf } from "../src/core/scoring.js";
 import { insertScore, playerRank, recentSubmits } from "./_lib/db.js";
 import { fail, ipHash, json } from "./_lib/http.js";
+import { blockedByList, flaggedByJev, takeJevCheck } from "./_lib/nameFilter.js";
 import { verifyRun } from "./_lib/token.js";
 
 /** Runs one address may submit per minute. */
@@ -65,7 +71,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   const run = { landed, departed, seconds };
   const name = normalizeName(rawName);
-  if (!name) return fail("bad_name");
+  if (!name || blockedByList(name)) return fail("bad_name");
 
   try {
     const claims = await verifyRun(token);
@@ -79,6 +85,13 @@ export async function POST(request: Request): Promise<Response> {
 
     const ip = await ipHash(request);
     if ((await recentSubmits(ip)) >= SUBMITS_PER_MINUTE) return fail("rate_limited");
+
+    // Jev's turn. A name Jev refuses is never inserted, so the limit above
+    // (which counts stored runs) can't see repeated attempts: they get
+    // their own allowance. Over it, the caller waits rather than skipping
+    // the check, or flooding would be a way round it.
+    if (!takeJevCheck(ip)) return fail("rate_limited");
+    if (await flaggedByJev(name)) return fail("bad_name");
 
     const inserted = await insertScore({
       runId: claims.runId,
