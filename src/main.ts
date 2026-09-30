@@ -247,7 +247,7 @@ const hud = createHud(document.body, {
   onHelp: (open) => onPanel("help", open),
   onLeaderboard: (open) => onPanel("leaderboard", open),
   onSubmitScore: (name) => void submitRun(name),
-  loadBoard: (board) => fetchBoard(board, playerId()),
+  loadBoard: (board) => fetchBoard(board, playerId(), savedName() || undefined),
   initialBoard: savedBoard(),
   onBoardChange: saveBoard,
 });

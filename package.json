@@ -15,6 +15,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "audio:build": "node scripts/audio/build-audio.mjs",
+    "vercel-build": "node scripts/db/vercel-migrate.mjs && npm run build",
     "db:migrate": "node --env-file-if-exists=.env scripts/db/migrate.mjs",
     "db:seed": "node --env-file-if-exists=.env scripts/db/seed.mjs"
   },
