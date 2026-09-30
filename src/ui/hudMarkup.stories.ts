@@ -25,6 +25,7 @@ import {
   projectLinksMarkup,
   scorePanelMarkup,
   soundButtonMarkup,
+  speedButtonMarkup,
   submitFormMarkup,
   toastMarkup,
   trackingIndicatorMarkup,
@@ -158,6 +159,20 @@ export const PauseButton: StoryObj<{ paused: boolean }> = {
     const btn = part(root, "pauseBtn");
     btn.classList.remove("hidden");
     btn.textContent = paused ? "▶" : "⏸";
+    return root;
+  },
+};
+
+/** Game speed button (left of pause): the label shows the multiplier. */
+export const SpeedButton: StoryObj<{ speed: string }> = {
+  args: { speed: "1.5" },
+  argTypes: { speed: { control: "inline-radio", options: ["1", "1.5", "2", "3"] } },
+  render: ({ speed }) => {
+    const root = stage(pauseButtonMarkup() + speedButtonMarkup());
+    part(root, "pauseBtn").classList.remove("hidden");
+    const btn = part(root, "speedBtn");
+    btn.classList.remove("hidden");
+    btn.textContent = `${speed}×`;
     return root;
   },
 };

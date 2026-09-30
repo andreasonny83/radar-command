@@ -62,10 +62,14 @@ export function pauseButtonMarkup(): string {
     </div>`;
 }
 
-/** Game speed button, top-right, left of pause. */
+/**
+ * Game speed button, top-right, left of pause: shows the current multiplier
+ * (1×, 1.5×, 2×, 3×) and cycles to the next on click. Hidden until a shift
+ * starts (see `setPhase`); `hud.setSpeed` sets the label.
+ */
 export function speedButtonMarkup(): string {
   return `
-    <div class="absolute top-4 right-30 z-10">
+    <div class="absolute top-4 right-32 z-10">
       <button
         id="speedBtn"
         data-arrow-avoid

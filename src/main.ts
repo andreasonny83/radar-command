@@ -239,6 +239,7 @@ function setGameSpeed(speed: (typeof GAME_SPEEDS)[number]): void {
 const hud = createHud(document.body, {
   onStart: () => void startShift(),
   onTogglePause: togglePaused,
+  onSpeedChange: setGameSpeed,
   onRotate: rotate,
   onZoom: zoom,
   onToggleSound: toggleSound,
@@ -402,12 +403,18 @@ engine.runRenderLoop(() => {
   // Seconds since last frame, clamped so a backgrounded tab doesn't make
   // planes teleport (and tunnel through each other) when it resumes.
   const dt = Math.min(engine.getDeltaTime() / 1000, MAX_DT);
-  const simDt = dt * gameSpeed;
   // Animation clock (warning pulse, water shimmer) stops while paused too, so
   // the whole scene freezes. The camera below still eases on real dt.
   if (state.phase !== "paused") time += dt;
 
-  for (const event of step(state, simDt)) handleEvent(event);
+  // At 1.5-3x one frame covers more sim time than `MAX_DT`; feed it in
+  // pieces no bigger than that, so fast play can't tunnel planes through
+  // each other or skip a landing. A crash ends the shift: stop stepping.
+  for (let left = dt * gameSpeed; left > 1e-9 && state.phase === "playing";) {
+    const h = Math.min(left, MAX_DT);
+    left -= h;
+    for (const event of step(state, h)) handleEvent(event);
+  }
   if (gameOverIn !== null && (gameOverIn -= dt) <= 0) {
     gameOverIn = null;
     void offerSubmit();
