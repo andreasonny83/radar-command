@@ -77,7 +77,9 @@
  * Landing: FLIGHT_ALTITUDE / OUTER_FLIGHT_ALTITUDE / ALTITUDE_TRANSITION /
  * APPROACH_DISTANCE / THRESHOLD_ALTITUDE / ALTITUDE_SCALE_PER_UNIT and
  * FLARE_DISTANCE in config.ts, MAX_VERTICAL_SPEED in sceneSync.ts.
- * Runway progression: COLOR_UNLOCK_LANDINGS in config.ts, `unlockedColors` in
+ * Runway progression: COLOR_UNLOCK_LANDINGS and NEW_RUNWAY_GRACE_SECONDS
+ * (planes wait this long after a runway opens; the sim isn't run here, so
+ * not shown) in config.ts, `unlockedColors` / `trafficColors` in
  * core/progression.ts, RUNWAY_REVEAL_SECONDS, AIRPORT_REVEAL_DELAY and
  * `syncRunways` in sceneSync.ts, `reveal` in runway.ts / airfield.ts /
  * airportGrounds.ts; the camera's framing: OPENING_VIEW_MARGIN in config.ts,

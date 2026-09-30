@@ -11,7 +11,7 @@ import {
 import { airspaceBounds, defaultViewBounds } from "./layout";
 import { distance, headingVector } from "./math";
 import { createPlane } from "./plane";
-import { unlockedColors } from "./progression";
+import { trafficColors } from "./progression";
 import type { Bounds } from "./scenery";
 import type {
   GameState,
@@ -235,8 +235,9 @@ function exitDistance(p: Vec2, d: Vec2, b: Bounds): number {
 const SPAWN_ATTEMPTS = 5;
 
 /**
- * Add a new plane to `state`, only using colours whose runway exists and
- * has been unlocked at the current landing count (see `unlockedColors`). The plane
+ * Add a new plane to `state`, only using colours whose runway exists, is
+ * unlocked at the current landing count and has been open long enough to
+ * take traffic (see `trafficColors`). The plane
  * starts `inbound`: off-screen, flying in towards `entry`. Re-rolls a few times to
  * keep new arrivals from bunching up with other planes.
  *
@@ -246,7 +247,7 @@ const SPAWN_ATTEMPTS = 5;
  * @returns the new plane, or null if there are no runways.
  */
 export function spawnPlane(state: GameState, rng: Rng, aimAtRunway = false): Plane | null {
-  const colors = unlockedColors(state.landed, state.runways);
+  const colors = trafficColors(state);
   if (colors.length === 0) return null;
 
   const aimAt = aimAtRunway ? state.runways : null;

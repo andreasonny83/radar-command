@@ -320,6 +320,12 @@ export interface GameState {
    * spawn pacing, so circling the opening plane can't farm time points.
    */
   scoredSeconds: number;
+  /**
+   * `elapsed` when each runway colour opened this shift, for colours that
+   * opened mid-shift (the first runway never appears here). Holds back
+   * traffic on a new runway for `NEW_RUNWAY_GRACE_SECONDS`.
+   */
+  unlockedAt: Partial<Record<RunwayColor, number>>;
   /** Seconds accumulated towards the next spawn. */
   spawnTimer: number;
   /** Seconds between spawns; shrinks as difficulty ramps up. */

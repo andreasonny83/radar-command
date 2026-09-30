@@ -521,6 +521,15 @@ export const COLOR_UNLOCK_LANDINGS: Record<RunwayColor, number> = {
   yellow: 7,
 };
 
+/**
+ * Seconds after a runway opens (announcement, camera pull-back, strip
+ * unrolling) before planes may arrive on it or depart from it. Gives the
+ * player time to take in the change; older colours keep the traffic going
+ * meanwhile. An arrival is also `ARRIVAL_WARNING` seconds of flight from
+ * sight when it spawns, so the first one shows up a little later still.
+ */
+export const NEW_RUNWAY_GRACE_SECONDS = 12;
+
 // ---------------------------------------------------------------------------
 // Landscape (purely decorative — the sim never reads any of this)
 // ---------------------------------------------------------------------------
