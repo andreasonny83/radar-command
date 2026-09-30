@@ -59,6 +59,7 @@ npm run dev        # game at http://localhost:5173
 | `npm run format`          | Prettier, rewriting files in place                             |
 | `npm run audio:build`     | Rebuild the sound recordings from `scripts/audio/sources.json` |
 | `npm run db:migrate`      | Apply pending leaderboard database migrations                  |
+| `npm run vercel-build`    | What Vercel runs: migrate the database, then `build`           |
 | `npm run db:seed`         | Fill the leaderboard with made-up runs, to see it with data    |
 
 The game itself is plain static files in `dist/`: host it on GitHub Pages, Netlify, or any static
@@ -93,6 +94,15 @@ npm run db:seed -- --count 300 --players 120 --days 90
 npm run db:seed -- --status       # how many seeded rows exist
 npm run db:seed -- --clear        # delete every seeded row
 ```
+
+On Vercel the migrations run by themselves: the `vercel-build` script runs
+`scripts/db/vercel-migrate.mjs` before `npm run build` on Production and Preview builds, so a
+deployment only goes live once the database is up to date, and a failing migration stops the
+deploy. It uses that environment's `DATABASE_URL` (with the Vercel ↔ Neon integration each preview
+gets its own Neon branch). It skips, with a note in the build log, when `DATABASE_URL` isn't set or
+`SKIP_DB_MIGRATE=1` is; set that on Preview if it shares the production database, or a pull
+request's migrations would run on the live one. It needs Vercel's default build command (a custom
+"Build Command" in the project settings replaces `vercel-build`) and Node 22+.
 
 Schema changes are new numbered files (`NNNN_what_it_does.sql`); never edit one that has been
 applied. Seeded rows are tagged `ip_hash = 'seed-test'`. Don't seed the database the deployed game
