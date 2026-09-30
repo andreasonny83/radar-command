@@ -9,6 +9,7 @@
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { DAY_SECONDS, nightFactor } from "../core/daytime";
 import { DEPARTURE_POINTS, LANDING_POINTS, scoreOf } from "../core/scoring";
+import type { WarningLevel } from "../core/types";
 import { createArrivalArrows } from "./arrivalArrows";
 import { createClockDisplay, createClockIcon } from "./clockDisplay";
 import { createScoreRoll } from "./scoreRoll";
@@ -30,10 +31,12 @@ import {
   speedButtonMarkup,
   statsPanelMarkup,
   submitFormMarkup,
+  noticesMarkup,
   toastMarkup,
   trackingIndicatorMarkup,
   uiToggleButtonMarkup,
 } from "./hudMarkup";
+import { createWeatherStrip, windAlert } from "./weatherAlerts";
 
 /** Full-window stage matching the game's `<body>`, holding one template. */
 function stage(markup: string): HTMLElement {
@@ -198,6 +201,39 @@ export const Toast: StoryObj<{ text: string; color: string }> = {
     toast.textContent = text;
     toast.style.color = color;
     toast.classList.remove("opacity-0");
+    return root;
+  },
+};
+
+/**
+ * Weather warning strip, top and centre (`noticesMarkup`), styled after the
+ * Met Office's warnings: a line per kind of weather on the way, coloured
+ * yellow, amber or red (`WARNING_HEX` in config.ts), with no place or time.
+ * Filled by `createWeatherStrip` like the game does. Toasts show underneath
+ * (`toast`), and `stacked` adds a second warning to show how future kinds
+ * of weather will sit.
+ */
+export const WeatherAlerts: StoryObj<{ level: WarningLevel; stacked: boolean; toast: boolean }> = {
+  args: { level: "amber", stacked: false, toast: true },
+  argTypes: { level: { control: "inline-radio", options: ["yellow", "amber", "red"] } },
+  render: ({ level, stacked, toast }) => {
+    const root = stage(noticesMarkup());
+    const alerts = [windAlert(level)];
+    if (stacked) {
+      alerts.push({
+        id: "sample-rain",
+        level: "yellow",
+        headline: "Yellow warning of rain",
+        advice: "Be aware: sample line, there is no rain in the game yet",
+      });
+    }
+    createWeatherStrip(part(root, "weatherAlerts")).update(alerts);
+    if (toast) {
+      const el = part(root, "toast");
+      el.textContent = "BLUE runway open";
+      el.style.color = "#3b82f6";
+      el.classList.remove("opacity-0");
+    }
     return root;
   },
 };

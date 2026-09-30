@@ -41,7 +41,7 @@ import {
   ROTATE_SPEED,
 } from "../config";
 import { aircraftKindFor, type AircraftKind } from "../core/fleet";
-import type { GameState, Plane } from "../core/types";
+import type { GameState, Plane, WarningLevel } from "../core/types";
 import type { AudioCue, PanLookup } from "./cues";
 import type { SampleId, Samples } from "./samples";
 
@@ -122,6 +122,18 @@ const ALERT_GAP_PLANE = 4;
 const ALERT_VOLUME = 0.09;
 
 /**
+ * Weather warning (see `Sfx.weatherWarning`): pulses of one steady high
+ * tone (Hz), like a weather radio's attention signal. Plain and repeated
+ * where the chime is two falling bells and the near-miss alert two quick
+ * notes, so a forecast is never mistaken for either. A higher warning level
+ * pulses more times: yellow 2, amber 3, red 4.
+ */
+const WEATHER_TONE = 1050;
+const WEATHER_PULSES: Record<WarningLevel, number> = { yellow: 2, amber: 3, red: 4 };
+const WEATHER_PULSE = 0.22;
+const WEATHER_PULSE_GAP = 0.16;
+
+/**
  * Levels of the one-shot effects, balanced by measurement (offline render,
  * RMS through the master): cues that matter for play (readback, alert,
  * touchdown) around -34 dBFS, the gear and whoosh around -40 (texture,
@@ -142,6 +154,8 @@ const LEVELS = {
   // peak, so a lower level lands the "denied" buzz beside it (~-34 dBFS).
   reject: 0.045,
   windGust: 0.16,
+  // A pure sine, so it is quiet for its pitch: ~-34 dBFS like the other signals.
+  weather: 0.07,
 };
 
 /**
@@ -230,6 +244,26 @@ export class Sfx {
       const start = ctx.currentTime + i * CHIME_GAP;
       this.bell(out, freq, start, CHIME_RING, CHIME_VOLUME);
     });
+  }
+
+  /**
+   * A weather warning (see core/windStreams.ts `windForecast`): pulses of a
+   * steady tone, more of them the higher the `level`, softened by a
+   * low-pass so it warns without stinging. Not panned: it is the weather
+   * service, not one plane.
+   */
+  weatherWarning(level: WarningLevel): void {
+    const { ctx } = this;
+    if (ctx.state !== "running") return;
+    const t = ctx.currentTime;
+    const tone = ctx.createBiquadFilter();
+    tone.type = "lowpass";
+    tone.frequency.value = WEATHER_TONE * 2;
+    tone.connect(this.out);
+    for (let i = 0; i < WEATHER_PULSES[level]; i++) {
+      const start = t + i * (WEATHER_PULSE + WEATHER_PULSE_GAP);
+      this.beep(tone, WEATHER_TONE, start, WEATHER_PULSE, LEVELS.weather, "triangle");
+    }
   }
 
   /**

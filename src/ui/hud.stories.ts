@@ -13,8 +13,9 @@ import type { Meta, StoryObj } from "@storybook/html-vite";
 import { fn } from "storybook/test";
 import { COLOR_HEX, GAME_SPEEDS } from "../config";
 import { nightFactor } from "../core/daytime";
-import type { GamePhase, PlaneColor, RunwayColor } from "../core/types";
+import type { GamePhase, PlaneColor, RunwayColor, WarningLevel } from "../core/types";
 import { createHud, type Hud, type HudCallbacks } from "./hud";
+import { windAlert } from "./weatherAlerts";
 
 interface HudArgs extends HudCallbacks {
   phase: GamePhase;
@@ -31,6 +32,8 @@ interface HudArgs extends HudCallbacks {
    * notices), or "none" for the default white.
    */
   toastColor: PlaneColor | "none";
+  /** Show the weather warning strip with a wind warning at this level (ui/weatherAlerts.ts), or none. */
+  weather: WarningLevel | "none";
   /** Show the sound button muted (dimmed, struck through), as after pressing it or M. */
   muted: boolean;
   /** Show the music button on (lit) or off (dimmed), as after pressing it or N. */
@@ -113,6 +116,7 @@ function applyArgs(hud: Hud, args: HudArgs): void {
       heapMb: 148,
     }));
   }
+  if (args.weather !== "none") hud.setWeatherAlerts([windAlert(args.weather)]);
   if (args.toast) {
     hud.showToast(args.toast, args.toastColor === "none" ? undefined : COLOR_HEX[args.toastColor]);
   }
@@ -156,6 +160,7 @@ const meta: Meta<HudArgs> = {
       control: "inline-radio",
       options: ["none", "red", "blue", "yellow", "violet"],
     },
+    weather: { control: "inline-radio", options: ["none", "yellow", "amber", "red"] },
     // Callbacks are wired to the Actions panel; no control needed.
     onStart: { table: { disable: true } },
     onTogglePause: { table: { disable: true } },
@@ -174,6 +179,7 @@ const meta: Meta<HudArgs> = {
     seconds: 0,
     toast: "",
     toastColor: "none",
+    weather: "none",
     arrivals: false,
     tracking: false,
     speed: 1,
@@ -248,6 +254,25 @@ export const Toast: Story = {
  */
 export const DepartureToast: Story = {
   args: { phase: "playing", landed: 6, toast: "Departure — RED runway", toastColor: "violet" },
+};
+
+/**
+ * Weather warnings (wind stream forecast, ui/weatherAlerts.ts), styled
+ * after the Met Office's yellow / amber / red warnings: a strip at the top
+ * of the screen, above the toasts (one is showing here), with one line per
+ * kind of weather on the way, no place or time. The game shows yellow from the second day, amber from the third and red
+ * from the fourth (`warningLevel` in core/windStreams.ts). It stays up
+ * until the weather arrives, unlike a toast. Canned here; the game fills
+ * it from the sim every frame.
+ */
+export const WeatherAlerts: Story = {
+  args: {
+    phase: "playing",
+    landed: 9,
+    weather: "amber",
+    toast: "BLUE runway open",
+    toastColor: "blue",
+  },
 };
 
 /**

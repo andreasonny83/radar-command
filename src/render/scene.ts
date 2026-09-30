@@ -33,6 +33,12 @@ export const CLEAR_COLOR = "#2f5222";
  */
 export const OVERLAY_GROUP = 1;
 
+/**
+ * Rendering group for the clouds: drawn after `OVERLAY_GROUP`, so they
+ * cover planes and paths too, which is the whole point of them.
+ */
+export const CLOUD_GROUP = 2;
+
 /** Direction the sun shines (towards the ground, slightly from the side). */
 export const SUN_DIRECTION = new Vector3(-0.5, -1, 0.3).normalize();
 

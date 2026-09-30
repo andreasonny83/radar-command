@@ -390,8 +390,15 @@ export interface GameState {
   planes: Plane[];
 }
 
+/**
+ * How serious a weather warning is, after the Met Office's National Severe
+ * Weather Warning Service: yellow (be aware), amber (be prepared), red
+ * (take action). See core/windStreams.ts `warningLevel`.
+ */
+export type WarningLevel = "yellow" | "amber" | "red";
+
 /** Where a wind stream is in its life (see core/windStreams.ts). */
-export type WindPhase = "forming" | "active" | "fading";
+export type WindPhase = "forecast" | "forming" | "active" | "fading";
 
 /**
  * A band of strong wind across the map. It blows along `rect.heading`; the
@@ -400,7 +407,10 @@ export type WindPhase = "forming" | "active" | "fading";
 export interface WindStream {
   id: number;
   rect: OrientedRect;
-  /** Seconds since it started forming. */
+  /**
+   * Seconds since it started forming. Negative while it is only forecast:
+   * it exists (so the HUD can say where) but is not drawn yet.
+   */
   age: number;
 }
 
@@ -421,6 +431,8 @@ export type SimEvent =
   | { type: "takeoffRoll"; planeId: number; color: RunwayColor }
   /** A departure lifted off: `color`'s runway is open to arrivals again. */
   | { type: "liftoff"; planeId: number; color: RunwayColor }
+  /** A wind stream was forecast: nothing on the map yet, it starts forming shortly. */
+  | { type: "windForecast"; streamId: number; level: WarningLevel }
   /** A wind stream began to form: harmless for now, it bites when it turns active. */
   | { type: "windForming"; streamId: number }
   /** A wind stream turned active. */

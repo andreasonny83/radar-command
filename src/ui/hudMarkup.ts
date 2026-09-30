@@ -100,16 +100,76 @@ export function pausedBannerMarkup(): string {
     </div>`;
 }
 
-/** Toast: short notices such as "BLUE runway open"; fades via opacity. */
-export function toastMarkup(): string {
+/**
+ * The column of notices, top and centre: weather warnings first, then the
+ * toast underneath, so a toast slides up when no warning is showing.
+ * `noticesMarkup` is the pair the game uses; the stories that show just one
+ * use `toastMarkup` or `weatherAlertsMarkup`, which wrap it in the same frame.
+ * On a phone-width screen the corners' buttons and score panel leave no room
+ * beside it, so the column starts below them.
+ */
+function noticesFrame(inner: string): string {
   return `
-    <div class="hud-chrome pointer-events-none absolute inset-x-0 top-4 z-10 flex justify-center">
+    <div class="hud-chrome pointer-events-none absolute inset-x-0 top-4 z-10 flex flex-col items-center gap-2 px-4 max-sm:top-36">${inner}
+    </div>`;
+}
+
+/** The toast element: short notices such as "BLUE runway open"; fades via opacity. */
+const TOAST = `
       <div
         id="toast"
         role="status"
         aria-live="polite"
         class="rounded-2xl border border-slate-700 bg-slate-900/70 px-6 py-2 text-lg font-black tracking-widest uppercase opacity-0 shadow-lg backdrop-blur-sm transition-opacity duration-500"
-      ></div>
+      ></div>`;
+
+/**
+ * The weather warning strip: coloured lines (yellow, amber or red, like the
+ * Met Office's), one per kind of weather on the way (ui/weatherAlerts.ts).
+ * `Hud.setWeatherAlerts` adds and removes the lines
+ * (`weatherAlertLineMarkup`); they stay up until the weather arrives, unlike
+ * a toast. The live region announces a line once, when it appears.
+ */
+const WEATHER_STRIP = `
+      <div
+        id="weatherAlerts"
+        data-arrow-avoid
+        role="alert"
+        aria-live="assertive"
+        aria-relevant="additions"
+        class="flex max-w-full flex-col items-center gap-2"
+      ></div>`;
+
+/** Toast on its own (see `noticesMarkup` for the game's). */
+export function toastMarkup(): string {
+  return noticesFrame(TOAST);
+}
+
+/** Weather warning strip on its own (see `noticesMarkup` for the game's). */
+export function weatherAlertsMarkup(): string {
+  return noticesFrame(WEATHER_STRIP);
+}
+
+/** Weather warnings with the toast underneath: what the game shows. */
+export function noticesMarkup(): string {
+  return noticesFrame(WEATHER_STRIP + TOAST);
+}
+
+/**
+ * One line of the weather strip: the warning's headline over its advice.
+ * `createWeatherStrip` fills in the text and tints the border, icon and
+ * headline with the warning level's colour.
+ */
+export function weatherAlertLineMarkup(): string {
+  return `
+    <div
+      class="weather-alert flex max-w-sm items-center gap-3 rounded-xl border-2 bg-slate-900/80 px-3 py-2 shadow-lg backdrop-blur-sm"
+    >
+      <span data-alert-icon aria-hidden="true" class="text-2xl leading-none">⚠</span>
+      <div>
+        <div data-alert-headline class="text-sm font-black tracking-widest uppercase"></div>
+        <div data-alert-advice class="text-xs text-slate-200"></div>
+      </div>
     </div>`;
 }
 
@@ -885,7 +945,7 @@ export function hudMarkup(): string {
     speedButtonMarkup(),
     pauseButtonMarkup(),
     pausedBannerMarkup(),
-    toastMarkup(),
+    noticesMarkup(),
     trackingIndicatorMarkup(),
     statsPanelMarkup(),
     cameraControlsMarkup(),

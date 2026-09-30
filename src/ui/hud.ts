@@ -1,6 +1,6 @@
 /**
  * HTML HUD layered over the canvas: score, start/game-over overlay, pause
- * button, toast notices, arrival arrows, the "track plane" badge, the
+ * button, weather warnings and toast notices, arrival arrows, the "track plane" badge, the
  * stats, sound, music and camera buttons, the stats-for-nerds panel
  * (ui/stats.ts), the help button + panel, the GitHub /
  * feedback / licenses links, the licenses panel, and the leaderboard (the
@@ -28,6 +28,7 @@ import { createLeaderboardPanel, formatRanks, type SubmitState } from "./leaderb
 import { licenseTextUrl, PROJECT_LICENSE_TEXT } from "./licenses";
 import { feedbackIssueUrl } from "./links";
 import { createStatsPanel, type StatsInfo, type StatsSample } from "./stats";
+import { createWeatherStrip, type WeatherAlert } from "./weatherAlerts";
 
 export interface HudCallbacks {
   onStart: () => void;
@@ -114,6 +115,12 @@ export interface Hud {
   setSpeed(speed: (typeof GAME_SPEEDS)[number]): void;
   /** Briefly show a notice at the top of the screen, optionally tinted. */
   showToast(text: string, color?: string): void;
+  /**
+   * Show the weather warnings (ui/weatherAlerts.ts), replacing the last
+   * list. Cheap to call every frame: lines are kept per `id`, only added
+   * or removed when the list changes.
+   */
+  setWeatherAlerts(alerts: readonly WeatherAlert[]): void;
   /** Arrows on the screen edge for planes about to fly in (call every frame). */
   setArrivals(markers: readonly ArrivalMarker[]): void;
   /**
@@ -230,6 +237,7 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   const speedBtn = byId<HTMLButtonElement>("speedBtn");
   const pausedBanner = byId("pausedBanner");
   const toast = byId("toast");
+  const weatherStrip = createWeatherStrip(byId("weatherAlerts"));
   const tracking = byId("trackingIndicator");
   let trackingShown = false;
   const helpBtn = byId<HTMLButtonElement>("helpBtn");
@@ -517,6 +525,9 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       // A newer toast replaces the old one and restarts the clock.
       clearTimeout(toastTimer);
       toastTimer = setTimeout(() => toast.classList.add("opacity-0"), TOAST_MS);
+    },
+    setWeatherAlerts(alerts) {
+      weatherStrip.update(alerts);
     },
     setArrivals(markers) {
       arrivals.update(markers);

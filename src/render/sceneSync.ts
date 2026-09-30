@@ -62,6 +62,7 @@ import { Landscape } from "./landscape";
 import type { MeshFactory } from "./meshes";
 import { smoothTrack } from "./pathLine";
 import { RejectMarks } from "./rejectMarks";
+import { CloudsView } from "./clouds";
 import { WindStreamsView } from "./windStreams";
 import { RunwayFactory, type RunwayView } from "./runway";
 import { fitShadowsToWorld, OVERLAY_GROUP } from "./scene";
@@ -402,6 +403,7 @@ export class SceneSync {
   /** Red "no landing" X marks (see `showRejectMark`). */
   private readonly rejectMarks: RejectMarks;
   private readonly windStreams: WindStreamsView;
+  private readonly clouds: CloudsView;
   private readonly scratch = new Vector3();
   /** 0 day … 1 night (see `setNight`). */
   private night = 0;
@@ -427,6 +429,7 @@ export class SceneSync {
     this.boundary.setVisible(DEBUG_SHOW_AIRSPACE);
     this.rejectMarks = new RejectMarks(factory);
     this.windStreams = new WindStreamsView(scene);
+    this.clouds = new CloudsView(scene);
     this.beamMat = poolMaterial("landingLights", "#fff6e0", scene);
     this.beams = createPoolMesh("landingLights", scene);
     this.beams.material = this.beamMat;
@@ -474,6 +477,7 @@ export class SceneSync {
     this.factory.setNight(n);
     this.landscape.setNight(n);
     this.airfieldFactory.setNight(n);
+    this.clouds.setNight(n);
     setNightLevel(this.beamMat, n * BEAM_STRENGTH);
   }
 
@@ -637,6 +641,7 @@ export class SceneSync {
     }
     this.landscape.update(time);
     this.windStreams.sync(state.streams, state.world, time);
+    this.clouds.sync(state.elapsed, state.world);
     this.syncRunways(state, time);
     for (const runway of this.runwayViews) runway.update(time);
     this.scene.activeCamera?.getDirectionToRef(Axis.Z, this.viewDir);

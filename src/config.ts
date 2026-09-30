@@ -6,7 +6,7 @@
  * plane crosses the full height of the screen in ~12.5 seconds regardless of
  * the device resolution.
  */
-import type { PlaneColor, RunwayColor } from "./core/types";
+import type { PlaneColor, RunwayColor, WarningLevel } from "./core/types";
 
 /** Available simulation speed multipliers. */
 export const GAME_SPEEDS = [1, 1.5, 2, 3] as const;
@@ -531,6 +531,12 @@ export const COLOR_UNLOCK_LANDINGS: Record<RunwayColor, number> = {
 /** Most streams that can be up at once, however many game days have passed. */
 export const WIND_MAX_STREAMS = 3;
 
+/**
+ * Seconds of forecast before a stream starts to form: the HUD shows a
+ * weather warning (ui/weatherAlerts.ts), but the map shows nothing yet.
+ */
+export const WIND_FORECAST_SECONDS = 10;
+
 /** Seconds a new stream shows as a harmless warning before it bites. */
 export const WIND_FORM_SECONDS = 6;
 
@@ -557,6 +563,51 @@ export const WIND_DRIFT = PLANE_SPEED / 2;
 /** Peak heading shove (radians) and its wobble rate (rad/s) in a stream. */
 export const WIND_TURN = 0.3;
 export const WIND_TURN_RATE = 2.1;
+
+// ---------------------------------------------------------------------------
+// Clouds (difficulty from game hour 30 — see core/clouds.ts)
+// ---------------------------------------------------------------------------
+
+/** Game hours into the shift (1 h = 15 s of play) when the first cloud shows. */
+export const CLOUD_START_HOURS = 10;
+
+/** Game hours, counted from the start, until every cloud is out. */
+export const CLOUD_FULL_HOURS = 48;
+
+/**
+ * Cloud formations in the sky at full cover (banks, streets and lone
+ * cumulus: they hide what is under them), and the thin high cirrus wisps
+ * above them (they only add atmosphere). They come in one by one as the
+ * cover grows.
+ */
+export const CLOUD_FORMATIONS = 12;
+export const CLOUD_CIRRUS = 5;
+
+/** Formation length (world units, along the drift): random between the two. */
+export const CLOUD_SIZE_MIN = 60;
+export const CLOUD_SIZE_MAX = 95;
+
+/** Cirrus wisp length (world units): random between the two. */
+export const CLOUD_CIRRUS_LENGTH_MIN = 60;
+export const CLOUD_CIRRUS_LENGTH_MAX = 100;
+
+/** Drift: heading (radians, sim axes) and speed (units/s, varied ±`CLOUD_SPEED_SPREAD`). */
+export const CLOUD_HEADING = 0.35;
+export const CLOUD_SPEED = 2.4;
+export const CLOUD_SPEED_SPREAD = 0.35;
+/** The high cirrus layer drifts this many times faster than the formations. */
+export const CLOUD_CIRRUS_SPEED_FACTOR = 1.8;
+
+/** How see-through a formation's core is (0 invisible, 1 solid), and a cirrus wisp's. */
+export const CLOUD_OPACITY = 0.8;
+export const CLOUD_CIRRUS_OPACITY = 0.4;
+
+/** Height the formations float at, and the cirrus above them (scene units). */
+export const CLOUD_ALTITUDE = 30;
+export const CLOUD_HIGH_ALTITUDE = 46;
+
+/** How dark a formation's shadow on the ground is (0 none, 1 black) by day. */
+export const CLOUD_SHADOW_OPACITY = 0.32;
 
 /**
  * Seconds after a runway opens (announcement, camera pull-back, strip
@@ -822,6 +873,16 @@ export const MAX_DT = 0.1;
 // ---------------------------------------------------------------------------
 // Colours (render + UI)
 // ---------------------------------------------------------------------------
+
+/**
+ * Weather warning colours (ui/weatherAlerts.ts), close to the Met Office's
+ * yellow, amber and red warnings (set by eye, not taken from its palette).
+ */
+export const WARNING_HEX: Record<WarningLevel, string> = {
+  yellow: "#ffd500",
+  amber: "#f58220",
+  red: "#ff3048",
+};
 
 export const COLOR_HEX: Record<PlaneColor, string> = {
   red: "#ef4444",

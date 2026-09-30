@@ -278,13 +278,20 @@ export class WindStreamsView {
         this.bands.set(stream.id, band);
       }
       const { front, back } = band;
-      if (windPhase(stream) === "forming") {
+      const phase = windPhase(stream);
+      if (phase === "forecast") {
+        // Only the HUD knows about it yet (ui/weatherAlerts.ts).
+        front.isVisible = false;
+        back.isVisible = false;
+      } else if (phase === "forming") {
         // The outline spans the whole strip: no feathering, one layer.
+        front.isVisible = true;
         front.material = this.formingMat;
         front.useVertexColors = false;
         front.visibility = FORMING_ALPHA + FORMING_PULSE * Math.sin(time * FORMING_PULSE_RATE);
         back.isVisible = false;
       } else {
+        front.isVisible = true;
         front.material = this.frontMat;
         back.material = this.backMat;
         front.useVertexColors = true;

@@ -51,6 +51,7 @@ import { toastFor } from "./ui/eventToasts";
 import { FrameStats } from "./ui/frameStats";
 import { createHud } from "./ui/hud";
 import { savedUiHidden, saveUiHidden } from "./ui/preferences";
+import { weatherAlerts } from "./ui/weatherAlerts";
 
 // Vercel Web Analytics: the framework-agnostic equivalent of the React
 // `<Analytics/>` component. Only the game entry calls this, so Storybook
@@ -485,6 +486,10 @@ engine.runRenderLoop(() => {
   // Every frame, not on events: time survived adds to the score as it goes
   // (and a departure leaving the map raises no event of its own).
   hud.setScore(breakdownOf(state));
+  // Forecasts of weather still to come (only during a shift: a finished one
+  // keeps its streams until the next starts).
+  const inShift = state.phase === "playing" || state.phase === "paused";
+  hud.setWeatherAlerts(inShift ? weatherAlerts(state) : []);
   sceneSync.setHighlighted(pointer.refreshHover());
   sceneSync.syncPlanes(state, time);
   // Sound: animation-timed cues from this frame's sync (gear, touchdown,

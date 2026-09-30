@@ -1,10 +1,11 @@
 /**
  * Wind streams: the difficulty layer that arrives with the second game day.
  *
- * A stream is a band of strong wind across the map. It lives in three
- * phases (see `windPhase`): `forming` (a warning the player can see and
- * route around; harmless), `active` (pushes planes and erases their paths)
- * and `fading` (the push dies down). A flying plane that flies into an
+ * A stream is a band of strong wind across the map. It lives in four
+ * phases (see `windPhase`): `forecast` (a HUD warning only, see
+ * ui/weatherAlerts.ts; nothing on the map yet), `forming` (a warning the
+ * player can see and route around; harmless), `active` (pushes planes and
+ * erases their paths) and `fading` (the push dies down). A flying plane that flies into an
  * active stream loses the path it was given, so the player has to draw it
  * again; while inside, it is pushed sideways along the wind (`Plane.wind`,
  * applied in core/plane.ts) and shaken by small heading shoves
@@ -20,6 +21,7 @@ import {
   WIND_ACTIVE_SECONDS,
   WIND_DRIFT,
   WIND_FADE_SECONDS,
+  WIND_FORECAST_SECONDS,
   WIND_FORM_SECONDS,
   WIND_GAP_MAX,
   WIND_GAP_MIN,
@@ -33,9 +35,9 @@ import { DAY_SECONDS } from "./daytime";
 import { pointInRect } from "./geometry";
 import { airspaceBounds } from "./layout";
 import { headingVector, lerp } from "./math";
-import type { GameState, Plane, Rng, SimEvent, WindPhase, WindStream } from "./types";
+import type { GameState, Plane, Rng, SimEvent, WarningLevel, WindPhase, WindStream } from "./types";
 
-/** Seconds a stream lives from first showing to gone. */
+/** Seconds a stream lives from first showing on the map to gone. */
 export const WIND_LIFETIME = WIND_FORM_SECONDS + WIND_ACTIVE_SECONDS + WIND_FADE_SECONDS;
 
 /**
@@ -47,15 +49,29 @@ export function windLevel(elapsed: number): number {
   return Math.min(WIND_MAX_STREAMS, Math.max(0, Math.floor(elapsed / DAY_SECONDS)));
 }
 
+/** Warning levels by `windLevel`: one stream may be up at yellow, two at amber, three at red. */
+const WARNING_LEVELS: readonly WarningLevel[] = ["yellow", "amber", "red"];
+
+/**
+ * How serious the wind warning is after `elapsed` seconds, in the Met
+ * Office's terms (see ui/weatherAlerts.ts): the more streams can be up at
+ * once, the higher the level. Yellow from the second game day.
+ */
+export function warningLevel(elapsed: number): WarningLevel {
+  const index = Math.min(WARNING_LEVELS.length, Math.max(1, windLevel(elapsed))) - 1;
+  return WARNING_LEVELS[index]!;
+}
+
 /** Where `stream` is in its life, or null once it is over. */
 export function windPhase(stream: WindStream): WindPhase | null {
+  if (stream.age < 0) return "forecast";
   if (stream.age < WIND_FORM_SECONDS) return "forming";
   if (stream.age < WIND_FORM_SECONDS + WIND_ACTIVE_SECONDS) return "active";
   if (stream.age < WIND_LIFETIME) return "fading";
   return null;
 }
 
-/** How hard the stream blows: 0 forming, 1 active, easing to 0 as it fades. */
+/** How hard the stream blows: 0 before it is active, 1 active, easing to 0 as it fades. */
 export function windStrength(stream: WindStream): number {
   switch (windPhase(stream)) {
     case "active":
@@ -71,8 +87,8 @@ export function windStrength(stream: WindStream): number {
 
 /**
  * Put a new stream somewhere over the airspace, blowing in a random
- * direction. Runways are not avoided: the warning phase is what keeps it
- * fair.
+ * direction, starting in its forecast. Runways are not avoided: the
+ * warnings are what keep it fair.
  */
 function spawnStream(state: GameState, rng: Rng): WindStream {
   const b = airspaceBounds(state.world);
@@ -84,7 +100,7 @@ function spawnStream(state: GameState, rng: Rng): WindStream {
       length: WIND_LENGTH,
       width: WIND_WIDTH,
     },
-    age: 0,
+    age: -WIND_FORECAST_SECONDS,
   };
 }
 
@@ -95,11 +111,15 @@ function spawnStream(state: GameState, rng: Rng): WindStream {
 export function updateWind(state: GameState, dt: number, rng: Rng, events: SimEvent[]): void {
   const cap = windLevel(state.elapsed);
 
-  // Age the streams and report the ones that just turned active.
+  // Age the streams and report the ones that just changed phase.
   for (const stream of state.streams) {
     const before = windPhase(stream);
     stream.age += dt;
-    if (before === "forming" && windPhase(stream) === "active") {
+    const after = windPhase(stream);
+    if (before === "forecast" && after !== "forecast") {
+      events.push({ type: "windForming", streamId: stream.id });
+    }
+    if (before !== "active" && after === "active") {
       events.push({ type: "windActive", streamId: stream.id });
     }
   }
@@ -112,7 +132,11 @@ export function updateWind(state: GameState, dt: number, rng: Rng, events: SimEv
     if (state.windTimer === 0 && state.streams.length < cap) {
       const stream = spawnStream(state, rng);
       state.streams.push(stream);
-      events.push({ type: "windForming", streamId: stream.id });
+      events.push({
+        type: "windForecast",
+        streamId: stream.id,
+        level: warningLevel(state.elapsed),
+      });
       state.windTimer = lerp(WIND_GAP_MIN, WIND_GAP_MAX, rng());
     }
   }

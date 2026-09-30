@@ -225,6 +225,12 @@ export const Effects: StoryObj<EffectsArgs> = {
       ["Readback (cleared to land)", () => audio.readback(true)],
       // With the red X: a path let go of on a runway without locking on.
       ["Landing rejected", () => audio.reject()],
+      // The forecast of a wind stream: its own signal, apart from the chime;
+      // a higher warning level pulses more times.
+      ...(["yellow", "amber", "red"] as const).map((level): [string, () => void] => [
+        `Weather warning (${level})`,
+        () => audio.onSimEvent({ type: "windForecast", streamId: 1, level }, pan),
+      ]),
       // Not focused: the alert always plays at full level.
       ["Near-miss alert", (id) => audio.cue({ type: "warning", planeId: id, pan: args.pan })],
       ["PA announcement", () => audio.ambience?.announce()],

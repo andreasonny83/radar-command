@@ -8,7 +8,10 @@
  *               while shaking harder (STREAM_SHAKE in sceneSync.ts). A
  *               second stream starts in its warning phase (faint, dashed,
  *               still) and turns active later, so both looks play on a
- *               loop. `sound` plays the gust (click the canvas first).
+ *               loop. A third is only forecast: the "Yellow warning of wind"
+ *               strip at the top of the screen (ui/weatherAlerts.ts) shows,
+ *               with its own tone, before it appears on the map. `sound`
+ *               plays the gust and the forecast tone (click the canvas first).
  *   - Live:     the real sim started 24 game hours in (as `seedShift` in core/state.ts does
  *               for `VITE_DEBUG_START_HOURS=24`: every runway open, streams
  *               from the first seconds), planes arriving as in the game.
@@ -18,17 +21,19 @@
  * the look (WIND_COLOR, WIND_SCROLL_SPEED, *_ALPHA, the wisps in
  * `makeWisps`, `makeOutline`) in render/windStreams.ts, STREAM_SHAKE / STREAM_SHAKE_EASE
  * in sceneSync.ts, the gust (`windGust`, LEVELS.windGust) in audio/sfx.ts,
- * the toasts in ui/eventToasts.ts.
+ * the toasts in ui/eventToasts.ts, the forecast strip (WIND_FORECAST_SECONDS
+ * in config.ts, `weatherAlerts`, the forecast tone `weatherWarning` in audio/sfx.ts).
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { GameAudio } from "../../audio/mixer";
-import { WIND_FORM_SECONDS, WIND_LENGTH, WIND_WIDTH } from "../../config";
+import { WIND_FORECAST_SECONDS, WIND_FORM_SECONDS, WIND_LENGTH, WIND_WIDTH } from "../../config";
 import { createPlane } from "../../core/plane";
 import { startGame, step } from "../../core/simulation";
 import { createGameState } from "../../core/state";
 import type { GameState, SimEvent, WindStream } from "../../core/types";
 import { toastFor } from "../../ui/eventToasts";
-import { toastMarkup } from "../../ui/hudMarkup";
+import { noticesMarkup } from "../../ui/hudMarkup";
+import { createWeatherStrip, weatherAlerts } from "../../ui/weatherAlerts";
 import { MeshFactory } from "../meshes";
 import { SceneSync } from "../sceneSync";
 import { dragToPan, gameCamera, mountStage, type Stage } from "./stage";
@@ -36,9 +41,16 @@ import { dragToPan, gameCamera, mountStage, type Stage } from "./stage";
 const meta: Meta = { title: "Scene/Wind streams" };
 export default meta;
 
-/** The game's toast for notices, driven by sim events. */
-function toaster(stage: Stage): (event: SimEvent) => void {
-  stage.root.insertAdjacentHTML("beforeend", toastMarkup());
+/**
+ * The game's HUD notices: the toast for sim events, and the weather warning
+ * strip (ui/weatherAlerts.ts) for the state's forecast streams.
+ */
+function toaster(stage: Stage): {
+  show: (event: SimEvent) => void;
+  alerts: (state: GameState) => void;
+} {
+  stage.root.insertAdjacentHTML("beforeend", noticesMarkup());
+  const strip = createWeatherStrip(stage.root.querySelector<HTMLElement>("#weatherAlerts")!);
   const el = stage.root.querySelector<HTMLElement>("#toast")!;
   let left = 0;
   const show = (event: SimEvent) => {
@@ -54,7 +66,7 @@ function toaster(stage: Stage): (event: SimEvent) => void {
     left -= stage.engine.getDeltaTime() / 1000;
     if (left <= 0) el.classList.add("opacity-0");
   });
-  return show;
+  return { show, alerts: (state) => strip.update(weatherAlerts(state)) };
 }
 
 /** Sound for a story: the game's mixer, started by a click on the canvas. */
@@ -93,7 +105,7 @@ export const PathLoss: StoryObj<PathLossArgs> = {
       const state = createGameState(stage.aspect());
       const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
       sync.rebuildWorld(state);
-      const show = toaster(stage);
+      const { show, alerts } = toaster(stage);
       const audio = storyAudio(stage, args.sound);
       const { world } = state;
       const mid = { x: world.width / 2, y: world.height / 2 };
@@ -125,8 +137,20 @@ export const PathLoss: StoryObj<PathLossArgs> = {
             width: WIND_WIDTH,
           },
         };
-        state.streams = [active, forming];
-        state.nextStreamId = 3;
+        // And one only forecast: the HUD strip warns of it, then it starts
+        // forming on the map (nothing is drawn for it before).
+        const forecast: WindStream = {
+          id: 3,
+          age: -WIND_FORECAST_SECONDS,
+          rect: {
+            center: { x: mid.x - 25, y: mid.y + 28 },
+            heading: -Math.PI / 4,
+            length: WIND_LENGTH,
+            width: WIND_WIDTH,
+          },
+        };
+        state.streams = [active, forming, forecast];
+        state.nextStreamId = 4;
         state.windTimer = 1e9; // no more: the two staged ones only
         // A plane heading east along a drawn path that runs through the
         // active band.
@@ -154,6 +178,7 @@ export const PathLoss: StoryObj<PathLossArgs> = {
         }
         cam.frame(dt, time);
         sync.syncPlanes(state, time);
+        alerts(state);
         if (audio) for (const cue of sync.takeAudioCues()) audio.cue(cue);
       };
     }, args.timeScale),
@@ -185,7 +210,7 @@ export const Live: StoryObj<LiveArgs> = {
       const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
       startGame(state, Math.random, args.startHours);
       sync.rebuildWorld(state);
-      const show = toaster(stage);
+      const { show, alerts } = toaster(stage);
       const audio = storyAudio(stage, args.sound);
 
       let time = 0;
@@ -199,6 +224,7 @@ export const Live: StoryObj<LiveArgs> = {
         if (state.phase === "gameover") startGame(state, Math.random, args.startHours);
         cam.frame(dt, time);
         sync.syncPlanes(state, time);
+        alerts(state);
         if (audio) for (const cue of sync.takeAudioCues()) audio.cue(cue);
       };
     }, args.timeScale),
