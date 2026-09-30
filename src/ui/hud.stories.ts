@@ -43,6 +43,10 @@ interface HudArgs extends HudCallbacks {
   speed: (typeof GAME_SPEEDS)[number];
   /** Open the help panel (the "?" button, or H / ? in the game). */
   help: boolean;
+  /** Hide the whole interface, as after pressing U (the overlay and dialogs stay). */
+  uiHidden: boolean;
+  /** Show the stats-for-nerds panel with a live, made-up sample (the G key). */
+  stats: boolean;
   /** Open the licenses panel (the "Licenses" link on the overlay / in help). */
   licenses: boolean;
   /** Time of day on the HUD clock (hours; night from ~21:00). */
@@ -87,6 +91,28 @@ function applyArgs(hud: Hud, args: HudArgs): void {
   hud.setMusicOn(args.musicOn);
   hud.setHelpOpen(args.help);
   hud.setLicensesOpen(args.licenses);
+  hud.setUiHidden(args.uiHidden);
+  if (args.stats) {
+    hud.setStatsInfo({ gpu: "Apple M2 · WebGL 2" });
+    hud.setStatsOpen(true);
+    hud.updateStats(0, () => ({
+      fps: 59.6,
+      frameMs: 16.8,
+      low: 48,
+      renderMs: 3.4,
+      drawCalls: 184,
+      activeMeshes: 1260,
+      triangles: 412000,
+      width: 1920,
+      height: 1080,
+      scaling: 1,
+      planes: 7,
+      speed: args.speed,
+      steps: args.speed > 1 ? 2 : 1,
+      elapsed: args.seconds,
+      heapMb: 148,
+    }));
+  }
   if (args.toast) {
     hud.showToast(args.toast, args.toastColor === "none" ? undefined : COLOR_HEX[args.toastColor]);
   }
@@ -139,6 +165,7 @@ const meta: Meta<HudArgs> = {
     onToggleSound: { table: { disable: true } },
     onToggleMusic: { table: { disable: true } },
     onHelp: { table: { disable: true } },
+    onStats: { table: { disable: true } },
   },
   args: {
     phase: "start",
@@ -154,6 +181,8 @@ const meta: Meta<HudArgs> = {
     musicOn: true,
     help: false,
     licenses: false,
+    stats: false,
+    uiHidden: false,
     hours: 8,
     onStart: fn(),
     onTogglePause: fn(),
@@ -163,6 +192,7 @@ const meta: Meta<HudArgs> = {
     onToggleSound: fn(),
     onToggleMusic: fn(),
     onHelp: fn(),
+    onStats: fn(),
   },
 };
 export default meta;
@@ -218,6 +248,41 @@ export const Toast: Story = {
  */
 export const DepartureToast: Story = {
   args: { phase: "playing", landed: 6, toast: "Departure — RED runway", toastColor: "violet" },
+};
+
+/**
+ * Stats for nerds (G; no button, listed in the help panel): frame rate with
+ * its 1% low, frame and CPU render time, draw calls, meshes, triangles,
+ * buffer size, GPU, plane count, game speed, sim steps per frame, shift
+ * time and JS heap (Chromium only). Canned numbers here; the game refreshes
+ * them 4× a second (`STATS_REFRESH_MS` in ui/stats.ts) and the game keeps
+ * running underneath. It sits above the track-plane badge, so turn that on
+ * too to check they don't overlap.
+ */
+export const Stats: Story = {
+  args: { phase: "playing", landed: 12, departed: 3, seconds: 262, stats: true, tracking: true },
+};
+
+/**
+ * Interface hidden (U): everything in the game view (score, buttons,
+ * toasts, arrows, the track-plane badge, stats, the paused banner) is
+ * invisible and ignores clicks, via `.hud-chrome` in hudMarkup.ts and
+ * `.hud-hidden` in style.css. Only the eye button (top-right corner,
+ * dimmed, full opacity on hover) remains, to bring it back for players who
+ * don't know the U key (or have no keyboard). Toggle `uiHidden`, or set phase to "start" or
+ * "gameover" to see the overlay stay; it's the only way back to a shift.
+ */
+export const InterfaceHidden: Story = {
+  args: {
+    phase: "playing",
+    landed: 12,
+    toast: "BLUE runway open",
+    toastColor: "blue",
+    arrivals: true,
+    tracking: true,
+    stats: true,
+    uiHidden: true,
+  },
 };
 
 /** Sound off: the sound button (bottom-right, or M) is dimmed and struck through. */

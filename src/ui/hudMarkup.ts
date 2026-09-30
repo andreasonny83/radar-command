@@ -13,6 +13,7 @@
 import { ALL_TIME_MAX, BOARD_LABELS, BOARDS, NAME_MAX } from "../core/leaderboard";
 import { DEPARTURE_POINTS, LANDING_POINTS, SECONDS_PER_TIME_POINT } from "../core/scoring";
 import { POINTER_CONTROLS, SHORTCUT_GROUPS, shortcutHint } from "../input/shortcuts";
+import { STAT_SECTIONS } from "./stats";
 import { CC0_TEXT, GPL_TEXT, RECORDINGS, SOURCE_URL, THIRD_PARTY } from "./licenses";
 import { GITHUB_REPO_URL } from "./links";
 
@@ -24,7 +25,7 @@ import { GITHUB_REPO_URL } from "./links";
  */
 export function scorePanelMarkup(): string {
   return `
-    <div class="pointer-events-none absolute top-4 left-4 z-10">
+    <div class="hud-chrome pointer-events-none absolute top-4 left-4 z-10">
       <div
         data-arrow-avoid
         class="rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
@@ -43,12 +44,13 @@ export function scorePanelMarkup(): string {
 }
 
 /**
- * Pause / continue, top-right, left of the help button. Hidden until a
+ * Pause / continue, top-right, left of the help button (spaced closer on
+ * phones, so the top row clears the score panel). Hidden until a
  * shift starts (see `setPhase`).
  */
 export function pauseButtonMarkup(): string {
   return `
-    <div class="absolute top-4 right-18 z-10">
+    <div class="hud-chrome absolute top-4 right-32 max-sm:right-28 z-10">
       <button
         id="pauseBtn"
         data-arrow-avoid
@@ -69,7 +71,7 @@ export function pauseButtonMarkup(): string {
  */
 export function speedButtonMarkup(): string {
   return `
-    <div class="absolute top-4 right-32 z-10">
+    <div class="hud-chrome absolute top-4 right-46 max-sm:right-40 z-10">
       <button
         id="speedBtn"
         data-arrow-avoid
@@ -87,7 +89,7 @@ export function pausedBannerMarkup(): string {
   return `
     <div
       id="pausedBanner"
-      class="pointer-events-none absolute inset-0 z-10 hidden items-center justify-center"
+      class="hud-chrome pointer-events-none absolute inset-0 z-10 hidden items-center justify-center"
     >
       <div
         class="rounded-2xl border border-slate-700 bg-slate-900/70 px-8 py-4 text-center shadow-lg backdrop-blur-sm"
@@ -101,7 +103,7 @@ export function pausedBannerMarkup(): string {
 /** Toast: short notices such as "BLUE runway open"; fades via opacity. */
 export function toastMarkup(): string {
   return `
-    <div class="pointer-events-none absolute inset-x-0 top-4 z-10 flex justify-center">
+    <div class="hud-chrome pointer-events-none absolute inset-x-0 top-4 z-10 flex justify-center">
       <div
         id="toast"
         role="status"
@@ -186,6 +188,40 @@ export function musicButtonMarkup(): string {
 }
 
 /**
+ * Stats for nerds panel, bottom-left above the "track plane" badge: frame
+ * rate, renderer and sim numbers in small monospace type. Rows come from
+ * `STAT_SECTIONS` (ui/stats.ts), which also fills the `data-stat` cells.
+ * Hidden until `hud.setStatsOpen(true)` (the G shortcut, no button); it ignores the pointer so drags
+ * under it still draw paths.
+ */
+export function statsPanelMarkup(): string {
+  const sections = STAT_SECTIONS.map(
+    (section) => `
+        <section>
+          <h3 class="mb-0.5 text-[10px] font-bold tracking-widest text-sky-400 uppercase">${section.title}</h3>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-4">
+            ${section.rows
+              .map(
+                (row) => `
+            <dt class="text-slate-400">${row.label}</dt>
+            <dd data-stat="${row.key}" class="truncate text-right text-slate-100">–</dd>`,
+              )
+              .join("")}
+          </dl>
+        </section>`,
+  ).join("");
+  return `
+    <div
+      id="statsPanel"
+      data-arrow-avoid
+      role="status"
+      aria-label="Stats for nerds"
+      class="hud-chrome pointer-events-none absolute bottom-20 left-4 z-10 hidden w-56 max-w-[calc(100%-2rem)] flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 font-mono text-[11px] leading-4 shadow-lg backdrop-blur-sm max-sm:bottom-32"
+    >${sections}
+    </div>`;
+}
+
+/**
  * Bottom-right button row: sound and music, then the camera controls
  * (buttons only: every drag on the canvas draws a path).
  */
@@ -193,7 +229,7 @@ export function cameraControlsMarkup(): string {
   return `
     <div
       data-arrow-avoid
-      class="absolute right-4 bottom-4 z-10 flex gap-2"
+      class="hud-chrome absolute right-4 bottom-4 z-10 flex gap-2"
       aria-label="Sound, music and camera controls"
     >
       ${soundButtonMarkup()}
@@ -247,7 +283,7 @@ export function trackingIndicatorMarkup(): string {
       id="trackingIndicator"
       data-arrow-avoid
       role="status"
-      class="pointer-events-none absolute bottom-4 left-4 z-10 hidden max-w-[calc(100%-2rem)] items-center max-sm:bottom-18 gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
+      class="hud-chrome pointer-events-none absolute bottom-4 left-4 z-10 hidden max-w-[calc(100%-2rem)] items-center max-sm:bottom-18 gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
     >
       <span class="tracking-dot h-3 w-3 shrink-0 rounded-full bg-red-500"></span>
       <div>
@@ -270,7 +306,7 @@ export function arrivalLayerMarkup(): string {
   return `
     <div
       id="arrivals"
-      class="pointer-events-none absolute inset-0 z-[5] overflow-hidden"
+      class="hud-chrome pointer-events-none absolute inset-0 z-[5] overflow-hidden"
       aria-hidden="true"
     ></div>`;
 }
@@ -465,14 +501,56 @@ export function projectLinksMarkup(): string {
     </nav>`;
 }
 
+/** Open eye: "the interface is showing" (the button hides it). */
+export const EYE_ICON = `
+  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>`;
+
+/** Eye with a slash: "the interface is hidden" (the button shows it). */
+export const EYE_OFF_ICON = `
+  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+    <circle cx="12" cy="12" r="3" />
+    <path d="M4 4l16 16" />
+  </svg>`;
+
 /**
- * "?" button, top-right: opens the help panel. Stacks above the start /
+ * Interface toggle, in the top-right corner: the touch-screen way to
+ * hide the interface (an eye) and the way back from it (a slashed eye), for
+ * players without the U shortcut. Always present, in one place. While the
+ * interface is hidden `hud.setUiHidden` dims it so it doesn't spoil a clean
+ * screenshot (full opacity on hover or focus) and swaps the icon. Not
+ * `.hud-chrome` (style.css), so hiding doesn't touch it; z-30 keeps it above
+ * the start / game-over overlay like the "?" button beside it.
+ */
+export function uiToggleButtonMarkup(): string {
+  return `
+    <div class="absolute top-4 right-4 z-30">
+      <button
+        id="uiToggleBtn"
+        data-arrow-avoid
+        class="hud-button"
+        title="Hide interface (${shortcutHint("toggleUi")})"
+        aria-label="Hide interface"
+        aria-pressed="false"
+      >
+        ${EYE_ICON}
+      </button>
+    </div>`;
+}
+
+/**
+ * "?" button, top-right, left of the interface toggle: opens the help panel. Stacks above the start /
  * game-over overlay (z-30), so the controls are one click away on every
  * screen.
  */
 export function helpButtonMarkup(): string {
   return `
-    <div class="absolute top-4 right-4 z-30">
+    <div class="hud-chrome absolute top-4 right-18 max-sm:right-16 z-30">
       <button
         id="helpBtn"
         data-arrow-avoid
@@ -809,7 +887,9 @@ export function hudMarkup(): string {
     pausedBannerMarkup(),
     toastMarkup(),
     trackingIndicatorMarkup(),
+    statsPanelMarkup(),
     cameraControlsMarkup(),
+    uiToggleButtonMarkup(),
     overlayMarkup(),
     helpButtonMarkup(),
     helpPanelMarkup(),

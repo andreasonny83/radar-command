@@ -32,6 +32,15 @@
   .glow-text-red {
     text-shadow: 0 0 10px rgb(239 68 68 / 0.7);
   }
+  /* The "chrome" of the HUD (score, buttons, toasts, arrows, badges, stats
+     panel, paused banner): invisible and untouchable while the interface is
+     hidden (hud.ts `setUiHidden`, U in the game). Not the start / game-over
+     overlay or the dialogs. `!important` beats the toast's own fade. */
+  .hud-hidden .hud-chrome {
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
   .hud-button {
     @apply flex h-11 w-11 items-center justify-center rounded-xl border border-slate-700
       bg-slate-800/80 text-xl font-bold text-slate-200 shadow-lg backdrop-blur-sm

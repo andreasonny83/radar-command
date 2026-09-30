@@ -16,6 +16,8 @@ export type ShortcutAction =
   | "togglePause"
   | "toggleHelp"
   | "toggleLeaderboard"
+  | "toggleStats"
+  | "toggleUi"
   | "toggleSound"
   | "toggleMusic"
   | "speed1"
@@ -88,10 +90,22 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         description: "Leaderboard (← → switch boards, PgUp / PgDn change page, Esc closes it)",
       },
       {
+        action: "toggleStats",
+        keys: ["g"],
+        caps: ["G"],
+        description: "Stats for nerds",
+      },
+      {
+        action: "toggleUi",
+        keys: ["u"],
+        caps: ["U"],
+        description: "Hide / show the interface",
+      },
+      {
         action: "toggleSound",
         keys: ["m"],
         caps: ["M"],
-        description: "Sound effects on / off (music stays)",
+        description: "Sound effects on / off",
       },
       {
         action: "toggleMusic",

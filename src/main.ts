@@ -37,9 +37,12 @@ import { toScene } from "./render/coords";
 import { DayCycle } from "./render/dayCycle";
 import { MeshFactory } from "./render/meshes";
 import { createScene } from "./render/scene";
+import { createSceneStats } from "./render/sceneStats";
 import { SceneSync } from "./render/sceneSync";
 import { toastFor } from "./ui/eventToasts";
+import { FrameStats } from "./ui/frameStats";
 import { createHud } from "./ui/hud";
+import { savedUiHidden, saveUiHidden } from "./ui/preferences";
 
 // Vercel Web Analytics: the framework-agnostic equivalent of the React
 // `<Analytics/>` component. Only the game entry calls this, so Storybook
@@ -236,6 +239,13 @@ function setGameSpeed(speed: (typeof GAME_SPEEDS)[number]): void {
   hud.setSpeed(speed);
 }
 
+// Stats for nerds (ui/stats.ts): renderer numbers and the frame-time window
+// are only gathered while the panel is open.
+const sceneStats = createSceneStats(engine, scene);
+const frameStats = new FrameStats();
+/** Simulation sub-steps run in the last frame (see the game loop). */
+let simSteps = 0;
+
 const hud = createHud(document.body, {
   onStart: () => void startShift(),
   onTogglePause: togglePaused,
@@ -246,12 +256,20 @@ const hud = createHud(document.body, {
   onToggleMusic: toggleMusic,
   onHelp: (open) => onPanel("help", open),
   onLeaderboard: (open) => onPanel("leaderboard", open),
+  onStats: (open) => {
+    sceneStats.setEnabled(open);
+    if (open) frameStats.reset();
+  },
+  onUiHidden: saveUiHidden,
+  initialUiHidden: savedUiHidden(),
   onSubmitScore: (name) => void submitRun(name),
   loadBoard: (board) => fetchBoard(board, playerId(), savedName() || undefined),
   initialBoard: savedBoard(),
   onBoardChange: saveBoard,
 });
 
+const gpu = sceneStats.gpu();
+hud.setStatsInfo({ gpu: `${gpu.renderer} · ${gpu.api}` });
 hud.setMuted(audio.muted);
 hud.setMusicOn(audio.musicOn);
 hud.setSpeed(gameSpeed);
@@ -331,6 +349,8 @@ attachShortcuts(
     toggleHelp: () => hud.setHelpOpen(!hud.helpOpen),
     // Closing is the panel's own key handler (ui/leaderboard.ts).
     toggleLeaderboard: () => hud.setLeaderboardOpen(true),
+    toggleStats: () => hud.setStatsOpen(!hud.statsOpen),
+    toggleUi: () => hud.setUiHidden(!hud.uiHidden),
     toggleSound,
     toggleMusic,
     speed1: () => setGameSpeed(GAME_SPEEDS[0]),
@@ -410,9 +430,11 @@ engine.runRenderLoop(() => {
   // At 1.5-3x one frame covers more sim time than `MAX_DT`; feed it in
   // pieces no bigger than that, so fast play can't tunnel planes through
   // each other or skip a landing. A crash ends the shift: stop stepping.
+  simSteps = 0;
   for (let left = dt * gameSpeed; left > 1e-9 && state.phase === "playing";) {
     const h = Math.min(left, MAX_DT);
     left -= h;
+    simSteps++;
     for (const event of step(state, h)) handleEvent(event);
   }
   if (gameOverIn !== null && (gameOverIn -= dt) <= 0) {
@@ -456,6 +478,25 @@ engine.runRenderLoop(() => {
   audio.setScene(AUDIO_SCENES[state.phase]);
   audio.update(state, panFor);
   scene.render();
+  if (hud.statsOpen) {
+    // Raw frame time, not the clamped `dt`: a stall should show up.
+    frameStats.push(engine.getDeltaTime());
+    hud.updateStats(performance.now(), () => {
+      const frame = frameStats.snapshot();
+      if (!frame) return null;
+      // Chromium-only, hence not in lib.dom.d.ts.
+      const heap = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+      return {
+        ...frame,
+        ...sceneStats.read(),
+        planes: state.planes.filter((p) => p.phase !== "landed" && p.phase !== "departed").length,
+        speed: gameSpeed,
+        steps: simSteps,
+        elapsed: state.elapsed,
+        heapMb: heap ? heap.usedJSHeapSize / 1048576 : null,
+      };
+    });
+  }
   // After render, so the arrows use this frame's camera matrices.
   hud.setArrivals(arrivalMarkers(state, scene, canvas));
 });

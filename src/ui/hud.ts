@@ -1,7 +1,8 @@
 /**
  * HTML HUD layered over the canvas: score, start/game-over overlay, pause
  * button, toast notices, arrival arrows, the "track plane" badge, the
- * sound, music and camera buttons, the help button + panel, the GitHub /
+ * stats, sound, music and camera buttons, the stats-for-nerds panel
+ * (ui/stats.ts), the help button + panel, the GitHub /
  * feedback / licenses links, the licenses panel, and the leaderboard (the
  * game-over submit form and the boards panel, see ui/leaderboard.ts).
  * Markup lives in hudMarkup.ts (shared with Storybook); this module injects
@@ -20,12 +21,13 @@ import { GAME_SPEEDS } from "../config";
 import { shortcutHint } from "../input/shortcuts";
 import type { Result } from "../net/leaderboardApi";
 import { createArrivalArrows, type ArrivalMarker } from "./arrivalArrows";
-import { formatDuration, hudMarkup } from "./hudMarkup";
+import { EYE_ICON, EYE_OFF_ICON, formatDuration, hudMarkup } from "./hudMarkup";
 import { createClockDisplay, createClockIcon } from "./clockDisplay";
 import { createScoreRoll } from "./scoreRoll";
 import { createLeaderboardPanel, formatRanks, type SubmitState } from "./leaderboard";
 import { licenseTextUrl, PROJECT_LICENSE_TEXT } from "./licenses";
 import { feedbackIssueUrl } from "./links";
+import { createStatsPanel, type StatsInfo, type StatsSample } from "./stats";
 
 export interface HudCallbacks {
   onStart: () => void;
@@ -47,6 +49,19 @@ export interface HudCallbacks {
    * game behind them leave it out.
    */
   onHelp?: (open: boolean) => void;
+  /**
+   * The stats panel was shown or hidden (the G shortcut or `setStatsOpen`), e.g. to
+   * start the renderer timers. Not remembered between visits. Unlike help,
+   * it doesn't pause the game.
+   */
+  onStats?: (open: boolean) => void;
+  /**
+   * The interface was hidden or shown (U, the eye button or `setUiHidden`),
+   * e.g. to remember the choice.
+   */
+  onUiHidden?: (hidden: boolean) => void;
+  /** Start with the interface hidden (the remembered choice). */
+  initialUiHidden?: boolean;
   /**
    * SUBMIT pressed (or Enter in the name field) on the game-over screen,
    * with the name as typed. Optional: without it the form does nothing.
@@ -114,6 +129,29 @@ export interface Hud {
   readonly helpOpen: boolean;
   /** Open or close the help panel (fires `onHelp` on change). */
   setHelpOpen(open: boolean): void;
+  /** Is the interface hidden (see `setUiHidden`)? */
+  readonly uiHidden: boolean;
+  /**
+   * Hide or show the whole interface for a clean view (U): score, buttons,
+   * toasts, arrows, badges, the stats panel and the paused banner. The
+   * start / game-over overlay and the dialogs stay, so a shift can still
+   * be started and the help opened; keyboard shortcuts keep working. The
+   * eye button in the top-right corner does the same as U for touch screens: it stays
+   * while hidden, dimmed, to bring the interface back.
+   */
+  setUiHidden(hidden: boolean): void;
+  /** Is the stats-for-nerds panel showing? */
+  readonly statsOpen: boolean;
+  /** Show or hide the stats panel (fires `onStats` on change). */
+  setStatsOpen(open: boolean): void;
+  /** The machine's GPU line, shown once in the stats panel. */
+  setStatsInfo(info: StatsInfo): void;
+  /**
+   * Refresh the stats panel. Call every frame: `read` is only called (a few
+   * times a second) while the panel is showing, so it may be expensive.
+   * `now` is a millisecond clock.
+   */
+  updateStats(now: number, read: () => StatsSample | null): void;
   /** Is the licenses panel showing? */
   readonly licensesOpen: boolean;
   /**
@@ -271,6 +309,35 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   helpPanel.addEventListener("click", (e) => {
     if (e.target === helpPanel) setHelpOpen(false);
   });
+
+  // Interface toggle: an eye to hide it, a slashed eye (dim) to bring it back.
+  const uiToggleBtn = byId<HTMLButtonElement>("uiToggleBtn");
+  const DIM_CLASSES = ["opacity-35", "hover:opacity-100", "focus-visible:opacity-100"];
+  const setUiHidden = (hidden: boolean) => {
+    if (hidden === root.classList.contains("hud-hidden")) return;
+    root.classList.toggle("hud-hidden", hidden);
+    for (const c of DIM_CLASSES) uiToggleBtn.classList.toggle(c, hidden);
+    uiToggleBtn.innerHTML = hidden ? EYE_OFF_ICON : EYE_ICON;
+    const label = hidden ? "Show interface" : "Hide interface";
+    uiToggleBtn.title = `${label} (${shortcutHint("toggleUi")})`;
+    uiToggleBtn.setAttribute("aria-label", label);
+    uiToggleBtn.setAttribute("aria-pressed", String(hidden));
+    callbacks.onUiHidden?.(hidden);
+  };
+  if (callbacks.initialUiHidden) setUiHidden(true);
+  uiToggleBtn.addEventListener("click", () => {
+    setUiHidden(!root.classList.contains("hud-hidden"));
+    // Drop focus so a later Space/Enter doesn't re-press the button.
+    uiToggleBtn.blur();
+  });
+
+  // Stats for nerds: shortcut only (G), no button.
+  const stats = createStatsPanel(root);
+  const setStatsOpen = (open: boolean) => {
+    if (open === stats.visible) return;
+    stats.setVisible(open);
+    callbacks.onStats?.(open);
+  };
 
   // Leaderboard (ui/leaderboard.ts): the boards panel, opened from the
   // overlay's button and the help panel's link (on top of help), and the
@@ -477,6 +544,16 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       return helpShown;
     },
     setHelpOpen,
+    get uiHidden() {
+      return root.classList.contains("hud-hidden");
+    },
+    setUiHidden,
+    get statsOpen() {
+      return stats.visible;
+    },
+    setStatsOpen,
+    setStatsInfo: stats.setInfo,
+    updateStats: stats.update,
     get licensesOpen() {
       return licensesShown;
     },

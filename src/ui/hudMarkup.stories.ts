@@ -12,9 +12,11 @@ import { DEPARTURE_POINTS, LANDING_POINTS, scoreOf } from "../core/scoring";
 import { createArrivalArrows } from "./arrivalArrows";
 import { createClockDisplay, createClockIcon } from "./clockDisplay";
 import { createScoreRoll } from "./scoreRoll";
+import { createStatsPanel } from "./stats";
 import {
   arrivalLayerMarkup,
   cameraControlsMarkup,
+  EYE_OFF_ICON,
   helpButtonMarkup,
   helpPanelMarkup,
   leaderboardPanelMarkup,
@@ -26,9 +28,11 @@ import {
   scorePanelMarkup,
   soundButtonMarkup,
   speedButtonMarkup,
+  statsPanelMarkup,
   submitFormMarkup,
   toastMarkup,
   trackingIndicatorMarkup,
+  uiToggleButtonMarkup,
 } from "./hudMarkup";
 
 /** Full-window stage matching the game's `<body>`, holding one template. */
@@ -211,6 +215,38 @@ export const TrackingIndicator: Story = {
   },
 };
 
+/**
+ * Stats for nerds panel, bottom-left (shown with its `hud.setStatsOpen`
+ * wiring, filled with canned numbers). Rows come from `STAT_SECTIONS` in
+ * ui/stats.ts; the live values are HUD/Screens → Stats.
+ */
+export const StatsPanel: Story = {
+  render: () => {
+    const root = stage(statsPanelMarkup());
+    const panel = createStatsPanel(root);
+    panel.setVisible(true);
+    panel.setInfo({ gpu: "Apple M2 · WebGL 2" });
+    panel.update(0, () => ({
+      fps: 60,
+      frameMs: 16.7,
+      low: 52,
+      renderMs: 3.2,
+      drawCalls: 184,
+      activeMeshes: 1260,
+      triangles: 412000,
+      width: 1920,
+      height: 1080,
+      scaling: 1,
+      planes: 7,
+      speed: 1,
+      steps: 1,
+      elapsed: 262,
+      heapMb: 148,
+    }));
+    return root;
+  },
+};
+
 /** Bottom-right button row: sound and music on / off, then the camera buttons. */
 export const CameraControls: Story = { render: () => stage(cameraControlsMarkup()) };
 
@@ -286,7 +322,26 @@ export const ProjectLinks: Story = {
     stage(`<div class="flex h-full items-center justify-center">${projectLinksMarkup()}</div>`),
 };
 
-/** "?" button, top-right: opens the help panel from any screen. */
+/**
+ * Interface toggle, in the top-right corner (the "?" sits beside it): an eye to hide the
+ * interface, a slashed eye (dimmed, full opacity on hover) to bring it
+ * back. `hidden` previews the second state; the game swaps them in
+ * `hud.setUiHidden`.
+ */
+export const UiToggleButton: StoryObj<{ hidden: boolean }> = {
+  args: { hidden: false },
+  render: ({ hidden }) => {
+    const root = stage(helpButtonMarkup() + uiToggleButtonMarkup());
+    const btn = part(root, "uiToggleBtn");
+    if (hidden) {
+      btn.classList.add("opacity-35", "hover:opacity-100");
+      btn.innerHTML = EYE_OFF_ICON;
+    }
+    return root;
+  },
+};
+
+/** "?" button, top-right, left of the interface toggle: opens the help panel from any screen. */
 export const HelpButton: Story = { render: () => stage(helpButtonMarkup()) };
 
 /**
