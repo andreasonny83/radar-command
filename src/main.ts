@@ -8,7 +8,7 @@ import "./style.css";
 import { inject } from "@vercel/analytics";
 import { injectSpeedInsights } from "@vercel/speed-insights";
 import { GameAudio, type AudioScene } from "./audio/mixer";
-import { CRASH_OVERLAY_DELAY, MAX_DT, ROTATE_STEP, ZOOM_STEP } from "./config";
+import { CRASH_OVERLAY_DELAY, GAME_SPEEDS, MAX_DT, ROTATE_STEP, ZOOM_STEP } from "./config";
 import { layoutAirports, openAirportsView } from "./core/airports";
 import { NAME_HINT, normalizeName } from "./core/leaderboard";
 import { unlockedColors } from "./core/progression";
@@ -190,6 +190,7 @@ function startShift(): boolean {
   // Leave the crash site: the camera glides back to the default view.
   cameraController.release();
   startGame(state);
+  setGameSpeed(GAME_SPEEDS[0]);
   // Fire and forget: the token only matters if this shift gets submitted.
   runToken = startRun();
   // Glide in over the first airport (the others are closed again).
@@ -229,6 +230,12 @@ function onPanel(panel: string, open: boolean): void {
   }
 }
 
+let gameSpeed: (typeof GAME_SPEEDS)[number] = GAME_SPEEDS[0];
+function setGameSpeed(speed: (typeof GAME_SPEEDS)[number]): void {
+  gameSpeed = speed;
+  hud.setSpeed(speed);
+}
+
 const hud = createHud(document.body, {
   onStart: () => void startShift(),
   onTogglePause: togglePaused,
@@ -246,6 +253,7 @@ const hud = createHud(document.body, {
 
 hud.setMuted(audio.muted);
 hud.setMusicOn(audio.musicOn);
+hud.setSpeed(gameSpeed);
 
 function toggleSound(): void {
   audio.setMuted(!audio.muted);
@@ -324,6 +332,10 @@ attachShortcuts(
     toggleLeaderboard: () => hud.setLeaderboardOpen(true),
     toggleSound,
     toggleMusic,
+    speed1: () => setGameSpeed(GAME_SPEEDS[0]),
+    speed15: () => setGameSpeed(GAME_SPEEDS[1]),
+    speed2: () => setGameSpeed(GAME_SPEEDS[2]),
+    speed3: () => setGameSpeed(GAME_SPEEDS[3]),
     rotateLeft: () => rotate(-1),
     rotateRight: () => rotate(1),
     zoomIn: () => zoom(1),
@@ -390,11 +402,12 @@ engine.runRenderLoop(() => {
   // Seconds since last frame, clamped so a backgrounded tab doesn't make
   // planes teleport (and tunnel through each other) when it resumes.
   const dt = Math.min(engine.getDeltaTime() / 1000, MAX_DT);
+  const simDt = dt * gameSpeed;
   // Animation clock (warning pulse, water shimmer) stops while paused too, so
   // the whole scene freezes. The camera below still eases on real dt.
   if (state.phase !== "paused") time += dt;
 
-  for (const event of step(state, dt)) handleEvent(event);
+  for (const event of step(state, simDt)) handleEvent(event);
   if (gameOverIn !== null && (gameOverIn -= dt) <= 0) {
     gameOverIn = null;
     void offerSubmit();
