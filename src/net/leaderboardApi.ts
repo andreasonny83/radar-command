@@ -57,10 +57,19 @@ export function submitScore(request: SubmitRequest): Promise<Result<SubmitRespon
   return call<SubmitResponse>("/api/scores", { method: "POST", body: JSON.stringify(request) });
 }
 
-/** One board, with the player's own rank when `playerId` is given. */
-export function fetchBoard(board: Board, playerId?: string): Promise<Result<BoardResponse>> {
+/**
+ * One board, with the player's own rank when `playerId` is given. `name` is
+ * the nickname playing now: people sharing a browser share its `playerId`,
+ * so the name says which of them is "you".
+ */
+export function fetchBoard(
+  board: Board,
+  playerId?: string,
+  name?: string,
+): Promise<Result<BoardResponse>> {
   const query = new URLSearchParams({ board });
   if (playerId) query.set("playerId", playerId);
+  if (playerId && name) query.set("name", name);
   return call<BoardResponse>(`/api/leaderboard?${query}`);
 }
 

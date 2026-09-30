@@ -224,5 +224,9 @@ export type ApiErrorCode =
   | "rate_limited" // too many submits from one address
   | "server"; // database or configuration trouble
 
-/** Loose UUID check for `playerId` (any version: it's only a grouping key). */
+/**
+ * Loose UUID check for `playerId` (any version: it's only a grouping key).
+ * It identifies a browser, not a person: on a board a player is a
+ * `playerId` plus a nickname.
+ */
 export const UUID_RULE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

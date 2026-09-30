@@ -95,7 +95,7 @@ export async function POST(request: Request): Promise<Response> {
     // necessarily this run).
     const now = new Date();
     const standings = await Promise.all(
-      BOARDS.map((board) => playerRank(boardStart(board, now), playerId.toLowerCase())),
+      BOARDS.map((board) => playerRank(boardStart(board, now), playerId.toLowerCase(), name)),
     );
     const ranks = Object.fromEntries(
       BOARDS.map((board, i) => [board, standings[i]?.rank ?? 0]),
