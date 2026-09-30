@@ -524,6 +524,40 @@ export const COLOR_UNLOCK_LANDINGS: Record<RunwayColor, number> = {
   yellow: 7,
 };
 
+// ---------------------------------------------------------------------------
+// Wind streams (second-day difficulty — see core/windStreams.ts)
+// ---------------------------------------------------------------------------
+
+/** Most streams that can be up at once, however many game days have passed. */
+export const WIND_MAX_STREAMS = 3;
+
+/** Seconds a new stream shows as a harmless warning before it bites. */
+export const WIND_FORM_SECONDS = 6;
+
+/** Seconds a stream is active: pushing planes and erasing their paths. */
+export const WIND_ACTIVE_SECONDS = 25;
+
+/** Seconds a stream takes to die down (its push fades with it). */
+export const WIND_FADE_SECONDS = 3;
+
+/** Seconds from the wind's first day starting to its first stream forming. */
+export const WIND_FIRST_DELAY = 8;
+
+/** Random gap (seconds) between one stream forming and the next. */
+export const WIND_GAP_MIN = 30;
+export const WIND_GAP_MAX = 60;
+
+/** Stream size (world units): along the wind, and across it. */
+export const WIND_LENGTH = 50;
+export const WIND_WIDTH = 12;
+
+/** Push on a plane in a full-strength stream (units/s; cruise is `PLANE_SPEED`). */
+export const WIND_DRIFT = PLANE_SPEED / 2;
+
+/** Peak heading shove (radians) and its wobble rate (rad/s) in a stream. */
+export const WIND_TURN = 0.3;
+export const WIND_TURN_RATE = 2.1;
+
 /**
  * Seconds after a runway opens (announcement, camera pull-back, strip
  * unrolling) before planes may arrive on it or depart from it. Gives the
@@ -810,3 +844,26 @@ export const COLOR_HEX: Record<PlaneColor, string> = {
  * exposes `VITE_`-prefixed variables to the browser); unset, it is off.
  */
 export const DEBUG_SHOW_AIRSPACE = import.meta.env.VITE_DEBUG_SHOW_AIRSPACE === "true";
+
+/**
+ * Thin out the air traffic while testing, as a percentage (1-100; dev
+ * builds only, 100 = off): the airborne cap (`maxAirborne`, never below one
+ * plane) and the departure rate are scaled to it, so `25` gives roughly a
+ * quarter of the usual traffic. Set `VITE_DEBUG_TRAFFIC_PERCENT=25` in `.env`.
+ */
+const trafficPercent = Number(import.meta.env.VITE_DEBUG_TRAFFIC_PERCENT);
+export const DEBUG_TRAFFIC_PERCENT =
+  import.meta.env.DEV && Number.isFinite(trafficPercent) && trafficPercent > 0
+    ? Math.min(100, trafficPercent)
+    : 100;
+
+/**
+ * Start every shift this many game hours in (dev builds only; 0 = off). One
+ * hour is 15 s of play, so `24` opens a shift on the second day: wind
+ * streams from the first minute, and every runway open with departures
+ * running (see `seedShift` in core/state.ts). Such a shift can't be
+ * submitted to the leaderboard. Set `VITE_DEBUG_START_HOURS=24` in `.env`.
+ */
+const startHours = Number(import.meta.env.VITE_DEBUG_START_HOURS);
+export const DEBUG_START_HOURS =
+  import.meta.env.DEV && Number.isFinite(startHours) && startHours > 0 ? startHours : 0;

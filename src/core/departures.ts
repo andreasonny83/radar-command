@@ -395,7 +395,7 @@ export function scheduleDepartures(
   const { runway, stand } = candidates[Math.floor(rng() * candidates.length)]!;
   const plane = createDeparture(state, runway, stand, rng);
   state.departureTimer = 0;
-  state.departureInterval = nextDepartureInterval(rng);
+  state.departureInterval = nextDepartureInterval(rng) / state.traffic;
   events.push({ type: "departureAnnounced", planeId: plane.id, color: runway.color });
 }
 

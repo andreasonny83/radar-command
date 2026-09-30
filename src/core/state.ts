@@ -2,7 +2,15 @@
  * Game state construction. The state object is plain data: the simulation
  * mutates it, the renderer and UI only read it.
  */
-import { DEPARTURE_INTERVAL_MIN, SPAWN_INTERVAL_START, WORLD_ASPECT } from "../config";
+import {
+  COLOR_UNLOCK_LANDINGS,
+  DEPARTURE_INTERVAL_MIN,
+  DEPARTURE_START_LANDINGS,
+  SPAWN_INTERVAL_START,
+  WIND_FIRST_DELAY,
+  WORLD_ASPECT,
+} from "../config";
+import { DAY_SECONDS } from "./daytime";
 import { computeWorldSize, layoutRunways, safeViewAspect } from "./layout";
 import { isAirspaceCompact } from "./progression";
 import type { GameState, OrientedRect } from "./types";
@@ -22,6 +30,10 @@ export function createGameState(viewAspect = WORLD_ASPECT): GameState {
     unlockedAt: {},
     spawnTimer: 0,
     spawnInterval: SPAWN_INTERVAL_START,
+    traffic: 1,
+    streams: [],
+    windTimer: WIND_FIRST_DELAY,
+    nextStreamId: 1,
     departureTimer: 0,
     departureInterval: DEPARTURE_INTERVAL_MIN,
     nextPlaneId: 1,
@@ -44,12 +56,30 @@ export function resetGameState(state: GameState): void {
   state.unlockedAt = {};
   state.spawnTimer = 0;
   state.spawnInterval = SPAWN_INTERVAL_START;
+  state.streams = [];
+  state.windTimer = WIND_FIRST_DELAY;
+  state.nextStreamId = 1;
   state.departureTimer = 0;
   state.departureInterval = DEPARTURE_INTERVAL_MIN;
   state.nextGroundSeq = 0;
   state.planes = [];
   // Only the first runway is open again: the airspace shrinks back round it.
   state.world.compactAirspace = isAirspaceCompact(0, state.runways);
+}
+
+/**
+ * Development aid: begin the new shift `hours` game hours in (see
+ * `DEBUG_START_HOURS`). The clock and the wind level follow `elapsed`
+ * (one game hour is `DAY_SECONDS / 24` s of play); runways and departures
+ * follow the landing count, so `landed` is lifted to the highest threshold,
+ * which opens every runway, starts departures and widens the airspace.
+ * Call right after `resetGameState`. The landing count is made up, so the
+ * score is too: such a shift must never reach the leaderboard.
+ */
+export function seedShift(state: GameState, hours: number): void {
+  state.elapsed = (hours * DAY_SECONDS) / 24;
+  state.landed = Math.max(DEPARTURE_START_LANDINGS, ...Object.values(COLOR_UNLOCK_LANDINGS));
+  state.world.compactAirspace = isAirspaceCompact(state.landed, state.runways);
 }
 
 /**

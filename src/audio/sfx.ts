@@ -141,6 +141,7 @@ const LEVELS = {
   // Square waves carry more energy than the readback's sines at the same
   // peak, so a lower level lands the "denied" buzz beside it (~-34 dBFS).
   reject: 0.045,
+  windGust: 0.16,
 };
 
 /**
@@ -294,6 +295,31 @@ export class Sfx {
     REJECT_NOTES.forEach((freq, i) =>
       this.beep(tone, freq, t + i * REJECT_NOTE, REJECT_NOTE, LEVELS.reject, "square"),
     );
+  }
+
+  /**
+   * A gust of wind (a stream forming, a plane losing its path to one, see
+   * core/windStreams.ts): band-passed noise whose pitch sweeps up then
+   * down under a slow swell. `strength` (0-1) makes it louder and longer.
+   * Synthesised like the game's other signals, so it needs no recording.
+   * Not panned: it is the weather, not one plane.
+   */
+  windGust(strength = 0.6): void {
+    const { ctx } = this;
+    const t = ctx.currentTime;
+    const dur = 1.2 + strength * 1.2;
+    const band = ctx.createBiquadFilter();
+    band.type = "bandpass";
+    band.Q.value = 0.9;
+    band.frequency.setValueAtTime(300, t);
+    band.frequency.exponentialRampToValueAtTime(900 + 500 * strength, t + dur * 0.45);
+    band.frequency.exponentialRampToValueAtTime(350, t + dur);
+    const env = ctx.createGain();
+    const peak = LEVELS.windGust * (0.5 + 0.5 * strength);
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(peak, t + dur * 0.4);
+    env.gain.linearRampToValueAtTime(0, t + dur);
+    this.noiseSource(t, dur).connect(band).connect(env).connect(this.out);
   }
 
   // -------------------------------------------------------------------------

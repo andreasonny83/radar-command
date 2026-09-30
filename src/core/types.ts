@@ -150,6 +150,19 @@ export interface Plane {
    * core/avoidance.ts); 0 otherwise.
    */
   avoidTurn: number;
+  /**
+   * The wind stream the plane is inside right now (see core/windStreams.ts),
+   * or null. Lets the step tell "just flew in" (path erased) from "still
+   * in it".
+   */
+  windStreamId: number | null;
+  /** Push (units/s) of the stream the plane is in, added to its track; zero outside. */
+  wind: Vec2;
+  /**
+   * Heading shove (radians) a stream adds to the course this step, like
+   * `avoidTurn`; wobbles around zero so the plane is shaken, not circled.
+   */
+  windTurn: number;
   /** Take-off state for departures (see core/departures.ts); null for arrivals. */
   departure: DepartureState | null;
 }
@@ -337,6 +350,18 @@ export interface GameState {
   spawnTimer: number;
   /** Seconds between spawns; shrinks as difficulty ramps up. */
   spawnInterval: number;
+  /**
+   * Share of the normal air traffic, 0-1 (1 = the real game): scales the
+   * airborne cap and the departure rate. Only dev builds lower it (see
+   * `DEBUG_TRAFFIC_PERCENT`); kept across shifts.
+   */
+  traffic: number;
+  /** Wind streams on the map now (see core/windStreams.ts). */
+  streams: WindStream[];
+  /** Seconds until the next wind stream may form. */
+  windTimer: number;
+  /** Next id handed out to a wind stream. */
+  nextStreamId: number;
   /** Seconds accumulated towards the next departure (see core/departures.ts). */
   departureTimer: number;
   /** Seconds until the next departure is due, once departures have begun. */
@@ -365,6 +390,20 @@ export interface GameState {
   planes: Plane[];
 }
 
+/** Where a wind stream is in its life (see core/windStreams.ts). */
+export type WindPhase = "forming" | "active" | "fading";
+
+/**
+ * A band of strong wind across the map. It blows along `rect.heading`; the
+ * phase follows from `age` (see `windPhase`).
+ */
+export interface WindStream {
+  id: number;
+  rect: OrientedRect;
+  /** Seconds since it started forming. */
+  age: number;
+}
+
 /** Things that happened during a `step`, for the UI/renderer to react to. */
 export type SimEvent =
   | { type: "spawned"; planeId: number }
@@ -381,7 +420,13 @@ export type SimEvent =
   /** A departure started its take-off roll. */
   | { type: "takeoffRoll"; planeId: number; color: RunwayColor }
   /** A departure lifted off: `color`'s runway is open to arrivals again. */
-  | { type: "liftoff"; planeId: number; color: RunwayColor };
+  | { type: "liftoff"; planeId: number; color: RunwayColor }
+  /** A wind stream began to form: harmless for now, it bites when it turns active. */
+  | { type: "windForming"; streamId: number }
+  /** A wind stream turned active. */
+  | { type: "windActive"; streamId: number }
+  /** A plane flew into an active wind stream and lost its path. */
+  | { type: "pathLost"; planeId: number };
 
 /** Random source in `[0, 1)`. Injected so tests can be deterministic. */
 export type Rng = () => number;

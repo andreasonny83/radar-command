@@ -8,7 +8,15 @@ import "./style.css";
 import { inject } from "@vercel/analytics";
 import { injectSpeedInsights } from "@vercel/speed-insights";
 import { GameAudio, type AudioScene } from "./audio/mixer";
-import { CRASH_OVERLAY_DELAY, GAME_SPEEDS, MAX_DT, ROTATE_STEP, ZOOM_STEP } from "./config";
+import {
+  CRASH_OVERLAY_DELAY,
+  DEBUG_START_HOURS,
+  DEBUG_TRAFFIC_PERCENT,
+  GAME_SPEEDS,
+  MAX_DT,
+  ROTATE_STEP,
+  ZOOM_STEP,
+} from "./config";
 import { layoutAirports, openAirportsView } from "./core/airports";
 import { NAME_HINT, normalizeName } from "./core/leaderboard";
 import { unlockedColors } from "./core/progression";
@@ -55,6 +63,8 @@ const aspect = () => engine.getRenderWidth() / engine.getRenderHeight();
 
 // --- State (pure data, advanced only by `step`) ----------------------------
 const state = createGameState(aspect());
+// Dev aid: thinner traffic (config.ts `DEBUG_TRAFFIC_PERCENT`; 100 = normal).
+state.traffic = DEBUG_TRAFFIC_PERCENT / 100;
 
 // --- Rendering ---------------------------------------------------------------
 const cameraController = new CameraController(scene, canvas);
@@ -138,6 +148,14 @@ async function offerSubmit(): Promise<void> {
     });
     return;
   }
+  // A mocked start (DEBUG_START_HOURS) made up its landing count.
+  if (DEBUG_START_HOURS > 0) {
+    hud.setSubmitState({
+      kind: "unavailable",
+      message: `Dev shift (started ${DEBUG_START_HOURS} h in) can't be submitted.`,
+    });
+    return;
+  }
   const token = await runToken;
   // A new shift started while the token was still on its way.
   if (state.phase !== "gameover") return;
@@ -192,10 +210,10 @@ function startShift(): boolean {
   if (state.phase === "playing" || state.phase === "paused" || gameOverIn !== null) return false;
   // Leave the crash site: the camera glides back to the default view.
   cameraController.release();
-  startGame(state);
+  startGame(state, Math.random, DEBUG_START_HOURS);
   setGameSpeed(GAME_SPEEDS[0]);
   // Fire and forget: the token only matters if this shift gets submitted.
-  runToken = startRun();
+  runToken = DEBUG_START_HOURS > 0 ? null : startRun();
   // Glide in over the first airport (the others are closed again).
   framedAirports = 0;
   frameOpenAirports();

@@ -254,6 +254,12 @@ export class GameAudio {
         this.graph?.sfx.goAround(pan(event.planeId), event.planeId);
         this.reject(); // with the red X at the threshold (main.ts)
         break;
+      case "windForming":
+        this.graph?.sfx.windGust(0.5);
+        break;
+      case "pathLost":
+        this.graph?.sfx.windGust(1);
+        break;
       default:
         break;
     }

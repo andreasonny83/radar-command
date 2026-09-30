@@ -62,6 +62,7 @@ import { Landscape } from "./landscape";
 import type { MeshFactory } from "./meshes";
 import { smoothTrack } from "./pathLine";
 import { RejectMarks } from "./rejectMarks";
+import { WindStreamsView } from "./windStreams";
 import { RunwayFactory, type RunwayView } from "./runway";
 import { fitShadowsToWorld, OVERLAY_GROUP } from "./scene";
 import { createPoolMesh, poolMaterial, setNightLevel } from "./nightLights";
@@ -357,7 +358,13 @@ interface PlaneView {
    * landing-light pool included, as the glow would show through the roof.
    */
   inHangar: boolean;
+  /** Eased 0 (clear air) to 1 (in a wind stream): how much extra it is shaken. */
+  streamShake: number;
 }
+
+/** Extra turbulence (× the usual) a plane in a wind stream gets, and how fast it eases. */
+export const STREAM_SHAKE = 2;
+export const STREAM_SHAKE_EASE = 4;
 
 export class SceneSync {
   private readonly views = new Map<number, PlaneView>();
@@ -394,6 +401,7 @@ export class SceneSync {
   private cues: AudioCue[] = [];
   /** Red "no landing" X marks (see `showRejectMark`). */
   private readonly rejectMarks: RejectMarks;
+  private readonly windStreams: WindStreamsView;
   private readonly scratch = new Vector3();
   /** 0 day … 1 night (see `setNight`). */
   private night = 0;
@@ -418,6 +426,7 @@ export class SceneSync {
     this.boundary = new AirspaceBoundary(scene);
     this.boundary.setVisible(DEBUG_SHOW_AIRSPACE);
     this.rejectMarks = new RejectMarks(factory);
+    this.windStreams = new WindStreamsView(scene);
     this.beamMat = poolMaterial("landingLights", "#fff6e0", scene);
     this.beams = createPoolMesh("landingLights", scene);
     this.beams.material = this.beamMat;
@@ -627,6 +636,7 @@ export class SceneSync {
       this.boundaryCompact = state.world.compactAirspace === true;
     }
     this.landscape.update(time);
+    this.windStreams.sync(state.streams, state.world, time);
     this.syncRunways(state, time);
     for (const runway of this.runwayViews) runway.update(time);
     this.scene.activeCamera?.getDirectionToRef(Axis.Z, this.viewDir);
@@ -674,6 +684,7 @@ export class SceneSync {
           altitude: null,
           touchdownAltitude: null,
           inHangar: false,
+          streamShake: 0,
         };
         this.views.set(plane.id, view);
         // Solid parts only: prop blur discs and lights cast no shadow.
@@ -797,7 +808,16 @@ export class SceneSync {
         ? 0
         : Math.min(1, departure.climbed / CLIMB_DISTANCE)
       : 1 - descent;
-    const wind = windEffect(time, plane.id, plane.heading, windAmount);
+    // In a wind stream (core/windStreams.ts) the plane is shaken much harder,
+    // eased in and out so crossing the edge doesn't make it jump.
+    const inStream = plane.windStreamId !== null ? 1 : 0;
+    view.streamShake += (inStream - view.streamShake) * Math.min(1, dt * STREAM_SHAKE_EASE);
+    const wind = windEffect(
+      time,
+      plane.id,
+      plane.heading,
+      windAmount * (1 + STREAM_SHAKE * view.streamShake),
+    );
     const root = view.aircraft.root;
     this.placeOverTrack(plane, world, altitude, root.position);
     // Fake perspective (the camera is orthographic): higher planes look a

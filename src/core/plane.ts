@@ -38,6 +38,9 @@ export function createPlane(id: number, color: PlaneColor, pos: Vec2, heading: n
     inbound: false,
     entry: null,
     avoidTurn: 0,
+    windStreamId: null,
+    wind: { x: 0, y: 0 },
+    windTurn: 0,
     departure: null,
   };
 }
@@ -76,6 +79,8 @@ function moveForward(plane: Plane, dist: number): void {
  *
  * Outside the airspace the automatic collision avoidance may bend the
  * course (see `Plane.avoidTurn`, set once per step by core/avoidance.ts).
+ * In a wind stream the plane is also pushed and shaken (`Plane.wind`,
+ * `Plane.windTurn`, set by core/windStreams.ts).
  *
  * Steering is a feedback loop, and feedback loops react differently to big
  * and small time steps. So the frame is split into fixed-size sub-steps,
@@ -96,8 +101,12 @@ function updateFlying(plane: Plane, dt: number, world: WorldSize): void {
       updateDeparting(plane, dt - i * h, world);
       return;
     }
-    steer(plane, (desired ?? plane.heading) + plane.avoidTurn, h);
+    steer(plane, (desired ?? plane.heading) + plane.avoidTurn + plane.windTurn, h);
     moveForward(plane, PLANE_SPEED * h);
+    // Wind streams push the ground track sideways of the nose (see
+    // core/windStreams.ts); zero outside them.
+    plane.pos.x += plane.wind.x * h;
+    plane.pos.y += plane.wind.y * h;
     // Arrived: the plane is now in play like any other.
     if (plane.inbound && isInAirspace(plane.pos, world)) {
       plane.inbound = false;

@@ -6,19 +6,22 @@
  *                flying than the progression cap allows (core/progression.ts);
  *                later in the shift, departures roll out of the hangars
  *                (core/departures.ts)
- *   2. move    – every plane advances by dt: airborne ones along their
+ *   2. wind    – wind streams age and form (from the second game day on); a
+ *                plane that flew into an active one loses its path and is
+ *                pushed along (core/windStreams.ts)
+ *   3. move    – every plane advances by dt: airborne ones along their
  *                paths, ones on the ground along their taxi routes. First,
  *                planes outside the airspace pick their avoidance turns
  *                (core/avoidance.ts), so they keep clear of each other.
  *                Then departures move on a stage: cleared onto the runway,
  *                lined up, rolling, or lifting off
- *   3. land    – planes over a matching threshold touch down and get a
+ *   4. land    – planes over a matching threshold touch down and get a
  *                ground route; a landing may open a new runway colour. A
  *                runway closed for a departure sends arrivals around
- *   4. collide – any remaining flying planes that overlap inside the
+ *   5. collide – any remaining flying planes that overlap inside the
  *                airspace, or on a player-drawn path anywhere, end the
  *                game (other planes outside it never collide)
- *   5. prune   – planes stowed in a hangar, or flown off the world, are
+ *   6. prune   – planes stowed in a hangar, or flown off the world, are
  *                removed
  */
 import { resolveOuterTraffic } from "./avoidance";
@@ -28,6 +31,7 @@ import { detectCollisions } from "./collision";
 import { isInAirspace } from "./layout";
 import { isTouchdownZoneClear, touchDown, updateGround } from "./ground";
 import { updatePlane } from "./plane";
+import { updateWind } from "./windStreams";
 import {
   flyingCount,
   isAirspaceCompact,
@@ -36,7 +40,7 @@ import {
   timeScoringOpen,
 } from "./progression";
 import { nextSpawnInterval, spawnPlane } from "./spawner";
-import { resetGameState } from "./state";
+import { resetGameState, seedShift } from "./state";
 import type { GameState, Rng, Runway, SimEvent } from "./types";
 
 /**
@@ -44,9 +48,12 @@ import type { GameState, Rng, Runway, SimEvent } from "./types";
  * opening plane can't be sent off the world: the player has to land it.
  * It flies in straight for its runway, so it crosses the opening view (the
  * camera starts zoomed in over the first airport) and its arrow shows.
+ * `startHours` (dev aid; main.ts passes `DEBUG_START_HOURS`) begins the shift
+ * that many game hours in (see `seedShift`).
  */
-export function startGame(state: GameState, rng: Rng = Math.random): void {
+export function startGame(state: GameState, rng: Rng = Math.random, startHours = 0): void {
   resetGameState(state);
+  if (startHours > 0) seedShift(state, startHours);
   const first = spawnPlane(state, rng, true);
   if (first) first.canDepart = false;
 }
@@ -79,7 +86,8 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
   // 1. Spawn. Subtract (rather than zero) the timer so leftover time carries over.
   state.spawnTimer += dt;
   if (state.spawnTimer >= state.spawnInterval) {
-    if (flyingCount(state.planes) < maxAirborne(state.landed, state.elapsed)) {
+    const cap = Math.max(1, Math.round(maxAirborne(state.landed, state.elapsed) * state.traffic));
+    if (flyingCount(state.planes) < cap) {
       state.spawnTimer -= state.spawnInterval;
       const plane = spawnPlane(state, rng);
       if (plane) events.push({ type: "spawned", planeId: plane.id });
@@ -92,13 +100,17 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
   }
   scheduleDepartures(state, dt, rng, events);
 
-  // 2. Move. Avoidance first, from where everyone is at the start of the step.
+  // 2. Wind. Before anyone moves, so a plane that just flew into a stream
+  // loses its path before it is steered along it.
+  updateWind(state, dt, rng, events);
+
+  // 3. Move. Avoidance first, from where everyone is at the start of the step.
   resolveOuterTraffic(state.planes, state.world);
   for (const plane of state.planes) updatePlane(plane, dt, state.world);
   updateGround(state, dt);
   advanceDepartures(state, dt, events);
 
-  // 3. Land (or go around, if the touchdown zone is blocked or the runway
+  // 4. Land (or go around, if the touchdown zone is blocked or the runway
   // is closed for a departure).
   const isClear = (r: Runway) =>
     isTouchdownZoneClear(r, state.planes) && !isRunwayClosed(r, state.planes);
@@ -119,7 +131,7 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
     }
   }
 
-  // 4. Collide.
+  // 5. Collide.
   const { crash, warnings } = detectCollisions(state.planes, state.world);
   for (const plane of state.planes) plane.warning = warnings.has(plane.id);
   if (crash) {
@@ -134,7 +146,7 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
     return events;
   }
 
-  // 5. Count departures that made it out, then prune. A departure earns its
+  // 6. Count departures that made it out, then prune. A departure earns its
   // credit the moment it leaves the airspace: outside it nothing can hit it
   // (see core/collision.ts), so it is safe, and waiting for the map edge
   // (a further 20-30 s of flying) made the score feel late. Arrivals that
