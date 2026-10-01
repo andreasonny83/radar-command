@@ -32,6 +32,10 @@ import { createWeatherStrip, type WeatherAlert } from "./weatherAlerts";
 
 export interface HudCallbacks {
   onStart: () => void;
+  /** WATCH DEMO pressed on the start screen. Optional: stories without a game leave it out. */
+  onDemo?: () => void;
+  /** EXIT DEMO pressed while a demo plays. */
+  onExitDemo?: () => void;
   /** Pause button pressed (pause while playing, continue while paused). */
   onTogglePause: () => void;
   /** Set the simulation speed multiplier. */
@@ -96,6 +100,16 @@ export interface Hud {
    */
   setClock(hours: number, night: number): void;
   hideOverlay(): void;
+  /**
+   * Show the title screen again (leaving a demo): the overlay back, with
+   * its WATCH DEMO button. Only meaningful after `hideOverlay` from the
+   * title: a game-over screen never goes back to the title.
+   */
+  showStart(): void;
+  /** Show or hide the "Demo" badge and its EXIT DEMO button. */
+  setDemo(on: boolean): void;
+  /** Hide the toast now, if one is showing. */
+  hideToast(): void;
   /**
    * Crash screen: the final score with its breakdown (landed, departed,
    * time), and the leaderboard form with `name` (the last one used) filled
@@ -206,6 +220,18 @@ const CRASH_BACKDROP = [
   "via-slate-950/30",
   "to-transparent",
 ];
+/** Game-over card: the score sheet and form sit on a panel, not on the scene. */
+const CRASH_CARD = [
+  "rounded-3xl",
+  "border",
+  "border-slate-700/80",
+  "bg-slate-900/95",
+  "px-6",
+  "py-8",
+  "shadow-2xl",
+  "shadow-black/60",
+  "backdrop-blur-md",
+];
 
 /** One line of the game-over score sheet: label, how it adds up, points. */
 function summaryRow(label: string, detail: string, points: number): string {
@@ -237,9 +263,13 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   // HH:MM as a neon display (ui/clockDisplay.ts).
   const clockTime = createClockDisplay(byId("clockTime"));
   const overlay = byId("overlay");
+  const overlayCard = byId("overlayCard");
   const title = byId("overlayTitle");
   const message = byId("overlayMessage");
   const startBtn = byId<HTMLButtonElement>("startBtn");
+  const demoBtn = byId<HTMLButtonElement>("demoBtn");
+  const demoIndicator = byId("demoIndicator");
+  const exitDemoBtn = byId<HTMLButtonElement>("exitDemoBtn");
   const submitForm = byId<HTMLFormElement>("submitForm");
   const nameInput = byId<HTMLInputElement>("playerName");
   const submitBtn = byId<HTMLButtonElement>("submitBtn");
@@ -272,6 +302,15 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     // The overlay fades out but keeps focus: drop it, or Space/Enter would
     // press the invisible button again.
     startBtn.blur();
+  });
+  demoBtn.addEventListener("click", () => {
+    callbacks.onDemo?.();
+    // The overlay fades out but keeps focus: drop it (see startBtn).
+    demoBtn.blur();
+  });
+  exitDemoBtn.addEventListener("click", () => {
+    callbacks.onExitDemo?.();
+    exitDemoBtn.blur();
   });
   pauseBtn.addEventListener("click", () => {
     callbacks.onTogglePause();
@@ -493,6 +532,19 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       // Nothing on the hidden overlay keeps focus (keys would type into it).
       nameInput.blur();
     },
+    hideToast() {
+      clearTimeout(toastTimer);
+      toast.classList.add("opacity-0");
+    },
+    showStart() {
+      demoBtn.classList.remove("hidden");
+      overlay.classList.remove("opacity-0", "pointer-events-none");
+    },
+    setDemo(on) {
+      // `hidden` and `flex` both set `display`, so swap them rather than stack.
+      demoIndicator.classList.toggle("hidden", !on);
+      demoIndicator.classList.toggle("flex", on);
+    },
     showGameOver(b, name = "", cause = "collision") {
       title.textContent = cause === "wind" ? "WIND SHEAR!" : "CRASH!";
       title.classList.replace("text-sky-400", "text-red-500");
@@ -516,6 +568,9 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       submitForm.classList.replace("hidden", "flex");
       overlay.classList.remove(...START_BACKDROP);
       overlay.classList.add(...CRASH_BACKDROP);
+      overlayCard.classList.add(...CRASH_CARD);
+      // A finished shift can't start a demo: the title is gone for good.
+      demoBtn.classList.add("hidden");
       overlay.classList.remove("opacity-0", "pointer-events-none");
     },
     setPhase(phase) {

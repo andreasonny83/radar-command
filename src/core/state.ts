@@ -68,6 +68,16 @@ export function resetGameState(state: GameState): void {
 }
 
 /**
+ * Back to the title screen (leaving a demo): the shift's data cleared and
+ * the phase `start`, so the scene shows the empty field and a new shift
+ * begins from scratch.
+ */
+export function resetToTitle(state: GameState): void {
+  resetGameState(state);
+  state.phase = "start";
+}
+
+/**
  * Development aid: begin the new shift `hours` game hours in (see
  * `DEBUG_START_HOURS`). The clock and the wind level follow `elapsed`
  * (one game hour is `DAY_SECONDS / 24` s of play); runways and departures

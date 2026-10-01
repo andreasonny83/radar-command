@@ -66,7 +66,8 @@ export function loadSpeech(): Promise<boolean> {
 /**
  * Render `text` as the announcer's speech (`voice` indexes
  * `ANNOUNCER_VOICES`), or null if the engine isn't loaded or rendering
- * fails. Call `loadSpeech` first; this never loads it itself.
+ * fails (a failure is logged as a console warning, so a chime with no
+ * voice leaves a trace). Call `loadSpeech` first; this never loads it itself.
  */
 export async function speak(
   ctx: BaseAudioContext,
@@ -79,7 +80,10 @@ export async function speak(
   try {
     // The engine keeps its settings between lines, so every line sets them
     // all: voice first, then the rate and pitch to speak it at.
-    if (worker.set_voice(`${ANNOUNCER_VOICE}+${variant}`) !== 0) return null;
+    if (worker.set_voice(`${ANNOUNCER_VOICE}+${variant}`) !== 0) {
+      console.warn(`Speech: voice ${ANNOUNCER_VOICE}+${variant} not available; line skipped.`);
+      return null;
+    }
     worker.set_rate(ANNOUNCER_SPEED);
     worker.set_pitch(pitch);
     // Rendering is synchronous; the samples arrive in chunks.
@@ -90,7 +94,10 @@ export async function speak(
       length += samples.length;
       return false;
     });
-    if (length === 0) return null;
+    if (length === 0) {
+      console.warn("Speech: engine rendered no sound; line skipped:", text);
+      return null;
+    }
     const buffer = ctx.createBuffer(1, length, worker.get_samplerate());
     const out = buffer.getChannelData(0);
     let at = 0;
@@ -98,7 +105,8 @@ export async function speak(
       for (const sample of chunk) out[at++] = sample / 32768;
     }
     return buffer;
-  } catch {
+  } catch (err) {
+    console.warn("Speech: rendering failed; line skipped:", text, err);
     return null;
   }
 }

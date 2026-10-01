@@ -951,3 +951,64 @@ export const DEBUG_TRAFFIC_PERCENT =
 const startHours = Number(import.meta.env.VITE_DEBUG_START_HOURS);
 export const DEBUG_START_HOURS =
   import.meta.env.DEV && Number.isFinite(startHours) && startHours > 0 ? startHours : 0;
+
+// ---------------------------------------------------------------------------
+// Demo mode (core/autopilot/)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mean game days of play between the demo autopilot's lapses (it goes
+ * blind to one plane, see core/autopilot/mistakes.ts). Most lapses end in
+ * nothing: measured with the soak runs (core/autopilot/autopilot.test.ts),
+ * about one in eleven becomes a crash, and without lapses the autopilot
+ * crashes about once in 35 game days. A lapse every half day therefore
+ * gives a crash roughly every five to seven game days. Re-measure after
+ * changing the autopilot, `DEMO_BLIND_SECONDS` or `chooseMistake`.
+ */
+export const DEMO_MEAN_DAYS_BETWEEN_MISTAKES = 0.5;
+
+/** Seconds a lapse lasts: the autopilot can't see the one plane. */
+export const DEMO_BLIND_SECONDS = 25;
+
+/** A lapse only picks a plane with other traffic within this distance (it must be able to matter). */
+export const DEMO_BLIND_RANGE = 45;
+
+/** Seconds from the crash cinematic's end to the new demo shift. */
+export const DEMO_RESTART_DELAY = 3;
+
+/** Seconds between the autopilot's looks at the traffic (replan cycles). */
+export const DEMO_REPLAN_INTERVAL = 0.5;
+
+/**
+ * Planes the autopilot plans in one go. Planning is the expensive part; the
+ * rest wait for the next step, so a busy moment spreads over a few frames
+ * instead of one long one.
+ */
+export const DEMO_PLANS_PER_CYCLE = 2;
+
+/** Seconds before a plane with a fine but unanchored path is offered a landing approach again. */
+export const DEMO_RETRY_INTERVAL = 3;
+
+/** Predicted tracks (core/autopilot/track.ts): sample spacing, in seconds. */
+export const DEMO_TRACK_STEP = 0.5;
+
+/** Predicted tracks: how far ahead the autopilot looks, in seconds. */
+export const DEMO_TRACK_HORIZON = 30;
+
+/** Planned tracks must stay at least this far apart (the warning ring shows at `WARNING_DISTANCE`). */
+export const DEMO_SEPARATION = COLLISION_DISTANCE * 2.4;
+
+/** Two approaches to one runway land at least this many seconds apart (the rollout needs the zone clear). */
+export const DEMO_LANDING_GAP = 8;
+
+/** Straight final the autopilot lines planes up on, in world units. */
+export const DEMO_FINAL_LENGTH = 24;
+
+/** Longer final, tried when the short one can't be flown (more room to line up). */
+export const DEMO_LONG_FINAL_LENGTH = 48;
+
+/** Radius of the holding orbit, wider than the turn circle `PLANE_SPEED / MAX_TURN_RATE`. */
+export const DEMO_ORBIT_RADIUS = 9;
+
+/** Extra room round a black wind stream's band that planned tracks keep clear. */
+export const DEMO_WIND_MARGIN = PLANE_RADIUS * 3;

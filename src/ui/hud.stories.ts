@@ -7,7 +7,9 @@
  * cap/link styles in style.css, the shortcut table in input/shortcuts.ts,
  * `TOAST_MS` in hud.ts, `AVOID_RADIUS` in arrivalArrows.ts or the GitHub /
  * feedback URLs in links.ts, and the story hot-reloads. The leaderboard
- * panel and game-over form have their own stories (HUD/Leaderboard).
+ * panel and game-over form have their own stories (HUD/Leaderboard). The start
+ * screen carries the WATCH DEMO button; the `Demo` story shows the badge with
+ * EXIT DEMO that replaces it while a demo plays.
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { fn } from "storybook/test";
@@ -44,6 +46,8 @@ interface HudArgs extends HudCallbacks {
   arrivals: boolean;
   /** Show the "track plane active" badge, as while following a plane. */
   tracking: boolean;
+  /** Show the "Demo" badge with EXIT DEMO, as while a demo plays (WATCH DEMO is on the start screen). */
+  demo: boolean;
   /** Game speed multiplier on the speed button (see `GAME_SPEEDS` in config.ts). */
   speed: (typeof GAME_SPEEDS)[number];
   /** Open the help panel (the "?" button, or H / ? in the game). */
@@ -91,6 +95,7 @@ function applyArgs(hud: Hud, args: HudArgs): void {
   else if (args.phase !== "start") hud.hideOverlay();
   hud.setPhase(args.phase);
   hud.setTracking(args.tracking);
+  hud.setDemo(args.demo);
   hud.setSpeed(args.speed);
   hud.setMuted(args.muted);
   hud.setMusicOn(args.musicOn);
@@ -167,6 +172,8 @@ const meta: Meta<HudArgs> = {
     weather: { control: "inline-radio", options: ["none", "yellow", "amber", "red"] },
     // Callbacks are wired to the Actions panel; no control needed.
     onStart: { table: { disable: true } },
+    onDemo: { table: { disable: true } },
+    onExitDemo: { table: { disable: true } },
     onTogglePause: { table: { disable: true } },
     onSpeedChange: { table: { disable: true } },
     onRotate: { table: { disable: true } },
@@ -186,6 +193,7 @@ const meta: Meta<HudArgs> = {
     weather: "none",
     arrivals: false,
     tracking: false,
+    demo: false,
     speed: 1,
     muted: false,
     musicOn: true,
@@ -196,6 +204,8 @@ const meta: Meta<HudArgs> = {
     uiHidden: false,
     hours: 8,
     onStart: fn(),
+    onDemo: fn(),
+    onExitDemo: fn(),
     onTogglePause: fn(),
     onSpeedChange: fn(),
     onRotate: fn(),
@@ -235,6 +245,9 @@ export const Arrivals: Story = { args: { phase: "playing", landed: 8, arrivals: 
 export const Tracking: Story = {
   args: { phase: "playing", landed: 5, arrivals: true, tracking: true },
 };
+
+/** A demo playing: the "Demo" badge and EXIT DEMO button, bottom-centre. */
+export const Demo: Story = { args: { phase: "playing", landed: 9, demo: true } };
 
 /**
  * Game speed button (top-right, left of pause), set to 3×. Click it, or press
@@ -333,7 +346,8 @@ export const MusicOff: Story = { args: { phase: "playing", landed: 5, musicOn: f
 /**
  * Crash overlay with the final score, its breakdown (landed, departed,
  * time: `showGameOver` in hud.ts) and the leaderboard form (its states
- * are in HUD/Leaderboard). See-through (CRASH_BACKDROP in hud.ts) so the
+ * are in HUD/Leaderboard). The content sits on a card (CRASH_CARD in hud.ts)
+ * over a gradient that only darkens the bottom (CRASH_BACKDROP), so the
  * crash cinematic stays visible above it: see Scene/Gameplay/Crash.
  */
 export const GameOver: Story = {

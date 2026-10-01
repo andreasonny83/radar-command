@@ -399,6 +399,33 @@ export function trackingIndicatorMarkup(): string {
 }
 
 /**
+ * "Demo" badge with the EXIT DEMO button, bottom-centre while a demo plays,
+ * above the row of camera buttons so no screen width puts them on top of it
+ * (shown by `Hud.setDemo`). The arrows slide clear of it, like the tracking
+ * badge. The button is the only way out of a demo.
+ */
+export function demoIndicatorMarkup(): string {
+  return `
+    <div
+      id="demoIndicator"
+      data-arrow-avoid
+      role="status"
+      class="hud-chrome absolute bottom-20 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm max-sm:bottom-32"
+    >
+      <span class="tracking-dot h-3 w-3 shrink-0 rounded-full bg-sky-400"></span>
+      <div class="text-sm font-bold tracking-wider text-sky-300 uppercase">Demo</div>
+      <button
+        id="exitDemoBtn"
+        type="button"
+        class="hud-button h-8 w-auto px-3 text-xs tracking-wider whitespace-nowrap"
+        title="Leave the demo"
+      >
+        EXIT DEMO
+      </button>
+    </div>`;
+}
+
+/**
  * Layer for arrival arrows (see arrivalArrows.ts). Below the other HUD
  * panels; arrows slide out from under any element marked
  * `data-arrow-avoid` (score, pause, camera buttons, tracking badge), so neither hides the other.
@@ -494,8 +521,9 @@ export function scoreSummaryMarkup(): string {
 
 /**
  * Start / game-over overlay. The game-over variant (text, the leaderboard
- * form, and a see-through backdrop so the crash stays visible) is patched
- * in by `showGameOver`; keep the backdrop classes here in sync with
+ * form, a see-through backdrop so the crash stays visible, and the content
+ * boxed in a card: `#overlayCard` is a plain column on the start screen) is
+ * patched in by `showGameOver`; keep the backdrop classes here in sync with
  * `START_BACKDROP` in hud.ts.
  */
 export function overlayMarkup(): string {
@@ -504,37 +532,46 @@ export function overlayMarkup(): string {
       id="overlay"
       class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-md transition-opacity duration-300"
     >
-      <h1 id="overlayTitle" class="glow-text mb-4 text-5xl font-black text-sky-400 md:text-6xl">
-        RADAR COMMAND
-      </h1>
-      <p id="overlayMessage" class="mb-8 max-w-md px-4 text-center text-lg text-slate-300">
-        Drag a path from the airplanes to their matching colored runways. Land them over the colored
-        threshold, following the arrow. Don't let them crash!
-      </p>
-      <p class="-mt-4 mb-8 text-sm text-slate-400">
-        Press <kbd class="kbd">H</kbd> or <span class="font-bold text-slate-300">?</span> for
-        controls &amp; shortcuts
-      </p>
-      ${scoreSummaryMarkup()}
-      ${submitFormMarkup()}
-      <div class="flex flex-wrap items-center justify-center gap-3">
-        <button
-          id="startBtn"
-          class="transform rounded-full bg-sky-500 px-8 py-4 text-xl font-bold text-slate-950 shadow-[0_0_20px_rgba(14,165,233,0.5)] transition-all hover:scale-105 hover:bg-sky-400 active:scale-95"
-        >
-          START SHIFT
-        </button>
-        <button
-          id="leaderboardBtn"
-          class="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-900/70 px-6 py-4 text-lg font-bold text-slate-200 transition-all hover:scale-105 hover:border-amber-300 hover:text-amber-300 active:scale-95"
-          title="Leaderboard (${shortcutHint("toggleLeaderboard")})"
-          aria-haspopup="dialog"
-          aria-controls="leaderboardPanel"
-        >
-          ${TROPHY_ICON}LEADERBOARD
-        </button>
+      <div id="overlayCard" class="flex flex-col items-center">
+        <h1 id="overlayTitle" class="glow-text mb-4 text-5xl font-black text-sky-400 md:text-6xl">
+          RADAR COMMAND
+        </h1>
+        <p id="overlayMessage" class="mb-8 max-w-md px-4 text-center text-lg text-slate-300">
+          Drag a path from the airplanes to their matching colored runways. Land them over the colored
+          threshold, following the arrow. Don't let them crash!
+        </p>
+        <p class="-mt-4 mb-8 text-sm text-slate-400">
+          Press <kbd class="kbd">H</kbd> or <span class="font-bold text-slate-300">?</span> for
+          controls &amp; shortcuts
+        </p>
+        ${scoreSummaryMarkup()}
+        ${submitFormMarkup()}
+        <div class="flex flex-wrap items-center justify-center gap-3">
+          <button
+            id="startBtn"
+            class="transform rounded-full bg-sky-500 px-8 py-4 text-xl font-bold text-slate-950 shadow-[0_0_20px_rgba(14,165,233,0.5)] transition-all hover:scale-105 hover:bg-sky-400 active:scale-95"
+          >
+            START SHIFT
+          </button>
+          <button
+            id="leaderboardBtn"
+            class="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-900/70 px-6 py-4 text-lg font-bold text-slate-200 transition-all hover:scale-105 hover:border-amber-300 hover:text-amber-300 active:scale-95"
+            title="Leaderboard (${shortcutHint("toggleLeaderboard")})"
+            aria-haspopup="dialog"
+            aria-controls="leaderboardPanel"
+          >
+            ${TROPHY_ICON}LEADERBOARD
+          </button>
+          <button
+            id="demoBtn"
+            class="rounded-full border border-slate-600 bg-slate-900/70 px-6 py-4 text-lg font-bold text-slate-200 transition-all hover:scale-105 hover:border-sky-300 hover:text-sky-300 active:scale-95"
+            title="Watch the game play itself"
+          >
+            WATCH DEMO
+          </button>
+        </div>
+        <div class="mt-8">${projectLinksMarkup()}</div>
       </div>
-      <div class="mt-8">${projectLinksMarkup()}</div>
     </div>`;
 }
 
@@ -1005,6 +1042,7 @@ export function hudMarkup(): string {
     pausedBannerMarkup(),
     noticesMarkup(),
     trackingIndicatorMarkup(),
+    demoIndicatorMarkup(),
     statsPanelMarkup(),
     cameraControlsMarkup(),
     uiToggleButtonMarkup(),

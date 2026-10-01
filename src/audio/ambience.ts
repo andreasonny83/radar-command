@@ -15,9 +15,11 @@
  *            ceiling speaker (a narrow band) in a big, echoing hall. The
  *            words (audio/announcements.ts) are spoken by a speech engine
  *            (audio/speech.ts): boarding calls and reminders, and lines
- *            about the game itself, like a departure the game just rolled
- *            out (`onGameEvent`). Until the engine has loaded, or if it
- *            can't, there are no announcements at all;
+ *            about the game itself, like a departure just cleared onto its
+ *            runway (`onGameEvent`). Until the engine has loaded, or if it
+ *            can't, there are no announcements at all. They only play
+ *            during a shift (see `setPaused`): never on the title screen,
+ *            paused or after a crash;
  * - outside: now and then a jet passing far overhead, and faint radio
  *            squelch (synthesised).
  *
@@ -64,13 +66,29 @@ export type AmbienceLayer = keyof typeof AMBIENCE_LEVELS;
 const PA_CLEAR_OF_CHIME = 7;
 
 /**
- * Announcements start at least this many seconds apart, even when game
- * lines (a departure, a runway opening) bring the next one forward.
+ * Game lines (a departure, a runway opening) bring the next announcement
+ * forward, but never over the one being spoken: they start this many
+ * seconds after its last word.
  */
-const PA_MIN_GAP = 20;
+const PA_GAP_AFTER_SPEECH = 1.5;
+
+/**
+ * Longest a line takes to say (the longest, measured with the engine, is
+ * ~12.5 s): assumed for an announcement until its speech has rendered and
+ * the real length is known.
+ */
+const PA_MAX_SPEECH = 14;
 
 /** Game lines waiting for the PA; older ones give way if more pile up. */
 const MAX_QUEUED_LINES = 2;
+
+/**
+ * A game line that has waited this many seconds for the PA is dropped
+ * unspoken: by then the runway it describes has moved on (a departure
+ * lifts off ~30 s after its runway closes), and a stale line is worse
+ * than none.
+ */
+const MAX_LINE_AGE = 12;
 
 /** Seconds from the start of the PA chime to the first word. */
 const CHIME_TO_VOICE = 1.4;
@@ -123,7 +141,7 @@ export class Ambience {
   private readonly speaker: AudioNode;
   /** Between the PA layer and the output: closed while paused (see `setPaused`). */
   private readonly paGate: GainNode;
-  /** Is the game paused? No announcements are booked or heard meanwhile. */
+  /** Is the PA off (game paused, or no shift running)? No announcements are booked or heard. */
   private paused = false;
   /** Audio-clock time the pause began. */
   private pausedAt = 0;
@@ -131,10 +149,10 @@ export class Ambience {
   private spoken: { line: string; end: number } | null = null;
   /** True once the speech engine has loaded (see audio/speech.ts). */
   private speechReady = false;
-  /** Game lines waiting for the next announcement (see `onGameEvent`). */
-  private readonly gameLines: string[] = [];
-  /** Audio-clock time the latest announcement started. */
-  private lastPa = -Infinity;
+  /** Game lines waiting for the next announcement, with when they were queued (see `onGameEvent`). */
+  private gameLines: { line: string; at: number }[] = [];
+  /** Audio-clock time the latest announcement's last word ends (an estimate until it has rendered). */
+  private paBusyUntil = -Infinity;
   /** Everything that runs continuously, stopped by `dispose`. */
   private readonly sources: AudioScheduledSourceNode[] = [];
 
@@ -236,32 +254,40 @@ export class Ambience {
   /**
    * Something happened on the field worth announcing: queue its line for
    * the PA and bring the next announcement forward (clear of the departure
-   * chime, and `PA_MIN_GAP` after the last one).
+   * chime, and `PA_GAP_AFTER_SPEECH` after the last one is done talking).
+   * A departure is announced when its runway closes, not when it rolls out
+   * of the hangar: it can wait on its stand a while for the runway.
    */
   onGameEvent(event: SimEvent): void {
     let line: string;
-    if (event.type === "departureAnnounced") line = departureLine(event.color, this.rng);
+    if (event.type === "runwayClosed") line = departureLine(event.color, this.rng);
     else if (event.type === "unlocked") line = runwayOpenLine(event.color, this.rng);
     else return;
-    this.gameLines.push(line);
+    this.gameLines.push({ line, at: this.ctx.currentTime });
     if (this.gameLines.length > MAX_QUEUED_LINES) this.gameLines.shift();
     this.bringForward();
   }
 
-  /** Bring the next announcement forward (clear of the chime, `PA_MIN_GAP` after the last). */
+  /** Forget the queued game lines (a new shift must not announce the last one's runways). */
+  clearGameLines(): void {
+    this.gameLines = [];
+  }
+
+  /** Bring the next announcement forward (clear of the chime, and of the one being spoken). */
   private bringForward(): void {
     const soon = Math.max(
       this.booked,
       this.ctx.currentTime + 1,
       this.lastChime + PA_CLEAR_OF_CHIME,
-      this.lastPa + PA_MIN_GAP,
+      this.paBusyUntil + PA_GAP_AFTER_SPEECH,
     );
     this.nextPa = Math.min(this.nextPa, soon);
   }
 
   /**
-   * The game is paused (or carries on): the PA falls silent, mid-sentence
-   * too, and books nothing until play resumes. A game line cut off is
+   * The PA goes off (the game is paused, or no shift is running: title
+   * screen, game over) or back on: it falls silent, mid-sentence too, and
+   * books nothing until a shift is playing again. A game line cut off is
    * queued to be announced again; the rest of the schedule is pushed back
    * by the time spent paused, so the wait picks up where it stopped.
    */
@@ -272,11 +298,15 @@ export class Ambience {
     this.paGate.gain.setTargetAtTime(paused ? 0 : 1, now, 0.04);
     if (paused) {
       this.pausedAt = now;
-      if (this.spoken && this.spoken.end > now) this.gameLines.unshift(this.spoken.line);
+      if (this.spoken && this.spoken.end > now)
+        this.gameLines.unshift({ line: this.spoken.line, at: now });
       this.spoken = null;
       return;
     }
-    this.nextPa += now - this.pausedAt;
+    const offFor = now - this.pausedAt;
+    this.nextPa += offFor;
+    // Queued lines don't age while the PA is off.
+    for (const queued of this.gameLines) queued.at += offFor;
     if (this.gameLines.length > 0) this.bringForward();
   }
 
@@ -347,12 +377,15 @@ export class Ambience {
    */
   private announcement(t: number, text?: string): void {
     if (!this.speechReady) return;
-    this.lastPa = t;
     // C5, E5, G5: a gentle rising arpeggio (the departure cue falls).
     [523.25, 659.25, 783.99].forEach((freq, i) => this.bell(freq, t + i * 0.3, 1.4));
     const words = t + CHIME_TO_VOICE;
-    const queued = text === undefined ? this.gameLines.shift() : undefined;
+    // Drop game lines that waited too long (see `MAX_LINE_AGE`).
+    while (this.gameLines.length > 0 && t - this.gameLines[0]!.at > MAX_LINE_AGE)
+      this.gameLines.shift();
+    const queued = text === undefined ? this.gameLines.shift()?.line : undefined;
     const line = text ?? queued ?? terminalLine(this.rng);
+    this.paBusyUntil = words + PA_MAX_SPEECH;
     const voice = Math.floor(this.rng() * ANNOUNCER_VOICES.length);
     void speak(this.ctx, line, voice).then((buffer) => {
       const start = Math.max(words, this.ctx.currentTime + 0.02);
@@ -363,6 +396,7 @@ export class Ambience {
       gain.gain.value = SPEECH_LEVEL;
       src.connect(gain).connect(this.speaker);
       src.start(start);
+      this.paBusyUntil = start + buffer.duration;
       if (queued !== undefined) this.spoken = { line: queued, end: start + buffer.duration };
     });
   }

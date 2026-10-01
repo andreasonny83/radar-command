@@ -54,6 +54,13 @@
  *               growing up with it), then yellow (the X), with the game's
  *               toast (and, with `sound`, the PA announcement). `camera`
  *               off keeps the default view.
+ *   - DemoGame: the demo mode (core/autopilot/): an autopilot flies the
+ *               whole game, and a crash restarts it after the cinematic.
+ *               `meanMistakeSeconds` is the mean time between the
+ *               autopilot's lapses (it goes blind to a plane), kept short
+ *               here so a crash is easy to see; the game uses
+ *               DEMO_MEAN_DAYS_BETWEEN_MISTAKES. `timeScale` speeds it up.
+ *               Tuning: DEMO_* in config.ts, core/autopilot/*.
  *   - LiveGame: the whole game (sim, input, HUD) in a story, with slow motion
  *               (`showAirspace` draws the airspace edge). Right-click a
  *               plane to follow it, with the "track plane active" badge
@@ -98,6 +105,8 @@ import { GameAudio } from "../../audio/mixer";
 import {
   COLOR_UNLOCK_LANDINGS,
   CRASH_OVERLAY_DELAY,
+  DEMO_RESTART_DELAY,
+  MAX_DT,
   PATH_MIN_SPACING,
   PLANE_SPEED,
   ROTATE_STEP,
@@ -105,6 +114,7 @@ import {
   ZOOM_MIN,
   ZOOM_STEP,
 } from "../../config";
+import { autopilotStep, createAutopilot } from "../../core/autopilot";
 import { headingVector, mulberry32 } from "../../core/math";
 import { createDeparture } from "../../core/departures";
 import { anchorPath, appendPathPoint, rejectedLanding } from "../../core/path";
@@ -989,6 +999,97 @@ export const LiveGame: StoryObj<LiveArgs> = {
         setLiveView(state, cam.controller.groundView(stage.aspect()));
         hud.setTracking(cam.controller.following);
         sync.setHighlighted(pointer.refreshHover());
+        sync.syncPlanes(state, time);
+        audio?.setScene(
+          state.phase === "gameover" ? "crash" : state.phase === "paused" ? "paused" : "playing",
+        );
+        playFrame(audio, sync, state);
+        hud.setArrivals(arrivalMarkers(state, stage.scene, stage.canvas));
+      };
+    }, args.timeScale),
+};
+
+// ---------------------------------------------------------------------------
+// Demo game
+// ---------------------------------------------------------------------------
+
+interface DemoArgs {
+  /** Game speed (the stage clock is scaled by this). */
+  timeScale: number;
+  /** Mean sim-seconds between the autopilot's lapses; the game uses DEMO_MEAN_DAYS_BETWEEN_MISTAKES. */
+  meanMistakeSeconds: number;
+  /** All the game's sound (click the canvas to start it). */
+  sound: boolean;
+}
+
+/**
+ * The demo mode: the real sim, scene and HUD, flown by the autopilot
+ * (core/autopilot). No pointer routing; a crash plays its cinematic, then
+ * a new demo shift starts (DEMO_RESTART_DELAY), as in main.ts.
+ */
+export const DemoGame: StoryObj<DemoArgs> = {
+  argTypes: {
+    timeScale: { control: { type: "range", min: 0.25, max: 8, step: 0.25 } },
+    meanMistakeSeconds: { control: { type: "number", min: 10, step: 10 } },
+  },
+  args: { timeScale: 1, meanMistakeSeconds: 120, sound: false },
+  render: (args) =>
+    mountStage((stage) => {
+      const cam = gameCamera(stage);
+      const state = createGameState(stage.aspect());
+      const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
+      sync.setRunwayProgression(true);
+      sync.rebuildWorld(state);
+
+      let pilot = createAutopilot(Math.random, { meanMistakeSeconds: args.meanMistakeSeconds });
+      /** Seconds until the crashed demo restarts (cinematic first), or null. */
+      let restartIn: number | null = null;
+      const begin = () => {
+        restartIn = null;
+        cam.controller.release();
+        startGame(state);
+        pilot = createAutopilot(Math.random, { meanMistakeSeconds: args.meanMistakeSeconds });
+        hud.setScore(breakdownOf(state));
+        hud.hideOverlay();
+        hud.setPhase(state.phase);
+        hud.setDemo(true);
+      };
+      const hud = createHud(stage.root, {
+        onStart: begin,
+        onDemo: begin,
+        onTogglePause: () => togglePause(state) && hud.setPhase(state.phase),
+        onRotate: (dir) => cam.controller.rotateBy(dir * ROTATE_STEP),
+        onZoom: (dir) => cam.controller.zoomBy(dir > 0 ? ZOOM_STEP : 1 / ZOOM_STEP),
+        // Nothing to go back to in a story: the demo just restarts.
+        onExitDemo: begin,
+      });
+      const audio = storyAudio(stage, args.sound, true);
+      begin();
+
+      let time = 0;
+      return (dt) => {
+        if (state.phase !== "paused") time += dt;
+        for (let left = dt; left > 1e-9 && state.phase === "playing";) {
+          const h = Math.min(left, MAX_DT);
+          left -= h;
+          autopilotStep(pilot, state, h);
+          for (const event of step(state, h)) {
+            audio?.onSimEvent(event, (id) => sync.panFor(id));
+            if (event.type === "crash") {
+              const site = sync.crash(event.planeIds);
+              if (site) cam.controller.focusOn(site);
+              restartIn = CRASH_OVERLAY_DELAY + DEMO_RESTART_DELAY;
+              hud.setPhase(state.phase);
+            } else {
+              const toast = toastFor(event);
+              if (toast) hud.showToast(toast.text, toast.color);
+            }
+          }
+        }
+        if (restartIn !== null && (restartIn -= dt) <= 0) begin();
+        hud.setScore(breakdownOf(state));
+        cam.frame(dt, time);
+        setLiveView(state, cam.controller.groundView(stage.aspect()));
         sync.syncPlanes(state, time);
         audio?.setScene(
           state.phase === "gameover" ? "crash" : state.phase === "paused" ? "paused" : "playing",

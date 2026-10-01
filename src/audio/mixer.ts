@@ -153,7 +153,10 @@ export class GameAudio {
   setScene(scene: AudioScene): void {
     if (scene === this.scene) return;
     this.scene = scene;
-    this.graph?.ambience.setPaused(scene === "paused");
+    // The PA only speaks during a shift: not on the title screen, paused or after a crash.
+    this.graph?.ambience.setPaused(scene !== "playing");
+    // A shift that ended (crash, or back to the title) leaves no lines to announce in the next.
+    if (scene === "crash" || scene === "title") this.graph?.ambience.clearGameLines();
     this.applyLevels(scene === "crash" ? CRASH_FADE : FADE);
   }
 
@@ -224,7 +227,7 @@ export class GameAudio {
       // It may already be night by the first click.
       this.graph.music.setNight(this.night);
       this.graph.ambience.setNight(this.night);
-      this.graph.ambience.setPaused(this.scene === "paused");
+      this.graph.ambience.setPaused(this.scene !== "playing");
       this.applyLevels(0);
     }
     if (!this.hidden && this.graph.ctx.state === "suspended") void this.graph.ctx.resume();

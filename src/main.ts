@@ -12,17 +12,19 @@ import {
   CRASH_OVERLAY_DELAY,
   DEBUG_START_HOURS,
   DEBUG_TRAFFIC_PERCENT,
+  DEMO_RESTART_DELAY,
   GAME_SPEEDS,
   MAX_DT,
   ROTATE_STEP,
   ZOOM_STEP,
 } from "./config";
 import { layoutAirports, openAirportsView } from "./core/airports";
+import { autopilotStep, createAutopilot, type Autopilot } from "./core/autopilot";
 import { NAME_HINT, normalizeName } from "./core/leaderboard";
 import { unlockedColors } from "./core/progression";
 import { breakdownOf } from "./core/scoring";
 import { startGame, step, togglePause } from "./core/simulation";
-import { createGameState, setLiveView, setViewAspect } from "./core/state";
+import { createGameState, resetToTitle, setLiveView, setViewAspect } from "./core/state";
 import type { CrashCause, SimEvent } from "./core/types";
 import { attachPanKeys } from "./input/keyboard";
 import { attachPointerInput } from "./input/pointer";
@@ -133,6 +135,20 @@ let gameOverIn: number | null = null;
 /** What ended the shift, for the game-over headline (set by the `crash` event). */
 let crashCause: CrashCause = "collision";
 
+// --- Demo ---------------------------------------------------------------------
+/**
+ * True while a demo plays: an autopilot flies the shift (core/autopilot),
+ * and nothing about it may reach the leaderboard (no run token, no submit
+ * form, `submitRun` refuses).
+ */
+let demo = false;
+
+/** The demo's autopilot; null outside a demo. */
+let autopilot: Autopilot | null = null;
+
+/** Seconds until a crashed demo restarts (after its cinematic), or null. */
+let demoRestartIn: number | null = null;
+
 // --- Leaderboard ---------------------------------------------------------------
 /**
  * This shift's run token (net/leaderboardApi.ts), requested as it starts:
@@ -143,6 +159,8 @@ let runToken: Promise<string | null> | null = null;
 
 /** Crash screen: offer the leaderboard form if this run can go on the board. */
 async function offerSubmit(): Promise<void> {
+  // A demo is never submitted (see also beginShift: it has no run token).
+  if (demo) return;
   const breakdown = breakdownOf(state);
   hud.showGameOver(breakdown, savedName(), crashCause);
   // Time alone doesn't qualify: the run has to have moved some traffic.
@@ -173,6 +191,7 @@ async function offerSubmit(): Promise<void> {
 
 /** SUBMIT on the game-over screen: send the run, then show where it placed. */
 async function submitRun(rawName: string): Promise<void> {
+  if (demo) return;
   const name = normalizeName(rawName);
   if (!name) {
     hud.setSubmitState({ kind: "error", message: `Name: ${NAME_HINT}.` });
@@ -212,20 +231,55 @@ function setPaused(paused: boolean): void {
  * whether it started, so a shared key (Space) can fall through to pause.
  */
 function startShift(): boolean {
+  return beginShift(false);
+}
+
+/**
+ * Start a shift: a real one, or a demo flown by the autopilot. Same rules as
+ * `startShift`; in a demo only another demo may start while a crashed one
+ * waits to restart, so Enter/Space can't turn it into a real shift.
+ */
+function beginShift(isDemo: boolean): boolean {
   if (state.phase === "playing" || state.phase === "paused" || gameOverIn !== null) return false;
+  if (demo && !isDemo) return false;
   // Leave the crash site: the camera glides back to the default view.
   cameraController.release();
-  startGame(state, Math.random, DEBUG_START_HOURS);
+  demo = isDemo;
+  autopilot = isDemo ? createAutopilot(Math.random) : null;
+  demoRestartIn = null;
+  // A demo never starts hours in: that is a dev aid for real shifts.
+  startGame(state, Math.random, isDemo ? 0 : DEBUG_START_HOURS);
   setGameSpeed(GAME_SPEEDS[0]);
   // Fire and forget: the token only matters if this shift gets submitted.
-  runToken = DEBUG_START_HOURS > 0 ? null : startRun();
+  // A demo asks for none, so the server has nothing to accept a score against.
+  runToken = isDemo || DEBUG_START_HOURS > 0 ? null : startRun();
   // Glide in over the first airport (the others are closed again).
   framedAirports = 0;
   frameOpenAirports();
   hud.setScore(breakdownOf(state));
   hud.hideOverlay();
   hud.setPhase(state.phase);
+  hud.setDemo(isDemo);
   return true;
+}
+
+/** EXIT DEMO: back to the title screen with a clean field. */
+function exitDemo(): void {
+  if (!demo) return;
+  demo = false;
+  autopilot = null;
+  demoRestartIn = null;
+  gameOverIn = null;
+  resetToTitle(state);
+  cameraController.release();
+  framedAirports = 0;
+  setGameSpeed(GAME_SPEEDS[0]);
+  hud.setScore(breakdownOf(state));
+  hud.setDemo(false);
+  // "Demo crashed, restarting…" must not outlive the demo.
+  hud.hideToast();
+  hud.setPhase(state.phase);
+  hud.showStart();
 }
 
 /** Pause / continue, mid-shift only. */
@@ -271,6 +325,8 @@ let simSteps = 0;
 
 const hud = createHud(document.body, {
   onStart: () => void startShift(),
+  onDemo: () => void beginShift(true),
+  onExitDemo: exitDemo,
   onTogglePause: togglePaused,
   onSpeedChange: setGameSpeed,
   onRotate: rotate,
@@ -357,6 +413,8 @@ function cycleFollow(dir: -1 | 1): void {
 const pointer = attachPointerInput(canvas, scene, cameraController.camera, () => state, {
   // Dragging empty ground grabs the map.
   onPan: (dx, dy) => cameraController.dragBy(dx, dy),
+  // The autopilot flies a demo: a press on a plane must not take over.
+  canRoute: () => !demo,
   // Right-click a plane to follow it; again (or on empty ground) to stop.
   // Right-click again (anywhere) to go back to the view from before.
   onFollow: (planeId) => {
@@ -477,11 +535,24 @@ engine.runRenderLoop(() => {
     const h = Math.min(left, MAX_DT);
     left -= h;
     simSteps++;
+    // A demo's autopilot flies the planes first, like a player would.
+    if (autopilot) autopilotStep(autopilot, state, h);
     for (const event of step(state, h)) handleEvent(event);
   }
   if (gameOverIn !== null && (gameOverIn -= dt) <= 0) {
     gameOverIn = null;
-    void offerSubmit();
+    if (demo) {
+      // A crashed demo has no game-over panel and no score form: it
+      // announces itself and starts over.
+      hud.showToast("Demo crashed, restarting…");
+      demoRestartIn = DEMO_RESTART_DELAY;
+    } else {
+      void offerSubmit();
+    }
+  }
+  if (demoRestartIn !== null && (demoRestartIn -= dt) <= 0) {
+    demoRestartIn = null;
+    beginShift(true);
   }
 
   // No panning behind the help panel (the keys still track, for release).
@@ -544,7 +615,8 @@ engine.runRenderLoop(() => {
     });
   }
   // After render, so the arrows use this frame's camera matrices.
-  hud.setArrivals(arrivalMarkers(state, scene, canvas));
+  // None once the shift has ended: nothing is coming in any more.
+  hud.setArrivals(state.phase === "gameover" ? [] : arrivalMarkers(state, scene, canvas));
 });
 
 // Expose state for debugging / automated browser checks in dev builds only.

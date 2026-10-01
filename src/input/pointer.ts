@@ -111,6 +111,12 @@ export interface PointerFeedback {
    * path's end, where the red X goes.
    */
   onLandingRejected?: (planeId: number, at: Vec2) => void;
+  /**
+   * False while something else flies the planes (the demo's autopilot):
+   * a press then never grabs a plane, so a drag only pans the map.
+   * Omitted: always true.
+   */
+  canRoute?: () => boolean;
 }
 
 /** Planes a right-click may pick to follow: any still visible in the game. */
@@ -183,7 +189,8 @@ export function attachPointerInput(
     if (e.button !== 0) return;
     const state = getState();
     const { x, y } = toCanvas(e);
-    const hit = state.phase === "playing" ? screenToWorld(scene, camera, state, x, y) : null;
+    const routing = state.phase === "playing" && (feedback.canRoute?.() ?? true);
+    const hit = routing ? screenToWorld(scene, camera, state, x, y) : null;
     const plane = hit && findPlaneNear(state.planes, hit);
 
     if (plane) {
@@ -278,7 +285,13 @@ export function attachPointerInput(
     // a path, and planes it passes over aren't about to be grabbed.
     const state = getState();
     let overPlane = false;
-    if (hoverAt && !pan && active.size === 0 && state.phase === "playing") {
+    if (
+      hoverAt &&
+      !pan &&
+      active.size === 0 &&
+      state.phase === "playing" &&
+      (feedback.canRoute?.() ?? true)
+    ) {
       const hit = screenToWorld(scene, camera, state, hoverAt.x, hoverAt.y);
       const plane = hit && findPlaneNear(state.planes, hit);
       if (plane) {

@@ -11,6 +11,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { AudioCue } from "../audio/cues";
 import { CreateGreasedLine } from "@babylonjs/core/Meshes/Builders/greasedLineBuilder";
+import type { GreasedLineMesh } from "@babylonjs/core/Meshes/GreasedLine/greasedLineMesh";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import "@babylonjs/core/Meshes/thinInstanceMesh"; // side effect: mesh.thinInstance* API
 import type { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
@@ -327,6 +328,8 @@ interface PlaneView {
   path: Mesh | null;
   /** `plane.pathVersion` the current path line was built from. */
   pathVersion: number;
+  /** Where the plane was when the path line's start was last laid (see `trimPathStart`). */
+  pathFrom: Vec2 | null;
   /** Displayed yaw, eased towards heading + wind crab (null until first sync). */
   yaw: number | null;
   /** Displayed bank angle (radians, positive = right wing down). */
@@ -673,6 +676,7 @@ export class SceneSync {
           anchorAge: null,
           path: null,
           pathVersion: -1,
+          pathFrom: null,
           yaw: null,
           bank: 0,
           pitch: 0,
@@ -697,6 +701,8 @@ export class SceneSync {
       }
       view.inHangar = isInHangar(plane, stands);
       this.updateView(view, plane, state.world, time, dt);
+      // The shift is over: the survivors hang in the air with nothing drawn on them.
+      if (state.phase === "gameover") this.clearGuides(view, plane);
     }
 
     this.syncBeams(state);
@@ -753,6 +759,21 @@ export class SceneSync {
     const seed = planeIds.reduce((acc, id) => acc * 31 + id, 7);
     this.crashEffect = new CrashEffect(this.scene, sources, seed, this.shadows);
     return this.crashEffect.focus;
+  }
+
+  /**
+   * Strip a plane's drawn guides: path line, anchor (approach) ring, hover
+   * and warning rings. For the planes that survive a crash, so only the
+   * wreck is left to look at. Safe to call every frame.
+   */
+  private clearGuides(view: PlaneView, plane: Plane): void {
+    view.path?.dispose(false, true);
+    view.path = null;
+    // Stop `updateView` rebuilding the line from the path the plane still holds.
+    view.pathVersion = plane.pathVersion;
+    view.ring.setEnabled(false);
+    view.hoverRing.setEnabled(false);
+    view.anchorRing.setEnabled(false);
   }
 
   private updateView(
@@ -944,6 +965,7 @@ export class SceneSync {
     }
 
     if (view.pathVersion !== plane.pathVersion) this.rebuildPath(view, plane, world);
+    else this.trimPathStart(view, plane, world);
   }
 
   /**
@@ -1009,9 +1031,36 @@ export class SceneSync {
   }
 
   /**
+   * Keep the player's path line starting under the plane: re-lay its points
+   * from the plane's current position, so the stretch it has already flown
+   * is wiped out as it goes. `rebuildPath` alone only runs when the path
+   * changes (a waypoint consumed), and between those the plane moves on and
+   * leaves the old start behind it, up to a waypoint spacing or more.
+   *
+   * `setPoints` re-fills the existing line's buffers (the line is
+   * `updatable`) rather than making a new one, so no material is created.
+   * A departure's dotted route is left alone: it starts at the next route
+   * point on purpose (see `rebuildPath`).
+   */
+  private trimPathStart(view: PlaneView, plane: Plane, world: WorldSize): void {
+    if (!view.path || plane.departure !== null || plane.path.length === 0) return;
+    const from = view.pathFrom;
+    // Paused, or not moved since the last refresh: nothing to do.
+    if (from && from.x === plane.pos.x && from.y === plane.pos.y) return;
+    view.pathFrom = { x: plane.pos.x, y: plane.pos.y };
+    (view.path as GreasedLineMesh).setPoints(this.pathPoints(plane, world));
+  }
+
+  /** Scene points of the player's path line: a smooth curve from the plane along its path. */
+  private pathPoints(plane: Plane, world: WorldSize): Vector3[] {
+    return smoothTrack([plane.pos, ...plane.path]).map((p) => toScene(p, world, PATH_ALTITUDE));
+  }
+
+  /**
    * Rebuild the path line. Only runs when the path changes (point added or
-   * waypoint consumed), not every frame. The line starts at the plane's
-   * position at rebuild time, which is at most one path spacing stale.
+   * waypoint consumed), not every frame (`trimPathStart` keeps its start
+   * under the plane in between). The line starts at the plane's position
+   * at rebuild time.
    *
    * A departure's planned route is dotted (see `DEPARTURE_DOT_SPACING`),
    * and shows from the moment it rolls out of its hangar. It starts at the
@@ -1024,6 +1073,7 @@ export class SceneSync {
     view.path?.dispose(false, true);
     view.path = null;
     view.pathVersion = plane.pathVersion;
+    view.pathFrom = { x: plane.pos.x, y: plane.pos.y };
     if (plane.path.length === 0 || !hasPathLine(plane)) return;
 
     const dotted = plane.departure !== null;

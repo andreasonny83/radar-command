@@ -119,6 +119,19 @@ export function peakPending(stream: WindStream): boolean {
 }
 
 /**
+ * Is a black `stream` a danger `ahead` seconds from now: active (it erases
+ * paths and pushes planes about) and not yet past its lethal peak? The demo
+ * autopilot (core/autopilot) keeps planned tracks out of the band for that
+ * whole window, not just during the peak: a plane that meant to slip
+ * through before the peak can be stuck inside when it comes. The forecast
+ * and forming phases are harmless, so planes may cross then.
+ */
+export function peakAhead(stream: WindStream, ahead: number): boolean {
+  const age = stream.age + ahead;
+  return stream.black && age >= WIND_FORM_SECONDS && age < PEAK_CLOSES;
+}
+
+/**
  * Put a new stream somewhere over the airspace, blowing in a random
  * direction, starting in its forecast. From the third game day it may be a
  * black one. Runways are not avoided: the warnings are what keep it fair.
