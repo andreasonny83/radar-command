@@ -17,8 +17,7 @@
  *            (audio/speech.ts): boarding calls and reminders, and lines
  *            about the game itself, like a departure the game just rolled
  *            out (`onGameEvent`). Until the engine has loaded, or if it
- *            can't, the announcer talks in a wordless synthetic voice
- *            (a buzz through vowel formants, see `babble`);
+ *            can't, there are no announcements at all;
  * - outside: now and then a jet passing far overhead, and faint radio
  *            squelch (synthesised).
  *
@@ -93,27 +92,12 @@ const JET_INTERVAL = [40, 90] as const;
 const SQUELCH_INTERVAL = [25, 60] as const;
 
 /**
- * Vowel formants (Hz): the two resonances of the mouth that tell vowels
- * apart. Hopping between them at syllable rate is the wordless
- * announcer's "speech" (see `babble`).
- */
-const VOWELS: readonly (readonly [number, number])[] = [
-  [800, 1200], // a
-  [400, 2000], // e
-  [300, 2300], // i
-  [450, 800], // o
-  [325, 700], // u
-  [600, 1700], // æ
-];
-
-/**
  * Levels inside the layers, balanced by measurement (offline render, RMS).
  * The terminal sits about where the old synthesised hum and crowd did
  * (~-38 dBFS RMS), just under the announcer (~-36) so every word stays
  * clear, and under the game's own cues.
  */
 const TERMINAL_LEVEL = 0.19;
-const ANNOUNCER_LEVEL = 0.16;
 /**
  * The spoken announcer (rendered speech peaks near full scale): measured
  * through the PA chain at ~-36 dBFS RMS, clear but under the game's own
@@ -123,16 +107,6 @@ const SPEECH_LEVEL = 0.22;
 const PA_CHIME_LEVEL = 0.07;
 const JET_LEVEL = 0.07;
 const SQUELCH_LEVEL = 0.018;
-
-/** One synthetic voice: a buzz through two formant filters, shaped per syllable. */
-interface Voice {
-  osc: OscillatorNode;
-  f1: BiquadFilterNode;
-  f2: BiquadFilterNode;
-  env: GainNode;
-  /** Speaking pitch (Hz), the centre of its intonation. */
-  pitch: number;
-}
 
 export class Ambience {
   private readonly layers: Record<AmbienceLayer, GainNode>;
@@ -145,7 +119,6 @@ export class Ambience {
   /** 0 day … 1 night, and the terminal level last scheduled. */
   private night = 0;
   private dim = 1;
-  private readonly announcer: Voice;
   /** Into the PA: the tinny speaker and hall that the chime and voice go through. */
   private readonly speaker: AudioNode;
   /** Between the PA layer and the output: closed while paused (see `setPaused`). */
@@ -224,7 +197,6 @@ export class Ambience {
     speakerLow.connect(speakerHigh);
     speakerHigh.connect(this.layers.pa);
     speakerHigh.connect(hall).connect(hallWet).connect(this.layers.pa);
-    this.announcer = this.createVoice(150, speakerLow);
     this.speaker = speakerLow;
 
     // The speech engine is ~2 MB: fetch it now, in the background (the
@@ -333,8 +305,12 @@ export class Ambience {
     this.bookBed(horizon);
     while (!this.paused && this.nextPa < horizon) {
       // Never over the departure chime (see `noteChime`).
-      if (this.nextPa - this.lastChime < PA_CLEAR_OF_CHIME) {
-        this.nextPa = this.lastChime + PA_CLEAR_OF_CHIME;
+      // Compared with the sum itself, not `nextPa - lastChime`: that
+      // difference can round to just under the gap after the push, so the
+      // check would fire again forever and hang the page.
+      const earliest = this.lastChime + PA_CLEAR_OF_CHIME;
+      if (this.nextPa < earliest) {
+        this.nextPa = earliest;
         continue;
       }
       this.announcement(this.nextPa);
@@ -358,71 +334,29 @@ export class Ambience {
   }
 
   // -------------------------------------------------------------------------
-  // Voices
+  // Public address
   // -------------------------------------------------------------------------
-
-  /** A voice at `pitch` Hz into `out`, silent until syllables are booked. */
-  private createVoice(pitch: number, out: AudioNode): Voice {
-    const { ctx } = this;
-    const osc = ctx.createOscillator();
-    osc.type = "sawtooth";
-    osc.frequency.value = pitch;
-    const env = ctx.createGain();
-    env.gain.value = 0;
-    env.connect(out);
-    const [f1, f2] = [ctx.createBiquadFilter(), ctx.createBiquadFilter()];
-    for (const [filter, q] of [
-      [f1, 7],
-      [f2, 9],
-    ] as const) {
-      filter.type = "bandpass";
-      filter.Q.value = q;
-      osc.connect(filter).connect(env);
-    }
-    osc.start();
-    this.sources.push(osc);
-    return { osc, f1, f2, env, pitch };
-  }
-
-  /**
-   * One syllable of `voice` at `t`, `dur` long: glide to a vowel's
-   * formants, the pitch a little up or down (`inflect`), and swell the
-   * level in and out.
-   */
-  private syllable(voice: Voice, t: number, dur: number, level: number, inflect: number): void {
-    const [a, b] = VOWELS[Math.floor(this.rng() * VOWELS.length)]!;
-    voice.f1.frequency.setTargetAtTime(a, t, 0.025);
-    voice.f2.frequency.setTargetAtTime(b, t, 0.025);
-    voice.osc.frequency.setTargetAtTime(voice.pitch * inflect, t, 0.04);
-    voice.env.gain.setTargetAtTime(level, t, 0.02);
-    voice.env.gain.setTargetAtTime(0, t + dur * 0.7, 0.035);
-  }
 
   /**
    * A public-address announcement at `t`: the rising three-note chime, then
    * the announcer speaking `text` (or the next queued game line, or a
    * terminal line). The speech renders in the background (~0.1 s) while
-   * the chime plays; without the speech engine the announcer babbles
-   * instead (see `babble`).
+   * the chime plays. Without the speech engine there is no announcement
+   * at all (no chime either, and queued game lines wait for the engine);
+   * a line that fails to render is left unspoken after its chime.
    */
   private announcement(t: number, text?: string): void {
+    if (!this.speechReady) return;
     this.lastPa = t;
     // C5, E5, G5: a gentle rising arpeggio (the departure cue falls).
     [523.25, 659.25, 783.99].forEach((freq, i) => this.bell(freq, t + i * 0.3, 1.4));
     const words = t + CHIME_TO_VOICE;
-    if (!this.speechReady) {
-      this.babble(words);
-      return;
-    }
     const queued = text === undefined ? this.gameLines.shift() : undefined;
     const line = text ?? queued ?? terminalLine(this.rng);
     const voice = Math.floor(this.rng() * ANNOUNCER_VOICES.length);
     void speak(this.ctx, line, voice).then((buffer) => {
       const start = Math.max(words, this.ctx.currentTime + 0.02);
-      if (!buffer) {
-        this.babble(start);
-        return;
-      }
+      if (!buffer) return;
       const src = this.ctx.createBufferSource();
       src.buffer = buffer;
       const gain = this.ctx.createGain();
@@ -431,26 +365,6 @@ export class Ambience {
       src.start(start);
       if (queued !== undefined) this.spoken = { line: queued, end: start + buffer.duration };
     });
-  }
-
-  /**
-   * The announcer without words, from `at`: two or three phrases of a
-   * synthetic voice (a buzz through two vowel formants, `VOWELS`),
-   * measured and clear, each ending on a falling note.
-   */
-  private babble(at: number): void {
-    const phrases = 2 + Math.floor(this.rng() * 2);
-    for (let p = 0; p < phrases; p++) {
-      const syllables = 6 + Math.floor(this.rng() * 5);
-      for (let s = 0; s < syllables; s++) {
-        const dur = this.between([0.16, 0.24]);
-        const last = s === syllables - 1;
-        const inflect = last ? 0.85 : 0.95 + 0.15 * this.rng();
-        this.syllable(this.announcer, at, dur, ANNOUNCER_LEVEL, inflect);
-        at += dur;
-      }
-      at += this.between([0.35, 0.6]);
-    }
   }
 
   /** A soft PA chime note: a struck sine with a faint octave, through the speaker. */

@@ -40,7 +40,7 @@ let engine: Promise<eSpeakNGWorker | null> | null = null;
 /**
  * Load the speech engine and its voices (once; later calls share the same
  * promise). Resolves false if it can't load (offline, blocked):
- * announcements then fall back to the wordless babble voice.
+ * there are then no announcements.
  */
 export function loadSpeech(): Promise<boolean> {
   engine ??= (async () => {
@@ -56,7 +56,7 @@ export function loadSpeech(): Promise<boolean> {
       const espeak = await create({ getPreloadedPackage: () => data });
       return new espeak.eSpeakNGWorker();
     } catch (err) {
-      console.warn("Speech engine unavailable; announcements stay wordless.", err);
+      console.warn("Speech engine unavailable; no PA announcements.", err);
       return null;
     }
   })();

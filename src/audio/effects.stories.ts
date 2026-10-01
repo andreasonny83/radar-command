@@ -17,11 +17,11 @@
  * else a terminal line), and "Speak" announces whatever is in the text
  * box. The recordings (audio/samples.ts, ~1.5 MB) and the speech engine
  * (audio/speech.ts) load when audio starts: until then the terminal is
- * quiet and announcements use the wordless voice.
+ * quiet and there are no announcements.
  *
  * Tuning loop: `LEVELS`, `ENGINE_*`, `ROLLOUT_VOLUME`, `ALERT_*`,
  * `FOCUS_LEVEL` / `BACKGROUND_LEVEL` and the builders in sfx.ts;
- * `PA_SCHEDULE`, `AMBIENCE_LEVELS`, `BED_*`, `VOWELS` and the `*_LEVEL`s
+ * `PA_SCHEDULE`, `AMBIENCE_LEVELS`, `BED_*` and the `*_LEVEL`s
  * in ambience.ts; the lines in announcements.ts; the voices in speech.ts;
  * bus levels (`AMBIENCE_VOLUME`, `SCENE_LEVELS`) in mixer.ts; gear timing
  * (`GEAR_TRAVEL`) in render/sceneSync.ts. The recordings themselves are
@@ -276,7 +276,7 @@ export const Effects: StoryObj<EffectsArgs> = {
         const loaded = `${audio.samples?.loaded ?? 0}/${Object.keys(SAMPLE_URLS).length} recordings`;
         status.textContent = ok
           ? `Playing: ambience on, ${loaded}, PA voice ready.`
-          : `Playing: ambience on, ${loaded} (PA voice unavailable: wordless announcements).`;
+          : `Playing: ambience on, ${loaded} (PA voice unavailable: no announcements).`;
       });
     });
     // Speak any line through the PA.
