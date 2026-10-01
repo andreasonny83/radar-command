@@ -29,7 +29,7 @@ import {
 } from "../core/leaderboard";
 import type { Result } from "../net/leaderboardApi";
 import { errorMessage } from "../net/leaderboardApi";
-import { escapeHtml, formatDuration } from "./hudMarkup";
+import { escapeHtml, formatGameDuration } from "./hudMarkup";
 
 /** What the list area shows. */
 export type BoardView =
@@ -78,8 +78,8 @@ const RANK_CLASSES = ["text-amber-300", "text-slate-200", "text-orange-400"];
  */
 const GRID =
   "grid items-center gap-x-2 grid-cols-[2.25rem_minmax(0,1fr)_2rem_3rem] " +
-  "sm:gap-x-3 sm:grid-cols-[2.5rem_minmax(0,1fr)_4.5rem_5rem_4.5rem_4rem] " +
-  "md:grid-cols-[2.5rem_minmax(0,1fr)_4.5rem_5rem_4.5rem_5.5rem_4rem]";
+  "sm:gap-x-3 sm:grid-cols-[2.5rem_minmax(0,1fr)_4.5rem_5rem_6rem_4rem] " +
+  "md:grid-cols-[2.5rem_minmax(0,1fr)_4.5rem_5rem_6rem_5.5rem_4rem]";
 
 /** Cells shown from the `sm` breakpoint up. */
 const WIDE = "hidden sm:block";
@@ -120,7 +120,7 @@ function headerMarkup(): string {
       <span>Pilot</span>
       <span class="text-right" title="Landings"><span class="sm:hidden">Lnd</span><span class="${WIDE}">Landings</span></span>
       <span class="${WIDE} text-right">Departures</span>
-      <span class="${WIDE} text-right">Duration</span>
+      <span class="${WIDE} text-right" title="Game time">Duration</span>
       <span class="${WIDER} text-right">Date</span>
       <span class="text-right">Score</span>
     </div>`;
@@ -142,7 +142,7 @@ function rowMarkup(entry: BoardEntry): string {
       <span class="min-w-0 truncate font-semibold text-slate-100">${escapeHtml(entry.name)}${you}</span>
       <span class="${stat}" title="Landings">${entry.landed}</span>
       <span class="${WIDE} ${stat}" title="Departures">${entry.departed}</span>
-      <span class="${WIDE} ${stat}" title="Duration (sim time flown with two runways open)">${formatDuration(entry.seconds)}</span>
+      <span class="${WIDE} ${stat}" title="Duration (game time flown with two runways open: days, hours, minutes)">${formatGameDuration(entry.seconds)}</span>
       <span class="${WIDER} truncate text-right text-xs text-slate-400" title="${new Date(entry.at).toLocaleString()}">${formatRunDate(entry.at)}</span>
       <span class="text-right font-mono text-lg font-black text-sky-300 tabular-nums">${entry.score}</span>
     </li>`;

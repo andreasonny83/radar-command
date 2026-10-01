@@ -10,6 +10,7 @@
  * state) is filled in by `hud.ts` at runtime. Key hints in tooltips and the
  * help panel come from the shortcut table in input/shortcuts.ts.
  */
+import { DAY_SECONDS } from "../core/daytime";
 import { ALL_TIME_MAX, BOARD_LABELS, BOARDS, NAME_MAX } from "../core/leaderboard";
 import { DEPARTURE_POINTS, LANDING_POINTS, SECONDS_PER_TIME_POINT } from "../core/scoring";
 import { POINTER_CONTROLS, SHORTCUT_GROUPS, shortcutHint } from "../input/shortcuts";
@@ -864,6 +865,23 @@ export function formatDuration(seconds: number): string {
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}:${ss}`;
   return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}:${ss}`;
+}
+
+/**
+ * Sim seconds as in-game time ("2d 5h 20m"; leading zero units dropped, "0m"
+ * at the least). A game day is `DAY_SECONDS` of play, so one sim second is
+ * four game minutes and the minutes come in steps of four.
+ */
+export function formatGameDuration(seconds: number): string {
+  const totalMinutes = Math.floor((Math.max(0, seconds) / DAY_SECONDS) * 24 * 60);
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (days > 0 || hours > 0) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(" ");
 }
 
 /** `text` made safe to place inside markup (text or an attribute value). */

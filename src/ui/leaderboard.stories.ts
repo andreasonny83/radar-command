@@ -2,7 +2,7 @@
  * Leaderboard: the boards panel and the game-over submit form, on the real
  * `createHud` with canned data in place of the API (net/leaderboardApi.ts).
  *
- * Rows show each best run's landings, departures, duration and date as
+ * Rows show each best run's landings, departures, duration (game time: days, hours, minutes) and date as
  * well as its score (the sample breakdowns add up to the score, as
  * `scoreOf` would). Panel stories: pick what `loadBoard` returns (a full board, the player in
  * or outside the top ten, a long all-time board of `ALL_TIME_MAX` rows that
