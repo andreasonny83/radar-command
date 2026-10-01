@@ -16,7 +16,7 @@ import {
   timePoints,
   type ScoreBreakdown,
 } from "../core/scoring";
-import type { GamePhase } from "../core/types";
+import type { CrashCause, GamePhase } from "../core/types";
 import { GAME_SPEEDS } from "../config";
 import { shortcutHint } from "../input/shortcuts";
 import type { Result } from "../net/leaderboardApi";
@@ -99,9 +99,10 @@ export interface Hud {
   /**
    * Crash screen: the final score with its breakdown (landed, departed,
    * time), and the leaderboard form with `name` (the last one used) filled
-   * in. Call `setSubmitState` next.
+   * in. Call `setSubmitState` next. `cause` picks the headline: CRASH! for a
+   * collision (the default), WIND SHEAR! for an extreme wind stream.
    */
-  showGameOver(breakdown: ScoreBreakdown, name?: string): void;
+  showGameOver(breakdown: ScoreBreakdown, name?: string, cause?: CrashCause): void;
   /** Drive the game-over leaderboard form (see `SubmitState`). */
   setSubmitState(state: SubmitState): void;
   /** Is the leaderboard panel showing? */
@@ -492,8 +493,8 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       // Nothing on the hidden overlay keeps focus (keys would type into it).
       nameInput.blur();
     },
-    showGameOver(b, name = "") {
-      title.textContent = "CRASH!";
+    showGameOver(b, name = "", cause = "collision") {
+      title.textContent = cause === "wind" ? "WIND SHEAR!" : "CRASH!";
       title.classList.replace("text-sky-400", "text-red-500");
       title.classList.replace("glow-text", "glow-text-red");
       message.textContent = `Score ${scoreOf(b)}`;

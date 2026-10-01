@@ -564,6 +564,29 @@ export const WIND_DRIFT = PLANE_SPEED / 2;
 export const WIND_TURN = 0.3;
 export const WIND_TURN_RATE = 2.1;
 
+/**
+ * Black wind streams: a lethal variant of the stream (core/windStreams.ts).
+ * Any flying plane inside one during its peak window is destroyed.
+ */
+
+/** First game day (0-based, so 2 is the third) on which a new stream may spawn black. */
+export const BLACK_WIND_FROM_DAY = 2;
+
+/** Chance a new stream is black, once it may be. */
+export const BLACK_WIND_SHARE = 1 / 3;
+
+/** Seconds into a black stream's active phase before its lethal peak opens. */
+export const BLACK_PEAK_DELAY = 8;
+
+/** Seconds the peak stays lethal. */
+export const BLACK_PEAK_SECONDS = 5;
+
+/**
+ * Seconds before the peak opens that the build-up starts (the band
+ * flickers, a rumble plays): a warning only, never lethal.
+ */
+export const BLACK_PEAK_WARN = 2;
+
 // ---------------------------------------------------------------------------
 // Clouds (difficulty from game hour 30 — see core/clouds.ts)
 // ---------------------------------------------------------------------------

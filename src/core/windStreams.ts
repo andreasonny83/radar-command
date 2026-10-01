@@ -11,6 +11,12 @@
  * applied in core/plane.ts) and shaken by small heading shoves
  * (`Plane.windTurn`).
  *
+ * From the third game day some streams spawn black. A black stream does all
+ * of the above, and in addition kills any flying plane inside it during its
+ * peak window (`isLethal`): `BLACK_PEAK_DELAY` seconds into the active phase,
+ * for `BLACK_PEAK_SECONDS`. `BLACK_PEAK_WARN` seconds before that the build-up
+ * (`isPeakWarning`) is shown and heard, so the danger is never a surprise.
+ *
  * Streams only start once a whole game day has passed
  * (`DAY_SECONDS` of `state.elapsed`), and more of them can be up at once
  * each further day (`windLevel`). Departures, which the game flies, and
@@ -18,6 +24,11 @@
  * here knows about drawing; render/windStreams.ts shows the bands.
  */
 import {
+  BLACK_PEAK_DELAY,
+  BLACK_PEAK_SECONDS,
+  BLACK_PEAK_WARN,
+  BLACK_WIND_FROM_DAY,
+  BLACK_WIND_SHARE,
   WIND_ACTIVE_SECONDS,
   WIND_DRIFT,
   WIND_FADE_SECONDS,
@@ -49,17 +60,14 @@ export function windLevel(elapsed: number): number {
   return Math.min(WIND_MAX_STREAMS, Math.max(0, Math.floor(elapsed / DAY_SECONDS)));
 }
 
-/** Warning levels by `windLevel`: one stream may be up at yellow, two at amber, three at red. */
-const WARNING_LEVELS: readonly WarningLevel[] = ["yellow", "amber", "red"];
-
 /**
- * How serious the wind warning is after `elapsed` seconds, in the Met
- * Office's terms (see ui/weatherAlerts.ts): the more streams can be up at
- * once, the higher the level. Yellow from the second game day.
+ * How serious the warning for `stream` is, in the Met Office's terms (see
+ * ui/weatherAlerts.ts): yellow for an ordinary stream, red for a black one
+ * (the player is never told it is "black": it is simply the red warning).
+ * So from the third game day the warnings are a mix of mild and extreme.
  */
-export function warningLevel(elapsed: number): WarningLevel {
-  const index = Math.min(WARNING_LEVELS.length, Math.max(1, windLevel(elapsed))) - 1;
-  return WARNING_LEVELS[index]!;
+export function streamWarningLevel(stream: WindStream): WarningLevel {
+  return stream.black ? "red" : "yellow";
 }
 
 /** Where `stream` is in its life, or null once it is over. */
@@ -85,30 +93,58 @@ export function windStrength(stream: WindStream): number {
   }
 }
 
+/** Stream age (seconds) at which a black stream's lethal peak opens. */
+const PEAK_OPENS = WIND_FORM_SECONDS + BLACK_PEAK_DELAY;
+/** Stream age at which the peak closes again. */
+const PEAK_CLOSES = PEAK_OPENS + BLACK_PEAK_SECONDS;
+/** Stream age at which the build-up to the peak starts. */
+const PEAK_BUILDS = PEAK_OPENS - BLACK_PEAK_WARN;
+
+/** Is `stream` a black one inside its lethal peak window? Flying planes in it die. */
+export function isLethal(stream: WindStream): boolean {
+  return stream.black && stream.age >= PEAK_OPENS && stream.age < PEAK_CLOSES;
+}
+
+/** Is `stream` a black one in the build-up just before its peak? Never lethal. */
+export function isPeakWarning(stream: WindStream): boolean {
+  return stream.black && stream.age >= PEAK_BUILDS && stream.age < PEAK_OPENS;
+}
+
+/**
+ * Is `stream` a black one whose peak has not finished yet (forecast,
+ * forming, active or in its peak)? The HUD keeps the black warning up for it.
+ */
+export function peakPending(stream: WindStream): boolean {
+  return stream.black && stream.age < PEAK_CLOSES;
+}
+
 /**
  * Put a new stream somewhere over the airspace, blowing in a random
- * direction, starting in its forecast. Runways are not avoided: the
- * warnings are what keep it fair.
+ * direction, starting in its forecast. From the third game day it may be a
+ * black one. Runways are not avoided: the warnings are what keep it fair.
  */
 function spawnStream(state: GameState, rng: Rng): WindStream {
   const b = airspaceBounds(state.world);
+  const center = { x: lerp(b.minX, b.maxX, rng()), y: lerp(b.minY, b.maxY, rng()) };
+  const heading = rng() * Math.PI * 2;
+  // Rolled only once black is allowed, so the first days keep their random sequence.
+  const mayBeBlack = Math.floor(state.elapsed / DAY_SECONDS) >= BLACK_WIND_FROM_DAY;
   return {
     id: state.nextStreamId++,
-    rect: {
-      center: { x: lerp(b.minX, b.maxX, rng()), y: lerp(b.minY, b.maxY, rng()) },
-      heading: rng() * Math.PI * 2,
-      length: WIND_LENGTH,
-      width: WIND_WIDTH,
-    },
+    rect: { center, heading, length: WIND_LENGTH, width: WIND_WIDTH },
     age: -WIND_FORECAST_SECONDS,
+    black: mayBeBlack && rng() < BLACK_WIND_SHARE,
   };
 }
 
 /**
  * Advance the streams by `dt` seconds (age them, start new ones, drop dead
  * ones) and apply them to the planes. Does nothing on the first game day.
+ *
+ * @returns the flying planes caught inside a black stream's lethal peak.
+ *          The caller ends the game (core/simulation.ts); nothing here does.
  */
-export function updateWind(state: GameState, dt: number, rng: Rng, events: SimEvent[]): void {
+export function updateWind(state: GameState, dt: number, rng: Rng, events: SimEvent[]): Plane[] {
   const cap = windLevel(state.elapsed);
 
   // Age the streams and report the ones that just changed phase.
@@ -121,6 +157,10 @@ export function updateWind(state: GameState, dt: number, rng: Rng, events: SimEv
     }
     if (before !== "active" && after === "active") {
       events.push({ type: "windActive", streamId: stream.id });
+    }
+    // The build-up to a black stream's peak: once, as its age crosses the start.
+    if (stream.black && stream.age - dt < PEAK_BUILDS && stream.age >= PEAK_BUILDS) {
+      events.push({ type: "blackWindPeak", streamId: stream.id });
     }
   }
   state.streams = state.streams.filter((s) => windPhase(s) !== null);
@@ -135,13 +175,25 @@ export function updateWind(state: GameState, dt: number, rng: Rng, events: SimEv
       events.push({
         type: "windForecast",
         streamId: stream.id,
-        level: warningLevel(state.elapsed),
+        level: streamWarningLevel(stream),
       });
       state.windTimer = lerp(WIND_GAP_MIN, WIND_GAP_MAX, rng());
     }
   }
 
-  for (const plane of state.planes) applyWind(plane, state, events);
+  // The lethal check is its own scan: a plane in a normal stream that
+  // overlaps a lethal one is still caught (`applyWind` finds only one).
+  const caught: Plane[] = [];
+  for (const plane of state.planes) {
+    applyWind(plane, state, events);
+    if (
+      plane.phase === "flying" &&
+      state.streams.some((s) => isLethal(s) && pointInRect(plane.pos, s.rect))
+    ) {
+      caught.push(plane);
+    }
+  }
+  return caught;
 }
 
 /** Push `plane` by the stream it is in, or clear the effect if it is in none. */

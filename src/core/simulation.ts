@@ -8,7 +8,8 @@
  *                (core/departures.ts)
  *   2. wind    – wind streams age and form (from the second game day on); a
  *                plane that flew into an active one loses its path and is
- *                pushed along (core/windStreams.ts)
+ *                pushed along (core/windStreams.ts). A flying plane caught in
+ *                a black stream's peak is destroyed: the game ends here
  *   3. move    – every plane advances by dt: airborne ones along their
  *                paths, ones on the ground along their taxi routes. First,
  *                planes outside the airspace pick their avoidance turns
@@ -102,7 +103,19 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
 
   // 2. Wind. Before anyone moves, so a plane that just flew into a stream
   // loses its path before it is steered along it.
-  updateWind(state, dt, rng, events);
+  const caught = updateWind(state, dt, rng, events);
+  if (caught.length > 0) {
+    // A black wind stream's peak: the planes in it are wrecked, same
+    // ending as a collision. Leave them in place for the cinematic.
+    state.phase = "gameover";
+    events.push({
+      type: "crash",
+      planeIds: caught.map((p) => p.id),
+      at: { x: caught[0]!.pos.x, y: caught[0]!.pos.y },
+      cause: "wind",
+    });
+    return events;
+  }
 
   // 3. Move. Avoidance first, from where everyone is at the start of the step.
   resolveOuterTraffic(state.planes, state.world);
@@ -141,6 +154,7 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
       type: "crash",
       planeIds: [a.id, b.id],
       at: { x: (a.pos.x + b.pos.x) / 2, y: (a.pos.y + b.pos.y) / 2 },
+      cause: "collision",
     });
     // Leave the planes in place so the crash stays visible behind the overlay.
     return events;

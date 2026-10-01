@@ -231,6 +231,8 @@ export const Effects: StoryObj<EffectsArgs> = {
         `Weather warning (${level})`,
         () => audio.onSimEvent({ type: "windForecast", streamId: 1, level }, pan),
       ]),
+      // The build-up to an extreme (red-warning) wind stream's lethal peak: a low rumble.
+      ["Extreme wind peak", () => audio.onSimEvent({ type: "blackWindPeak", streamId: 1 }, pan)],
       // Not focused: the alert always plays at full level.
       ["Near-miss alert", (id) => audio.cue({ type: "warning", planeId: id, pan: args.pan })],
       ["PA announcement", () => audio.ambience?.announce()],

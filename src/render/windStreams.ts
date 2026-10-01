@@ -10,6 +10,11 @@
  *   so it reads as moving air, not a painted rectangle;
  * - fading: the wisps thin out with the wind's strength.
  *
+ * A black stream (`WindStream.black`) is drawn in near-black smoke with a
+ * red-orange forming outline. In the 2 s build-up before its lethal peak
+ * the band flickers between black and red-orange; through the peak itself
+ * it stays red-orange, so the danger window is easy to read.
+ *
  * Each band is a ground strip turned to the wind heading. The feathered
  * edge is baked into the strip's vertex alpha (`featheredStrip`); the
  * wisps are a seamless tile drawn once on a canvas and scrolled by moving
@@ -35,12 +40,18 @@ import type { Scene } from "@babylonjs/core/scene";
 import { WIND_LENGTH, WIND_WIDTH } from "../config";
 import { mulberry32 } from "../core/math";
 import type { WindStream, WorldSize } from "../core/types";
-import { windPhase, windStrength } from "../core/windStreams";
+import { isLethal, isPeakWarning, windPhase, windStrength } from "../core/windStreams";
 import { headingToRotationY, toScene } from "./coords";
 import { OVERLAY_GROUP } from "./scene";
 
 /** Colour of the wind: a cool white, readable on grass, water and tarmac. */
 export const WIND_COLOR = "#e6f6ff";
+/** Colour of a black stream: near-black with a violet cast, so it still reads on night grass. */
+export const BLACK_WIND_COLOR = "#17121f";
+/** Colour of a black stream's forming outline, and of its flicker and peak. */
+export const BLACK_WIND_ALERT_COLOR = "#ff4a2e";
+/** Flickers per second through the build-up to the peak. */
+const PEAK_FLICKER_RATE = 5;
 /** Height of the band: on the ground, under the path lines (which sit at 0.2). */
 const WIND_ALTITUDE = 0.12;
 /** The back wisp layer floats a hair above the front one. */
@@ -181,14 +192,19 @@ function makeOutline(scene: Scene): DynamicTexture {
   return tex;
 }
 
-function makeMaterial(scene: Scene, name: string, texture: DynamicTexture): StandardMaterial {
+function makeMaterial(
+  scene: Scene,
+  name: string,
+  texture: DynamicTexture,
+  color = WIND_COLOR,
+): StandardMaterial {
   const mat = new StandardMaterial(name, scene);
   mat.diffuseTexture = texture;
   mat.useAlphaFromDiffuseTexture = true;
   // Unlit: with lighting off only the emissive colour shows, multiplied by
   // the texture and the vertex alpha.
   mat.diffuseColor = Color3.Black();
-  mat.emissiveColor = Color3.FromHexString(WIND_COLOR);
+  mat.emissiveColor = Color3.FromHexString(color);
   mat.specularColor = Color3.Black();
   mat.disableLighting = true;
   mat.backFaceCulling = false;
@@ -235,6 +251,11 @@ export class WindStreamsView {
   private readonly formingMat: StandardMaterial;
   private readonly frontMat: StandardMaterial;
   private readonly backMat: StandardMaterial;
+  private readonly blackFormingMat: StandardMaterial;
+  private readonly blackFrontMat: StandardMaterial;
+  private readonly blackBackMat: StandardMaterial;
+  /** The red-orange the band takes through the build-up flicker and the peak. */
+  private readonly peakMat: StandardMaterial;
 
   constructor(private readonly scene: Scene) {
     this.forming = makeOutline(scene);
@@ -243,6 +264,15 @@ export class WindStreamsView {
     this.formingMat = makeMaterial(scene, "windForming", this.forming);
     this.frontMat = makeMaterial(scene, "windFront", this.frontTex);
     this.backMat = makeMaterial(scene, "windBack", this.backTex);
+    this.blackFormingMat = makeMaterial(
+      scene,
+      "blackWindForming",
+      this.forming,
+      BLACK_WIND_ALERT_COLOR,
+    );
+    this.blackFrontMat = makeMaterial(scene, "blackWindFront", this.frontTex, BLACK_WIND_COLOR);
+    this.blackBackMat = makeMaterial(scene, "blackWindBack", this.backTex, BLACK_WIND_COLOR);
+    this.peakMat = makeMaterial(scene, "blackWindPeak", this.frontTex, BLACK_WIND_ALERT_COLOR);
   }
 
   private createBand(stream: WindStream, world: WorldSize): Band {
@@ -286,14 +316,19 @@ export class WindStreamsView {
       } else if (phase === "forming") {
         // The outline spans the whole strip: no feathering, one layer.
         front.isVisible = true;
-        front.material = this.formingMat;
+        front.material = stream.black ? this.blackFormingMat : this.formingMat;
         front.useVertexColors = false;
         front.visibility = FORMING_ALPHA + FORMING_PULSE * Math.sin(time * FORMING_PULSE_RATE);
         back.isVisible = false;
       } else {
         front.isVisible = true;
-        front.material = this.frontMat;
-        back.material = this.backMat;
+        // Black streams flicker red-orange through the build-up and stay
+        // red-orange through the lethal peak; otherwise near-black.
+        const flicker =
+          isPeakWarning(stream) && Math.sin(time * PEAK_FLICKER_RATE * Math.PI * 2) > 0;
+        const alarm = isLethal(stream) || flicker;
+        front.material = stream.black ? (alarm ? this.peakMat : this.blackFrontMat) : this.frontMat;
+        back.material = stream.black ? this.blackBackMat : this.backMat;
         front.useVertexColors = true;
         back.isVisible = true;
         const k = windStrength(stream);
@@ -315,7 +350,17 @@ export class WindStreamsView {
       band.back.dispose(false, false);
     }
     this.bands.clear();
-    for (const mat of [this.formingMat, this.frontMat, this.backMat]) mat.dispose();
+    for (const mat of [
+      this.formingMat,
+      this.frontMat,
+      this.backMat,
+      this.blackFormingMat,
+      this.blackFrontMat,
+      this.blackBackMat,
+      this.peakMat,
+    ]) {
+      mat.dispose();
+    }
     for (const tex of [this.forming, this.frontTex, this.backTex]) tex.dispose();
   }
 }

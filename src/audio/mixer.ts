@@ -263,6 +263,9 @@ export class GameAudio {
       case "pathLost":
         this.graph?.sfx.windGust(1);
         break;
+      case "blackWindPeak":
+        this.graph?.sfx.blackWindRumble();
+        break;
       default:
         break;
     }

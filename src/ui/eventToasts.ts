@@ -3,7 +3,7 @@
  * Shared by the game (main.ts) and the Storybook stories that run the sim,
  * so both word every notice the same way.
  */
-import { COLOR_HEX } from "../config";
+import { COLOR_HEX, WARNING_HEX } from "../config";
 import type { SimEvent } from "../core/types";
 
 export interface Toast {
@@ -33,6 +33,10 @@ export function toastFor(event: SimEvent): Toast | null {
       };
     case "liftoff":
       return { text: `${event.color.toUpperCase()} runway open`, color: COLOR_HEX[event.color] };
+    // The build-up to the lethal peak of an extreme (red-warning) wind stream
+    // (core/windStreams.ts). "Black" is an internal name: never shown.
+    case "blackWindPeak":
+      return { text: "Extreme wind peaking — get clear", color: WARNING_HEX.red };
     default:
       return null;
   }

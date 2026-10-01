@@ -5,14 +5,15 @@
  * warning, headed "<Level> warning of <weather>", with the level's action
  * word (be aware / be prepared / take action) and what to expect. Unlike
  * the real service it names no area and no time: it is a heads-up that the
- * weather is about to turn. Only wind streams so far (core/windStreams.ts);
+ * weather is about to turn. Only wind streams so far (core/windStreams.ts:
+ * yellow for an ordinary one, red for the extreme kind);
  * another kind of severe weather adds its own case in `weatherAlerts`.
  * Shared by the game (main.ts) and the Storybook stories: `weatherAlerts`
  * reads the state, `createWeatherStrip` draws the lines.
  */
 import { WARNING_HEX } from "../config";
 import type { GameState, WarningLevel } from "../core/types";
-import { warningLevel, windPhase } from "../core/windStreams";
+import { peakPending, streamWarningLevel, windPhase } from "../core/windStreams";
 import { weatherAlertLineMarkup } from "./hudMarkup";
 
 /** One line of the warning strip. */
@@ -38,8 +39,20 @@ function levelName(level: WarningLevel): string {
   return level[0]!.toUpperCase() + level.slice(1);
 }
 
-/** The warning for wind at `level`. */
+/**
+ * The warning for wind at `level`. Red is the extreme one (a stream that
+ * destroys aircraft at its peak; it is never called anything else to the
+ * player), the others strong wind that erases flight paths.
+ */
 export function windAlert(level: WarningLevel): WeatherAlert {
+  if (level === "red") {
+    return {
+      id: `wind-${level}`,
+      level,
+      headline: `${levelName(level)} warning of extreme wind`,
+      advice: `${ACTION[level]}: extreme winds can destroy aircraft`,
+    };
+  }
   return {
     id: `wind-${level}`,
     level,
@@ -48,16 +61,24 @@ export function windAlert(level: WarningLevel): WeatherAlert {
   };
 }
 
-/** Every warning to show now, one per kind of weather, however many are coming. */
+/** Warning levels wind can raise, most serious first (the strip's line order). */
+const WIND_LEVELS: readonly WarningLevel[] = ["red", "yellow"];
+
+/**
+ * Every warning to show now: one line per kind of weather and level on the
+ * way, so a mild and an extreme stream can be announced together.
+ */
 export function weatherAlerts(state: GameState): WeatherAlert[] {
-  const alerts: WeatherAlert[] = [];
-  // Wind: from the forecast until the first stream turns active.
-  const windComing = state.streams.some((s) => {
-    const phase = windPhase(s);
-    return phase === "forecast" || phase === "forming";
-  });
-  if (windComing) alerts.push(windAlert(warningLevel(state.elapsed)));
-  return alerts;
+  // Wind: a stream is announced from its forecast until it turns active; a
+  // black one (red warning) stays up until its lethal peak is over.
+  const coming = new Set<WarningLevel>();
+  for (const stream of state.streams) {
+    const phase = windPhase(stream);
+    if (phase === "forecast" || phase === "forming" || peakPending(stream)) {
+      coming.add(streamWarningLevel(stream));
+    }
+  }
+  return WIND_LEVELS.filter((level) => coming.has(level)).map(windAlert);
 }
 
 /** The strip's DOM: lines kept per alert id, added and removed as they change. */

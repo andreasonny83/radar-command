@@ -393,7 +393,8 @@ export interface GameState {
 /**
  * How serious a weather warning is, after the Met Office's National Severe
  * Weather Warning Service: yellow (be aware), amber (be prepared), red
- * (take action). See core/windStreams.ts `warningLevel`.
+ * (take action). Wind streams use yellow and red only (see core/windStreams.ts
+ * `streamWarningLevel`); amber is there for other weather.
  */
 export type WarningLevel = "yellow" | "amber" | "red";
 
@@ -412,13 +413,21 @@ export interface WindStream {
    * it exists (so the HUD can say where) but is not drawn yet.
    */
   age: number;
+  /**
+   * A black stream: also lethal to flying planes during its peak window
+   * (see `isLethal` in core/windStreams.ts).
+   */
+  black: boolean;
 }
+
+/** What ended the shift: two planes colliding, or a black wind stream's peak. */
+export type CrashCause = "collision" | "wind";
 
 /** Things that happened during a `step`, for the UI/renderer to react to. */
 export type SimEvent =
   | { type: "spawned"; planeId: number }
   | { type: "landed"; planeId: number; color: RunwayColor }
-  | { type: "crash"; planeIds: [number, number]; at: Vec2 }
+  | { type: "crash"; planeIds: number[]; at: Vec2; cause: CrashCause }
   /** A landing brought the count far enough to open another runway colour. */
   | { type: "unlocked"; color: RunwayColor }
   /** A plane reached its threshold with the runway blocked, and flew on. */
@@ -437,6 +446,8 @@ export type SimEvent =
   | { type: "windForming"; streamId: number }
   /** A wind stream turned active. */
   | { type: "windActive"; streamId: number }
+  /** A black wind stream's build-up to its lethal peak began (the peak opens shortly). */
+  | { type: "blackWindPeak"; streamId: number }
   /** A plane flew into an active wind stream and lost its path. */
   | { type: "pathLost"; planeId: number };
 

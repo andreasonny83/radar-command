@@ -23,7 +23,7 @@ import { unlockedColors } from "./core/progression";
 import { breakdownOf } from "./core/scoring";
 import { startGame, step, togglePause } from "./core/simulation";
 import { createGameState, setLiveView, setViewAspect } from "./core/state";
-import type { SimEvent } from "./core/types";
+import type { CrashCause, SimEvent } from "./core/types";
 import { attachPanKeys } from "./input/keyboard";
 import { attachPointerInput } from "./input/pointer";
 import { attachShortcuts } from "./input/shortcuts";
@@ -130,6 +130,9 @@ function frameOpenAirports(): void {
  */
 let gameOverIn: number | null = null;
 
+/** What ended the shift, for the game-over headline (set by the `crash` event). */
+let crashCause: CrashCause = "collision";
+
 // --- Leaderboard ---------------------------------------------------------------
 /**
  * This shift's run token (net/leaderboardApi.ts), requested as it starts:
@@ -141,7 +144,7 @@ let runToken: Promise<string | null> | null = null;
 /** Crash screen: offer the leaderboard form if this run can go on the board. */
 async function offerSubmit(): Promise<void> {
   const breakdown = breakdownOf(state);
-  hud.showGameOver(breakdown, savedName());
+  hud.showGameOver(breakdown, savedName(), crashCause);
   // Time alone doesn't qualify: the run has to have moved some traffic.
   if (breakdown.landed + breakdown.departed === 0) {
     hud.setSubmitState({
@@ -443,6 +446,7 @@ function handleEvent(event: SimEvent): void {
     case "crash": {
       // Wreck the planes, fly the camera over and start the slow orbit. The
       // game-over panel waits, so nothing covers the fireball.
+      crashCause = event.cause;
       const site = sceneSync.crash(event.planeIds);
       if (site) cameraController.focusOn(site);
       gameOverIn = CRASH_OVERLAY_DELAY;

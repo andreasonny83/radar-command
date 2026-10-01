@@ -154,6 +154,7 @@ const LEVELS = {
   // peak, so a lower level lands the "denied" buzz beside it (~-34 dBFS).
   reject: 0.045,
   windGust: 0.16,
+  blackWind: 0.22,
   // A pure sine, so it is quiet for its pitch: ~-34 dBFS like the other signals.
   weather: 0.07,
 };
@@ -354,6 +355,32 @@ export class Sfx {
     env.gain.linearRampToValueAtTime(peak, t + dur * 0.4);
     env.gain.linearRampToValueAtTime(0, t + dur);
     this.noiseSource(t, dur).connect(band).connect(env).connect(this.out);
+  }
+
+  /**
+   * The build-up to a black wind stream's lethal peak (`blackWindPeak`): a
+   * low noise swell over a falling sub tone, lasting just past the 2 s
+   * build-up (`BLACK_PEAK_WARN`). Synthesised and not panned: it is the weather.
+   */
+  blackWindRumble(): void {
+    const { ctx } = this;
+    const t = ctx.currentTime;
+    const dur = 3.5;
+    const low = ctx.createBiquadFilter();
+    low.type = "lowpass";
+    low.frequency.value = 220;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(LEVELS.blackWind, t + dur * 0.55);
+    env.gain.linearRampToValueAtTime(0, t + dur);
+    this.noiseSource(t, dur).connect(low).connect(env).connect(this.out);
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(70, t);
+    osc.frequency.exponentialRampToValueAtTime(38, t + dur);
+    osc.connect(env);
+    osc.start(t);
+    osc.stop(t + dur);
   }
 
   // -------------------------------------------------------------------------

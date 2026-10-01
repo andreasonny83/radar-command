@@ -265,8 +265,10 @@ export const DepartureToast: Story = {
  * Weather warnings (wind stream forecast, ui/weatherAlerts.ts), styled
  * after the Met Office's yellow / amber / red warnings: a strip at the top
  * of the screen, above the toasts (one is showing here), with one line per
- * kind of weather on the way, no place or time. The game shows yellow from the second day, amber from the third and red
- * from the fourth (`warningLevel` in core/windStreams.ts). It stays up
+ * kind of weather and level on the way, no place or time. The game shows
+ * yellow for an ordinary wind stream (from the second day) and red for the
+ * extreme kind that destroys aircraft (from the third), possibly both at
+ * once (`streamWarningLevel` in core/windStreams.ts). It stays up
  * until the weather arrives, unlike a toast. Canned here; the game fills
  * it from the sim every frame.
  */

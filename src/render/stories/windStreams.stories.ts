@@ -12,21 +12,36 @@
  *               strip at the top of the screen (ui/weatherAlerts.ts) shows,
  *               with its own tone, before it appears on the map. `sound`
  *               plays the gust and the forecast tone (click the canvas first).
+ *   - BlackWind: a black stream (from the third game day) builds to its lethal
+ *               peak: the band flickers red-orange, the "Extreme wind peaking"
+ *               toast and the red warning strip show, and a plane flying into
+ *               it is destroyed (crash cinematic, then the scene replays).
+ *               `sound` plays the rumble (click the canvas first).
  *   - Live:     the real sim started 24 game hours in (as `seedShift` in core/state.ts does
  *               for `VITE_DEBUG_START_HOURS=24`: every runway open, streams
  *               from the first seconds), planes arriving as in the game.
  *               `timeScale` speeds it up.
  *
- * Tuning loop: WIND_* in config.ts (size, timings, push, how many streams),
- * the look (WIND_COLOR, WIND_SCROLL_SPEED, *_ALPHA, the wisps in
+ * Tuning loop: WIND_* and BLACK_* in config.ts (size, timings, push, how many
+ * streams, black share and peak window),
+ * the look (WIND_COLOR, BLACK_WIND_COLOR, BLACK_WIND_ALERT_COLOR, PEAK_FLICKER_RATE,
+ * WIND_SCROLL_SPEED, *_ALPHA, the wisps in
  * `makeWisps`, `makeOutline`) in render/windStreams.ts, STREAM_SHAKE / STREAM_SHAKE_EASE
- * in sceneSync.ts, the gust (`windGust`, LEVELS.windGust) in audio/sfx.ts,
+ * in sceneSync.ts, the gust (`windGust`, LEVELS.windGust) and the black-wind rumble
+ * (`blackWindRumble`, LEVELS.blackWind) in audio/sfx.ts,
  * the toasts in ui/eventToasts.ts, the forecast strip (WIND_FORECAST_SECONDS
  * in config.ts, `weatherAlerts`, the forecast tone `weatherWarning` in audio/sfx.ts).
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { GameAudio } from "../../audio/mixer";
-import { WIND_FORECAST_SECONDS, WIND_FORM_SECONDS, WIND_LENGTH, WIND_WIDTH } from "../../config";
+import {
+  BLACK_PEAK_DELAY,
+  PLANE_SPEED,
+  WIND_FORECAST_SECONDS,
+  WIND_FORM_SECONDS,
+  WIND_LENGTH,
+  WIND_WIDTH,
+} from "../../config";
 import { createPlane } from "../../core/plane";
 import { startGame, step } from "../../core/simulation";
 import { createGameState } from "../../core/state";
@@ -119,6 +134,7 @@ export const PathLoss: StoryObj<PathLossArgs> = {
         // the plane's way; one still forming beside it.
         const active: WindStream = {
           id: 1,
+          black: false,
           age: WIND_FORM_SECONDS,
           rect: {
             center: { x: mid.x, y: mid.y },
@@ -129,6 +145,7 @@ export const PathLoss: StoryObj<PathLossArgs> = {
         };
         const forming: WindStream = {
           id: 2,
+          black: false,
           age: 0,
           rect: {
             center: { x: mid.x + 30, y: mid.y - 10 },
@@ -141,6 +158,7 @@ export const PathLoss: StoryObj<PathLossArgs> = {
         // forming on the map (nothing is drawn for it before).
         const forecast: WindStream = {
           id: 3,
+          black: false,
           age: -WIND_FORECAST_SECONDS,
           rect: {
             center: { x: mid.x - 25, y: mid.y + 28 },
@@ -175,6 +193,103 @@ export const PathLoss: StoryObj<PathLossArgs> = {
         if (sinceStart >= args.replayAfter) {
           sinceStart = 0;
           stageScene();
+        }
+        cam.frame(dt, time);
+        sync.syncPlanes(state, time);
+        alerts(state);
+        if (audio) for (const cue of sync.takeAudioCues()) audio.cue(cue);
+      };
+    }, args.timeScale),
+};
+
+// ---------------------------------------------------------------------------
+// BlackWind
+// ---------------------------------------------------------------------------
+
+interface BlackWindArgs {
+  sound: boolean;
+  /** Seconds after the crash before the scene restarts. */
+  replayAfter: number;
+  timeScale: number;
+}
+
+/** A plane flies into a black stream as its peak opens: build-up, then the crash. */
+export const BlackWind: StoryObj<BlackWindArgs> = {
+  argTypes: {
+    replayAfter: { control: { type: "range", min: 6, max: 40, step: 1 } },
+    timeScale: { control: { type: "range", min: 0.1, max: 3, step: 0.05 } },
+  },
+  args: { sound: false, replayAfter: 14, timeScale: 1 },
+  render: (args) =>
+    mountStage((stage) => {
+      const cam = gameCamera(stage, 0, 1.3);
+      dragToPan(stage, cam.controller);
+      const state = createGameState(stage.aspect());
+      const sync = new SceneSync(stage.scene, new MeshFactory(stage.scene), stage.shadows);
+      sync.rebuildWorld(state);
+      const { show, alerts } = toaster(stage);
+      const audio = storyAudio(stage, args.sound);
+      const mid = { x: state.world.width / 2, y: state.world.height / 2 };
+      /** Seconds from the start until the stream's lethal peak opens. */
+      const PEAK_IN = 6;
+
+      const stageScene = () => {
+        cam.controller.release();
+        state.phase = "playing";
+        state.spawnTimer = -1e9; // nothing arrives: only the staged plane
+        state.departureTimer = -1e9;
+        state.windTimer = 1e9; // no more streams
+        state.elapsed = 800; // past the first days, for the wind level
+        // A black stream across the plane's way. It is in its build-up
+        // (flickering) as the plane approaches, and the peak opens
+        // `PEAK_IN` seconds in, with the plane just inside the band.
+        const stream: WindStream = {
+          id: 1,
+          black: true,
+          age: WIND_FORM_SECONDS + BLACK_PEAK_DELAY - PEAK_IN,
+          rect: {
+            center: { ...mid },
+            heading: Math.PI / 2,
+            length: WIND_LENGTH,
+            width: WIND_WIDTH,
+          },
+        };
+        state.streams = [stream];
+        state.nextStreamId = 2;
+        // Heading east: it reaches the band's middle half a second after
+        // the peak opens (the band is WIND_WIDTH across, ~1.7 s to cross).
+        const plane = createPlane(
+          state.nextPlaneId++,
+          "red",
+          { x: mid.x - PLANE_SPEED * (PEAK_IN + 0.5), y: mid.y },
+          0,
+        );
+        plane.canDepart = false;
+        state.planes = [plane];
+      };
+      stageScene();
+
+      let time = 0;
+      /** Seconds since the crash, or null before it. */
+      let sinceCrash: number | null = null;
+      return (dt) => {
+        time += dt;
+        for (const event of step(state, dt)) {
+          show(event);
+          audio?.onSimEvent(event, (id) => sync.panFor(id));
+          if (event.type === "crash") {
+            const site = sync.crash(event.planeIds);
+            if (site) cam.controller.focusOn(site);
+            sinceCrash = 0;
+          }
+        }
+        if (sinceCrash !== null) {
+          sinceCrash += dt;
+          if (sinceCrash >= args.replayAfter) {
+            // A new plane id clears the wreckage; fly it all again.
+            sinceCrash = null;
+            stageScene();
+          }
         }
         cam.frame(dt, time);
         sync.syncPlanes(state, time);
