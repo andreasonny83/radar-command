@@ -9,6 +9,12 @@
  * pans when no plane is in grab range (or when paths can't be drawn, e.g.
  * while paused), so routing is never stolen by the camera.
  *
+ * Two fingers on empty ground make a pinch: spreading or closing them zooms
+ * (`onPinch`), and moving them together pans, as in any map app. A second
+ * finger that lands on a plane still draws its path instead, so routing two
+ * planes at once is untouched. Lift one finger and the other carries on
+ * panning without a jump.
+ *
  * Right-click: picks a plane for the camera to follow (see `onFollow`); the
  * browser's context menu is suppressed on the canvas.
  *
@@ -93,6 +99,13 @@ export interface PointerFeedback {
    */
   onPan?: (dx: number, dy: number) => void;
   /**
+   * Two fingers on empty ground were spread (`scale` > 1) or closed
+   * (`scale` < 1) since the last event: zoom the view by that factor. Their
+   * shared movement arrives through `onPan`. Without this hook two fingers
+   * on empty ground just pan with the first.
+   */
+  onPinch?: (scale: number) => void;
+  /**
    * Right-click: the id of the plane under the pointer (any plane still in
    * the game: flying, departing, or rolling/taxiing on the ground), or null
    * when it missed every plane. Works while playing or paused.
@@ -132,6 +145,16 @@ export interface PointerInput {
   dispose(): void;
 }
 
+/** A finger on the map: its pointer id and last position (canvas pixels). */
+interface PanPoint {
+  pointerId: number;
+  x: number;
+  y: number;
+}
+
+/** Fingers closer than this (px) give no usable pinch ratio: ignore the scale. */
+const MIN_PINCH_PX = 24;
+
 /** Wire pointer events on `canvas` to path drawing and map panning. */
 export function attachPointerInput(
   canvas: HTMLCanvasElement,
@@ -148,6 +171,12 @@ export function attachPointerInput(
    * the map twice as fast as either finger.
    */
   let pan: { pointerId: number; x: number; y: number } | null = null;
+  /**
+   * The two fingers pinching the map (canvas pixels), once a second finger
+   * lands on empty ground while one is panning. Pan and pinch never run
+   * together: a pinch takes over the panning finger.
+   */
+  let pinch: { a: PanPoint; b: PanPoint } | null = null;
   /**
    * Where a mouse or pen was last seen over the canvas (canvas pixels), or
    * null once it leaves. Touch never hovers, so it's never recorded: a
@@ -189,7 +218,17 @@ export function attachPointerInput(
     if (plane) {
       startPath(plane);
       active.set(e.pointerId, plane.id);
-    } else if (feedback.onPan && pan === null) {
+    } else if (
+      e.pointerType === "touch" &&
+      feedback.onPinch &&
+      feedback.onPan &&
+      pan !== null &&
+      pinch === null
+    ) {
+      // A second finger on empty ground while one is panning: a pinch.
+      pinch = { a: pan, b: { pointerId: e.pointerId, x, y } };
+      pan = null;
+    } else if (feedback.onPan && pan === null && pinch === null) {
       pan = { pointerId: e.pointerId, x, y };
       canvas.style.cursor = "grabbing";
     } else {
@@ -202,6 +241,27 @@ export function attachPointerInput(
 
   const onMove = (e: PointerEvent) => {
     if (e.pointerType !== "touch") hoverAt = toCanvas(e);
+    if (pinch && (pinch.a.pointerId === e.pointerId || pinch.b.pointerId === e.pointerId)) {
+      const [moved, other] =
+        pinch.a.pointerId === e.pointerId ? [pinch.a, pinch.b] : [pinch.b, pinch.a];
+      const before = {
+        d: Math.hypot(moved.x - other.x, moved.y - other.y),
+        mx: (moved.x + other.x) / 2,
+        my: (moved.y + other.y) / 2,
+      };
+      const { x, y } = toCanvas(e);
+      moved.x = x;
+      moved.y = y;
+      const d = Math.hypot(moved.x - other.x, moved.y - other.y);
+      if (before.d >= MIN_PINCH_PX && d >= MIN_PINCH_PX) feedback.onPinch?.(d / before.d);
+      // The fingers' midpoint is what drags the map.
+      const h = canvas.clientHeight || 1;
+      feedback.onPan?.(
+        ((moved.x + other.x) / 2 - before.mx) / h,
+        ((moved.y + other.y) / 2 - before.my) / h,
+      );
+      return;
+    }
     if (pan && pan.pointerId === e.pointerId) {
       const { x, y } = toCanvas(e);
       const h = canvas.clientHeight || 1;
@@ -242,6 +302,12 @@ export function attachPointerInput(
   };
 
   const onUp = (e: PointerEvent) => {
+    if (pinch && (pinch.a.pointerId === e.pointerId || pinch.b.pointerId === e.pointerId)) {
+      // One finger lifted: the other carries on panning from where it is.
+      const rest = pinch.a.pointerId === e.pointerId ? pinch.b : pinch.a;
+      pinch = null;
+      pan = rest;
+    }
     if (pan && pan.pointerId === e.pointerId) {
       pan = null;
       canvas.style.cursor = "";
@@ -278,7 +344,7 @@ export function attachPointerInput(
     // a path, and planes it passes over aren't about to be grabbed.
     const state = getState();
     let overPlane = false;
-    if (hoverAt && !pan && active.size === 0 && state.phase === "playing") {
+    if (hoverAt && !pan && !pinch && active.size === 0 && state.phase === "playing") {
       const hit = screenToWorld(scene, camera, state, hoverAt.x, hoverAt.y);
       const plane = hit && findPlaneNear(state.planes, hit);
       if (plane) {
