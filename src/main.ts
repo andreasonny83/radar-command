@@ -44,12 +44,14 @@ import { CameraController, trackPlane } from "./render/camera";
 import { toScene } from "./render/coords";
 import { DayCycle } from "./render/dayCycle";
 import { MeshFactory } from "./render/meshes";
+import { RenderScaler } from "./render/quality";
 import { createScene } from "./render/scene";
 import { createSceneStats } from "./render/sceneStats";
 import { SceneSync } from "./render/sceneSync";
 import { toastFor } from "./ui/eventToasts";
 import { FrameStats } from "./ui/frameStats";
 import { createFullscreen } from "./ui/fullscreen";
+import { createScreenWake } from "./ui/wakeLock";
 import { createHud } from "./ui/hud";
 import { savedUiHidden, saveUiHidden } from "./ui/preferences";
 import { weatherAlerts } from "./ui/weatherAlerts";
@@ -60,7 +62,10 @@ import { weatherAlerts } from "./ui/weatherAlerts";
 inject({ mode: import.meta.env.DEV ? "development" : "production" });
 injectSpeedInsights();
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
-const { engine, scene, shadows, fill, key } = createScene(canvas);
+const { engine, scene, shadows, fill, key, quality } = createScene(canvas);
+// Trades resolution for frame rate when the GPU struggles (render/quality.ts),
+// down to 1 pixel per CSS pixel. A no-op range on a plain 1x desktop screen.
+const renderScaler = new RenderScaler(engine, { max: quality.maxScale });
 const aspect = () => engine.getRenderWidth() / engine.getRenderHeight();
 
 // --- State (pure data, advanced only by `step`) ----------------------------
@@ -308,6 +313,9 @@ function toggleMusic(): void {
   hud.setMusicOn(audio.musicOn);
 }
 
+/** Keeps the screen on while a shift is running or paused. */
+const screenWake = createScreenWake();
+
 // Full screen (ui/fullscreen.ts): the button follows the browser's own
 // state, so leaving with Esc updates it too. The renderer needs nothing:
 // the window resizes and the handler below refits the engine.
@@ -357,6 +365,8 @@ function cycleFollow(dir: -1 | 1): void {
 const pointer = attachPointerInput(canvas, scene, cameraController.camera, () => state, {
   // Dragging empty ground grabs the map.
   onPan: (dx, dy) => cameraController.dragBy(dx, dy),
+  // Two fingers on empty ground: spread to zoom in, close to zoom out.
+  onPinch: (scale) => cameraController.zoomBy(scale),
   // Right-click a plane to follow it; again (or on empty ground) to stop.
   // Right-click again (anywhere) to go back to the view from before.
   onFollow: (planeId) => {
@@ -524,6 +534,11 @@ engine.runRenderLoop(() => {
   audio.setScene(AUDIO_SCENES[state.phase]);
   audio.update(state, panFor);
   scene.render();
+  // Only a running shift counts: the title screen and pause are cheap and
+  // say nothing about the real load.
+  renderScaler.update(engine.getDeltaTime(), state.phase === "playing");
+  // A phone must not dim or lock its screen mid-shift (ui/wakeLock.ts).
+  screenWake.sync(state.phase === "playing" || state.phase === "paused");
   if (hud.statsOpen) {
     // Raw frame time, not the clamped `dt`: a stall should show up.
     frameStats.push(engine.getDeltaTime());

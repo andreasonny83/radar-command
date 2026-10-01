@@ -38,6 +38,11 @@ interface HudArgs extends HudCallbacks {
   muted: boolean;
   /** Show the music button on (lit) or off (dimmed), as after pressing it or N. */
   musicOn: boolean;
+  /**
+   * Simulate a phone's notch and home indicator: the safe-area insets
+   * (`--safe-top` / `--safe-bottom` in style.css) the HUD keeps clear of.
+   */
+  notch: boolean;
   /** Show the full screen button as "leave full screen", as while in full screen (Z). */
   fullscreen: boolean;
   /** Show sample arrival arrows round the screen edge. */
@@ -148,6 +153,8 @@ const meta: Meta<HudArgs> = {
   title: "HUD/Screens",
   render: (args) => {
     const root = stage();
+    // A notch at the top and a home indicator at the bottom, as on a portrait iPhone.
+    if (args.notch) root.style.cssText += "--safe-top:47px;--safe-bottom:34px;";
     const hud = createHud(root, args);
     applyArgs(hud, args);
     if (args.arrivals) showSampleArrivals(hud, root);
@@ -190,6 +197,7 @@ const meta: Meta<HudArgs> = {
     muted: false,
     musicOn: true,
     fullscreen: false,
+    notch: false,
     help: false,
     licenses: false,
     stats: false,
@@ -241,6 +249,30 @@ export const Tracking: Story = {
  * 1-4 in the game, to cycle 1×, 1.5×, 2×, 3×; a new shift starts back at 1×.
  */
 export const FastForward: Story = { args: { phase: "playing", landed: 12, speed: 3 } };
+
+/**
+ * A phone in portrait (the viewport toolbar is set to a 320 px phone; try
+ * 360 and 390 too). Under 640 px wide the speed, pause, help and interface
+ * buttons stack in a column down the right edge, clear of the score panel
+ * and at full touch size, and the notices column leaves them room. The
+ * bottom row (sound, music, camera, full screen) shrinks its gaps to fit.
+ */
+export const PhonePortrait: Story = {
+  args: { phase: "playing", landed: 12, toast: "RED runway open", toastColor: "red" },
+  globals: { viewport: { value: "mobile1", isRotated: false } },
+};
+
+/**
+ * The same phone with a notch and a home indicator (`notch`): every
+ * edge-pinned piece of the HUD adds the safe-area inset (`.safe-t` and friends
+ * in style.css), so the score panel, the buttons and the bottom row sit clear
+ * of them. The page asks for the full screen with `viewport-fit=cover`
+ * (index.html), which is what makes a real phone report the insets.
+ */
+export const PhoneNotch: Story = {
+  args: { phase: "playing", landed: 12, notch: true },
+  globals: { viewport: { value: "mobile1", isRotated: false } },
+};
 
 /** Paused banner over the (frozen) game. */
 export const Paused: Story = { args: { phase: "paused", landed: 12 } };
