@@ -49,6 +49,7 @@ import { createSceneStats } from "./render/sceneStats";
 import { SceneSync } from "./render/sceneSync";
 import { toastFor } from "./ui/eventToasts";
 import { FrameStats } from "./ui/frameStats";
+import { createFullscreen } from "./ui/fullscreen";
 import { createHud } from "./ui/hud";
 import { savedUiHidden, saveUiHidden } from "./ui/preferences";
 import { weatherAlerts } from "./ui/weatherAlerts";
@@ -273,6 +274,7 @@ const hud = createHud(document.body, {
   onZoom: zoom,
   onToggleSound: toggleSound,
   onToggleMusic: toggleMusic,
+  onToggleFullscreen: toggleFullscreen,
   onHelp: (open) => onPanel("help", open),
   onLeaderboard: (open) => onPanel("leaderboard", open),
   onStats: (open) => {
@@ -301,6 +303,22 @@ function toggleSound(): void {
 function toggleMusic(): void {
   audio.setMusicOn(!audio.musicOn);
   hud.setMusicOn(audio.musicOn);
+}
+
+// Full screen (ui/fullscreen.ts): the button follows the browser's own
+// state, so leaving with Esc updates it too. The renderer needs nothing:
+// the window resizes and the handler below refits the engine.
+const fullscreen = createFullscreen();
+hud.setFullscreenAvailable(fullscreen.supported);
+hud.setFullscreen(fullscreen.active);
+fullscreen.onChange((active) => hud.setFullscreen(active));
+
+/** Button or Z. Returns false (key not handled) where full screen isn't supported. */
+function toggleFullscreen(): boolean | void {
+  if (!fullscreen.supported) return false;
+  void fullscreen.toggle().then((ok) => {
+    if (!ok) hud.showToast("The browser refused full screen");
+  });
 }
 
 // --- Follow camera -----------------------------------------------------------
@@ -372,6 +390,7 @@ attachShortcuts(
     toggleUi: () => hud.setUiHidden(!hud.uiHidden),
     toggleSound,
     toggleMusic,
+    toggleFullscreen,
     speed1: () => setGameSpeed(GAME_SPEEDS[0]),
     speed15: () => setGameSpeed(GAME_SPEEDS[1]),
     speed2: () => setGameSpeed(GAME_SPEEDS[2]),

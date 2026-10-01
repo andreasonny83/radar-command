@@ -17,6 +17,8 @@ import { createStatsPanel } from "./stats";
 import {
   arrivalLayerMarkup,
   cameraControlsMarkup,
+  FULLSCREEN_ICONS,
+  fullscreenButtonMarkup,
   EYE_OFF_ICON,
   helpButtonMarkup,
   helpPanelMarkup,
@@ -283,7 +285,11 @@ export const StatsPanel: Story = {
   },
 };
 
-/** Bottom-right button row: sound and music on / off, then the camera buttons. */
+/**
+ * Bottom-right button row: sound and music on / off, the camera buttons,
+ * then full screen. Narrow the Storybook viewport to 360 px to check they
+ * still fit (the gaps shrink and the spacers go on small screens).
+ */
 export const CameraControls: Story = { render: () => stage(cameraControlsMarkup()) };
 
 /**
@@ -296,6 +302,22 @@ export const SoundButton: StoryObj<{ muted: boolean }> = {
   render: ({ muted }) => {
     const root = stage(`<div class="absolute right-4 bottom-4">${soundButtonMarkup()}</div>`);
     part(root, "soundBtn").classList.toggle("hud-button-off", muted);
+    return root;
+  },
+};
+
+/**
+ * Full screen button on its own (last in the camera row). `hud.setFullscreen`
+ * swaps the icon between "enter" (corners out) and "leave" (corners in);
+ * `active` previews the latter.
+ */
+export const FullscreenButton: StoryObj<{ active: boolean }> = {
+  args: { active: false },
+  render: ({ active }) => {
+    const root = stage(`<div class="absolute right-4 bottom-4">${fullscreenButtonMarkup()}</div>`);
+    const btn = part(root, "fullscreenBtn");
+    btn.innerHTML = active ? FULLSCREEN_ICONS.exit : FULLSCREEN_ICONS.enter;
+    btn.setAttribute("aria-pressed", String(active));
     return root;
   },
 };
