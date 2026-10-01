@@ -20,6 +20,7 @@ export type ShortcutAction =
   | "toggleUi"
   | "toggleSound"
   | "toggleMusic"
+  | "toggleFullscreen"
   | "speed1"
   | "speed15"
   | "speed2"
@@ -112,6 +113,12 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         keys: ["n"],
         caps: ["N"],
         description: "Music on / off",
+      },
+      {
+        action: "toggleFullscreen",
+        keys: ["z"],
+        caps: ["Z"],
+        description: "Full screen on / off (Esc also leaves it)",
       },
       {
         action: "speed1",

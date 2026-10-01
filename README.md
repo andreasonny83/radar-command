@@ -30,6 +30,7 @@ uses a backend.
 | Stop following            | Right-click again      | `X`                                          |
 | Start a shift / try again | START button           | `Enter` / `Space`                            |
 | Pause / continue          | ⏸ button               | `P` / `Esc` / `Space`                        |
+| Full screen               | Bottom-right button    | `Z` (`Esc` leaves it)                        |
 | Game speed                | Speed button           | `1` (normal), `2` (1.5×), `3` (2×), `4` (3×) |
 | Help (all controls)       | `?` button             | `H` / `?`                                    |
 

@@ -213,6 +213,42 @@ const MUSIC_ICON = `
   </svg>`;
 
 /**
+ * Full screen icons: four corner arrows pointing out (enter) or in (leave).
+ * SVGs in currentColor, like the sound and music icons. `hud.setFullscreen`
+ * swaps between them.
+ */
+export const FULLSCREEN_ICONS = {
+  enter: `
+  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+  </svg>`,
+  exit: `
+  <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+  </svg>`,
+} as const;
+
+/**
+ * Full screen on / off, last in the bottom-right button row. `hud.setFullscreen`
+ * swaps its icon and label (enter / exit); `hud.setFullscreenAvailable(false)`
+ * hides it where the browser can't (iPhone Safari).
+ */
+export function fullscreenButtonMarkup(): string {
+  return `
+      <button
+        id="fullscreenBtn"
+        class="hud-button"
+        title="Full screen (${shortcutHint("toggleFullscreen")})"
+        aria-label="Full screen"
+        aria-pressed="false"
+      >
+        ${FULLSCREEN_ICONS.enter}
+      </button>`;
+}
+
+/**
  * Sound on / off, first in the bottom-right button row (with the camera
  * buttons). `hud.setMuted` dims it (`.hud-button-off` in style.css) while
  * the sound is off, the same look as the music button.
@@ -283,18 +319,20 @@ export function statsPanelMarkup(): string {
 
 /**
  * Bottom-right button row: sound and music, then the camera controls
- * (buttons only: every drag on the canvas draws a path).
+ * (buttons only: every drag on the canvas draws a path), then full screen.
+ * On narrow screens the gaps shrink and the spacers go, so all seven
+ * buttons fit a 360 px phone.
  */
 export function cameraControlsMarkup(): string {
   return `
     <div
       data-arrow-avoid
-      class="hud-chrome absolute right-4 bottom-4 z-10 flex gap-2"
-      aria-label="Sound, music and camera controls"
+      class="hud-chrome absolute right-4 bottom-4 z-10 flex gap-2 max-sm:gap-1.5"
+      aria-label="Sound, music, camera and full screen controls"
     >
       ${soundButtonMarkup()}
       ${musicButtonMarkup()}
-      <span class="w-1" aria-hidden="true"></span>
+      <span class="w-1 max-sm:hidden" aria-hidden="true"></span>
       <button
         id="rotateLeftBtn"
         class="hud-button"
@@ -327,6 +365,8 @@ export function cameraControlsMarkup(): string {
       >
         +
       </button>
+      <span class="w-1 max-sm:hidden" aria-hidden="true"></span>
+      ${fullscreenButtonMarkup()}
     </div>`;
 }
 

@@ -21,7 +21,7 @@ import { GAME_SPEEDS } from "../config";
 import { shortcutHint } from "../input/shortcuts";
 import type { Result } from "../net/leaderboardApi";
 import { createArrivalArrows, type ArrivalMarker } from "./arrivalArrows";
-import { EYE_ICON, EYE_OFF_ICON, formatDuration, hudMarkup } from "./hudMarkup";
+import { EYE_ICON, EYE_OFF_ICON, FULLSCREEN_ICONS, formatDuration, hudMarkup } from "./hudMarkup";
 import { createClockDisplay, createClockIcon } from "./clockDisplay";
 import { createScoreRoll } from "./scoreRoll";
 import { createLeaderboardPanel, formatRanks, type SubmitState } from "./leaderboard";
@@ -44,6 +44,8 @@ export interface HudCallbacks {
   onToggleSound?: () => void;
   /** Music button pressed: toggle the music. Optional, like `onToggleSound`. */
   onToggleMusic?: () => void;
+  /** Full screen button pressed: enter or leave full screen. Optional, like `onToggleSound`. */
+  onToggleFullscreen?: () => void;
   /**
    * The help panel opened or closed (button, backdrop, or `setHelpOpen`),
    * e.g. to pause the game while it's open. Optional: stories without a
@@ -132,6 +134,14 @@ export interface Hud {
   setMuted(muted: boolean): void;
   /** Show the music button as on (lit) or off (dimmed). */
   setMusicOn(on: boolean): void;
+  /**
+   * Show the full screen button as "leave full screen" (`active`) or
+   * "enter full screen". Follow the browser's `fullscreenchange`, which also
+   * fires when the player leaves with Esc (ui/fullscreen.ts).
+   */
+  setFullscreen(active: boolean): void;
+  /** Show or hide the full screen button: hidden where the browser has no full screen. */
+  setFullscreenAvailable(available: boolean): void;
   /** Is the help panel showing? */
   readonly helpOpen: boolean;
   /** Open or close the help panel (fires `onHelp` on change). */
@@ -296,6 +306,12 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   musicBtn.addEventListener("click", () => {
     callbacks.onToggleMusic?.();
     musicBtn.blur();
+  });
+  const fullscreenBtn = byId<HTMLButtonElement>("fullscreenBtn");
+  fullscreenBtn.addEventListener("click", () => {
+    callbacks.onToggleFullscreen?.();
+    // Drop focus so a later Space/Enter doesn't re-press it by accident.
+    fullscreenBtn.blur();
   });
 
   const setHelpOpen = (open: boolean) => {
@@ -537,6 +553,16 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       const keys = shortcutHint("toggleSound");
       soundBtn.title = muted ? `Sound on (${keys})` : `Sound off (${keys})`;
       soundBtn.setAttribute("aria-pressed", String(!muted));
+    },
+    setFullscreen(active) {
+      const keys = shortcutHint("toggleFullscreen");
+      fullscreenBtn.innerHTML = active ? FULLSCREEN_ICONS.exit : FULLSCREEN_ICONS.enter;
+      fullscreenBtn.title = active ? `Leave full screen (${keys})` : `Full screen (${keys})`;
+      fullscreenBtn.setAttribute("aria-label", active ? "Leave full screen" : "Full screen");
+      fullscreenBtn.setAttribute("aria-pressed", String(active));
+    },
+    setFullscreenAvailable(available) {
+      fullscreenBtn.classList.toggle("hidden", !available);
     },
     setMusicOn(on) {
       musicBtn.classList.toggle("hud-button-off", !on);

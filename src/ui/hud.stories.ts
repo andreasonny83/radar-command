@@ -38,6 +38,8 @@ interface HudArgs extends HudCallbacks {
   muted: boolean;
   /** Show the music button on (lit) or off (dimmed), as after pressing it or N. */
   musicOn: boolean;
+  /** Show the full screen button as "leave full screen", as while in full screen (Z). */
+  fullscreen: boolean;
   /** Show sample arrival arrows round the screen edge. */
   arrivals: boolean;
   /** Show the "track plane active" badge, as while following a plane. */
@@ -92,6 +94,8 @@ function applyArgs(hud: Hud, args: HudArgs): void {
   hud.setSpeed(args.speed);
   hud.setMuted(args.muted);
   hud.setMusicOn(args.musicOn);
+  hud.setFullscreenAvailable(true);
+  hud.setFullscreen(args.fullscreen);
   hud.setHelpOpen(args.help);
   hud.setLicensesOpen(args.licenses);
   hud.setUiHidden(args.uiHidden);
@@ -185,6 +189,7 @@ const meta: Meta<HudArgs> = {
     speed: 1,
     muted: false,
     musicOn: true,
+    fullscreen: false,
     help: false,
     licenses: false,
     stats: false,
@@ -312,6 +317,13 @@ export const InterfaceHidden: Story = {
 
 /** Sound off: the sound button (bottom-right, or M) is dimmed and struck through. */
 export const Muted: Story = { args: { phase: "playing", landed: 5, muted: true } };
+
+/**
+ * In full screen (the last button in the bottom-right row, or Z): the
+ * button turns into "leave full screen". It hides itself where the browser
+ * has no full screen (`setFullscreenAvailable(false)`, iPhone Safari).
+ */
+export const Fullscreen: Story = { args: { phase: "playing", landed: 5, fullscreen: true } };
 
 /** Music off: the music button (or N) is dimmed and struck through; effects play on. */
 export const MusicOff: Story = { args: { phase: "playing", landed: 5, musicOn: false } };
