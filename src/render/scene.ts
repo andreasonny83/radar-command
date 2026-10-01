@@ -17,6 +17,7 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Scene } from "@babylonjs/core/scene";
 import { maxViewRadius } from "../core/layout";
 import type { WorldSize } from "../core/types";
+import { isTouchDevice, qualityProfile, type QualityProfile } from "./quality";
 
 /**
  * Background colour: the darkened grass at the map edge, so any sliver of
@@ -61,11 +62,23 @@ export interface SceneContext {
   fill: HemisphericLight;
   /** Sun / moon: the shadow-casting key light (moved by render/dayCycle.ts). */
   key: DirectionalLight;
+  /** The render settings chosen for this device (render/quality.ts). */
+  quality: QualityProfile;
 }
 
 export function createScene(canvas: HTMLCanvasElement): SceneContext {
-  // antialias = true; adaptToDeviceRatio = true for crisp lines on HiDPI screens.
-  const engine = new Engine(canvas, true, { stencil: false, preserveDrawingBuffer: false }, true);
+  // Render settings for this device (render/quality.ts): full density and
+  // 4x MSAA on desktops, a capped density, no MSAA at high density and a
+  // smaller shadow map on phones and tablets. The scale is set below by
+  // hand rather than with `adaptToDeviceRatio`, which has no cap.
+  const quality = qualityProfile(window.devicePixelRatio, isTouchDevice());
+  const engine = new Engine(
+    canvas,
+    quality.antialias,
+    { stencil: false, preserveDrawingBuffer: false },
+    false,
+  );
+  engine.setHardwareScalingLevel(1 / quality.maxScale);
   const scene = new Scene(engine);
   scene.clearColor = Color4.FromHexString(`${CLEAR_COLOR}ff`);
 
@@ -91,12 +104,14 @@ export function createScene(canvas: HTMLCanvasElement): SceneContext {
   key.shadowMinZ = 1;
   key.shadowMaxZ = SUN_DISTANCE * 2;
 
-  // 4096: the frustum spans the whole map, so at 2048 a plane's wings were
-  // only ~2 texels wide and PCF blurred its shadow into a faint smudge. At
-  // 4096 planes cast a crisp, readable silhouette that helps pick them out
-  // against the grass. The caster geometry cost is unchanged; only the depth
-  // fill grows (holds 60 fps in the full game on a laptop).
-  const shadows = new ShadowGenerator(4096, key);
+  // 4096 on desktops: the frustum spans the whole map, so at 2048 a plane's
+  // wings were only ~2 texels wide and PCF blurred its shadow into a faint
+  // smudge. At 4096 planes cast a crisp, readable silhouette that helps pick
+  // them out against the grass. The caster geometry cost is unchanged; only
+  // the depth fill grows (holds 60 fps in the full game on a laptop). Phones
+  // take the softer 2048 (`TOUCH_SHADOW_MAP`): a quarter of the fill cost,
+  // and on a small screen the shadows are small anyway.
+  const shadows = new ShadowGenerator(quality.shadowMapSize, key);
   // PCF gives soft-edged shadows for a single texture lookup budget (WebGL2).
   shadows.usePercentageCloserFiltering = true;
   shadows.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
@@ -105,7 +120,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneContext {
   // glance; the sky fill light keeps shaded ground from going murky.
   shadows.darkness = 0.25;
 
-  return { engine, scene, shadows, fill, key };
+  return { engine, scene, shadows, fill, key, quality };
 }
 
 /**

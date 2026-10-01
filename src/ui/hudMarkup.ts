@@ -26,7 +26,7 @@ import { GITHUB_REPO_URL } from "./links";
  */
 export function scorePanelMarkup(): string {
   return `
-    <div class="hud-chrome pointer-events-none absolute top-4 left-4 z-10">
+    <div class="hud-chrome pointer-events-none safe-t safe-l absolute top-4 left-4 z-10">
       <div
         data-arrow-avoid
         class="rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
@@ -45,13 +45,14 @@ export function scorePanelMarkup(): string {
 }
 
 /**
- * Pause / continue, top-right, left of the help button (spaced closer on
- * phones, so the top row clears the score panel). Hidden until a
- * shift starts (see `setPhase`).
+ * Pause / continue, top-right, left of the help button. On a phone-width
+ * screen the four top-right buttons (speed, pause, help, eye) stack in a
+ * column down the right edge instead, which keeps them off the score panel at
+ * full touch size. Hidden until a shift starts (see `setPhase`).
  */
 export function pauseButtonMarkup(): string {
   return `
-    <div class="hud-chrome absolute top-4 right-32 max-sm:right-28 z-10">
+    <div class="hud-chrome safe-t safe-r absolute top-4 right-32 max-sm:top-30 max-sm:right-4 z-10">
       <button
         id="pauseBtn"
         data-arrow-avoid
@@ -72,7 +73,7 @@ export function pauseButtonMarkup(): string {
  */
 export function speedButtonMarkup(): string {
   return `
-    <div class="hud-chrome absolute top-4 right-46 max-sm:right-40 z-10">
+    <div class="hud-chrome safe-t safe-r absolute top-4 right-46 max-sm:top-43 max-sm:right-4 z-10">
       <button
         id="speedBtn"
         data-arrow-avoid
@@ -106,12 +107,13 @@ export function pausedBannerMarkup(): string {
  * toast underneath, so a toast slides up when no warning is showing.
  * `noticesMarkup` is the pair the game uses; the stories that show just one
  * use `toastMarkup` or `weatherAlertsMarkup`, which wrap it in the same frame.
- * On a phone-width screen the corners' buttons and score panel leave no room
- * beside it, so the column starts below them.
+ * On a phone-width screen the score panel (top left) and the column of
+ * buttons (down the right edge) leave no room beside
+ * it, so the column starts below the score panel and keeps clear of the buttons.
  */
 function noticesFrame(inner: string): string {
   return `
-    <div class="hud-chrome pointer-events-none absolute inset-x-0 top-4 z-10 flex flex-col items-center gap-2 px-4 max-sm:top-36">${inner}
+    <div class="hud-chrome pointer-events-none safe-t absolute inset-x-0 top-4 z-10 flex flex-col items-center gap-2 px-4 max-sm:top-36 max-sm:pr-18">${inner}
     </div>`;
 }
 
@@ -313,7 +315,7 @@ export function statsPanelMarkup(): string {
       data-arrow-avoid
       role="status"
       aria-label="Stats for nerds"
-      class="hud-chrome pointer-events-none absolute bottom-20 left-4 z-10 hidden w-56 max-w-[calc(100%-2rem)] flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 font-mono text-[11px] leading-4 shadow-lg backdrop-blur-sm max-sm:bottom-32"
+      class="hud-chrome pointer-events-none safe-b safe-l absolute bottom-20 left-4 z-10 hidden w-56 max-w-[calc(100%-2rem)] flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 font-mono text-[11px] leading-4 shadow-lg backdrop-blur-sm max-sm:bottom-32"
     >${sections}
     </div>`;
 }
@@ -322,13 +324,14 @@ export function statsPanelMarkup(): string {
  * Bottom-right button row: sound and music, then the camera controls
  * (buttons only: every drag on the canvas draws a path), then full screen.
  * On narrow screens the gaps shrink and the spacers go, so all seven
- * buttons fit a 360 px phone.
+ * buttons fit a 360 px phone; below that (`.hud-row-compact`, style.css) the
+ * buttons shrink a little too, so even a 320 px phone shows them all.
  */
 export function cameraControlsMarkup(): string {
   return `
     <div
       data-arrow-avoid
-      class="hud-chrome absolute right-4 bottom-4 z-10 flex gap-2 max-sm:gap-1.5"
+      class="hud-chrome safe-b safe-r hud-row-compact absolute right-4 bottom-4 z-10 flex gap-2 max-sm:gap-1.5"
       aria-label="Sound, music, camera and full screen controls"
     >
       ${soundButtonMarkup()}
@@ -384,7 +387,7 @@ export function trackingIndicatorMarkup(): string {
       id="trackingIndicator"
       data-arrow-avoid
       role="status"
-      class="hud-chrome pointer-events-none absolute bottom-4 left-4 z-10 hidden max-w-[calc(100%-2rem)] items-center max-sm:bottom-18 gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
+      class="hud-chrome pointer-events-none safe-b safe-l absolute bottom-4 left-4 z-10 hidden max-w-[calc(100%-2rem)] items-center max-sm:bottom-18 gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
     >
       <span class="tracking-dot h-3 w-3 shrink-0 rounded-full bg-red-500"></span>
       <div>
@@ -410,7 +413,7 @@ export function demoIndicatorMarkup(): string {
       id="demoIndicator"
       data-arrow-avoid
       role="status"
-      class="hud-chrome absolute bottom-20 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm max-sm:bottom-32"
+      class="hud-chrome safe-b absolute bottom-20 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm max-sm:bottom-32"
     >
       <span class="tracking-dot h-3 w-3 shrink-0 rounded-full bg-sky-400"></span>
       <div class="text-sm font-bold tracking-wider text-sky-300 uppercase">Demo</div>
@@ -667,7 +670,7 @@ export const EYE_OFF_ICON = `
  */
 export function uiToggleButtonMarkup(): string {
   return `
-    <div class="absolute top-4 right-4 z-30">
+    <div class="safe-t safe-r absolute top-4 right-4 z-30">
       <button
         id="uiToggleBtn"
         data-arrow-avoid
@@ -688,7 +691,7 @@ export function uiToggleButtonMarkup(): string {
  */
 export function helpButtonMarkup(): string {
   return `
-    <div class="hud-chrome absolute top-4 right-18 max-sm:right-16 z-30">
+    <div class="hud-chrome safe-t safe-r absolute top-4 right-18 max-sm:top-17 max-sm:right-4 z-30">
       <button
         id="helpBtn"
         data-arrow-avoid

@@ -14,6 +14,12 @@
     /* Stop scrolling / pull-to-refresh / pinch-zoom from stealing drags. */
     touch-action: none;
     overscroll-behavior: none;
+    /* Touch screens: no grey flash on a tapped button, no long-press
+       callout (iOS), and no font inflation when the phone turns sideways. */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   #renderCanvas {
@@ -25,7 +31,47 @@
   }
 }
 
+@layer base {
+  /* Room for notches, rounded corners and the home indicator (0 where the
+     browser has none, and unless the page asks for the full screen with
+     `viewport-fit=cover` in index.html). Variables, so a story or test can
+     set them. */
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+  }
+}
+
 @layer components {
+  /* HUD pieces pinned to a screen edge add the matching inset as a margin
+     (it moves an absolutely positioned box off the edge), so nothing sits
+     under a notch or the home indicator. Put one on every edge-pinned box. */
+  .safe-t {
+    margin-top: var(--safe-top);
+  }
+  .safe-r {
+    margin-right: var(--safe-right);
+  }
+  .safe-b {
+    margin-bottom: var(--safe-bottom);
+  }
+  .safe-l {
+    margin-left: var(--safe-left);
+  }
+  /* The bottom button row on a 320 px phone: seven 44 px buttons don't fit,
+     so below 360 px they shrink to 38 px (still a usable touch target) and
+     the gaps tighten, rather than the first one running off the screen. */
+  @media (max-width: 359px) {
+    .hud-row-compact {
+      gap: 0.25rem;
+    }
+    .hud-row-compact .hud-button {
+      height: 2.375rem;
+      width: 2.375rem;
+    }
+  }
   .glow-text {
     text-shadow: 0 0 10px rgb(56 189 248 / 0.7);
   }

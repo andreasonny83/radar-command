@@ -25,6 +25,7 @@ uses a backend.
 | Draw a flight path        | Drag from a plane      |                                              |
 | Pan the map               | Drag empty ground      | Arrow keys / WASD                            |
 | Zoom                      | Mouse wheel, + / − HUD | `+` / `−`                                    |
+| Zoom on a touch screen    | Pinch with two fingers |                                              |
 | Rotate the view           | ⟲ / ⟳ HUD buttons      | `Q` / `E`                                    |
 | Follow a plane            | Right-click a plane    | `F` (next), `Shift + F`                      |
 | Stop following            | Right-click again      | `X`                                          |
@@ -36,6 +37,24 @@ uses a backend.
 
 The in-game help panel is generated from the same shortcut table as the key handler
 (`src/input/shortcuts.ts`), so it's always the up-to-date list.
+
+### On a phone or tablet
+
+The game is built to be played with a finger: drag from a plane to route it, drag empty ground to
+pan, pinch to zoom, and use two fingers on two planes to route both at once.
+
+- **Smooth frame rate.** On touch screens the game renders at no more than 2 pixels per CSS pixel
+  (a 3x phone would otherwise shade nine times the pixels), uses a smaller shadow map, and drops
+  anti-aliasing at high density. While a shift runs it also trades resolution for speed on its own
+  (never below 1 pixel per CSS pixel) if the frame rate dips, and climbs back when there's headroom.
+  Turn on "Stats for nerds" (`G`) to watch the pixel density.
+- **Notches and home bars.** The page draws edge to edge (`viewport-fit=cover`) and the HUD keeps
+  clear of the safe areas.
+- **Screen stays on** while a shift is running or paused (where the browser supports the Screen
+  Wake Lock API).
+- **Full screen.** The button in the bottom-right row works on Android and iPad. iPhone Safari has
+  no full screen for web pages: use Share, then Add to Home Screen, and the game opens without the
+  browser bars (`public/manifest.webmanifest`).
 
 ## Running locally
 
