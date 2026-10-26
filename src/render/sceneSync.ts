@@ -34,6 +34,7 @@ import {
 import { allStands } from "../core/airfield";
 import { isInHangar } from "../core/ground";
 import { cruiseAltitude } from "../core/layout";
+import { AIRLINES } from "../core/overflights";
 import { openRunways } from "../core/progression";
 import { angleDelta, distance, lerp, normalizeAngle } from "../core/math";
 import type {
@@ -63,8 +64,10 @@ import { Landscape } from "./landscape";
 import type { MeshFactory } from "./meshes";
 import { smoothTrack } from "./pathLine";
 import { RejectMarks } from "./rejectMarks";
+import { PlaneTrails } from "./trails";
 import { CloudsView } from "./clouds";
 import { WindStreamsView } from "./windStreams";
+import type { SeasonPhase } from "../core/seasons";
 import { RunwayFactory, type RunwayView } from "./runway";
 import { fitShadowsToWorld, OVERLAY_GROUP } from "./scene";
 import { createPoolMesh, poolMaterial, setNightLevel } from "./nightLights";
@@ -218,6 +221,7 @@ const BEAM_PHASES = new Set<PlanePhase>([
   "outbound",
   "takeoff",
   "climbout",
+  "overflight",
 ]);
 
 /** Landing lights on: a lit phase, and not still inside the hangar. */
@@ -308,6 +312,14 @@ function pathGroup(view: PlaneView): number {
 }
 
 /** Fraction of the way to a target that exponential easing covers in `dt`. */
+/** Trail tint per plane colour, parsed once (see `PlaneTrails.track`). */
+const TRAIL_COLORS = new Map<PlaneColor, Color3>();
+function trailColor(color: PlaneColor): Color3 {
+  let c = TRAIL_COLORS.get(color);
+  if (!c) TRAIL_COLORS.set(color, (c = Color3.FromHexString(COLOR_HEX[color])));
+  return c;
+}
+
 function ease(dt: number, tau: number): number {
   return 1 - Math.exp(-dt / tau);
 }
@@ -407,6 +419,8 @@ export class SceneSync {
   private readonly rejectMarks: RejectMarks;
   private readonly windStreams: WindStreamsView;
   private readonly clouds: CloudsView;
+  /** Vapour trails behind the airborne planes. */
+  private readonly trails: PlaneTrails;
   private readonly scratch = new Vector3();
   /** 0 day … 1 night (see `setNight`). */
   private night = 0;
@@ -433,6 +447,7 @@ export class SceneSync {
     this.rejectMarks = new RejectMarks(factory);
     this.windStreams = new WindStreamsView(scene);
     this.clouds = new CloudsView(scene);
+    this.trails = new PlaneTrails(scene);
     this.beamMat = poolMaterial("landingLights", "#fff6e0", scene);
     this.beams = createPoolMesh("landingLights", scene);
     this.beams.material = this.beamMat;
@@ -481,7 +496,16 @@ export class SceneSync {
     this.landscape.setNight(n);
     this.airfieldFactory.setNight(n);
     this.clouds.setNight(n);
+    this.trails.setNight(n);
     setNightLevel(this.beamMat, n * BEAM_STRENGTH);
+  }
+
+  /**
+   * Dress the land for the season (core/seasons.ts): grass, trees and
+   * fields. Call it every frame; the landscape only recolours on a change.
+   */
+  setSeason(phase: SeasonPhase): void {
+    this.landscape.setSeason(phase);
   }
 
   /**
@@ -665,6 +689,7 @@ export class SceneSync {
           plane.color,
           plane.id,
           `plane-${plane.id}`,
+          plane.overflight ? AIRLINES[plane.overflight.airline] : undefined,
         );
         view = {
           aircraft,
@@ -701,6 +726,10 @@ export class SceneSync {
       }
       view.inHangar = isInHangar(plane, stands);
       this.updateView(view, plane, state.world, time, dt);
+      // Airborne planes leave a vapour trail; on the ground it fades away.
+      if (!plane.ground && view.yaw !== null) {
+        this.trails.track(plane.id, view.aircraft.root.position, view.yaw, trailColor(plane.color));
+      }
       // The shift is over: the survivors hang in the air with nothing drawn on them.
       if (state.phase === "gameover") this.clearGuides(view, plane);
     }
@@ -708,23 +737,42 @@ export class SceneSync {
     this.syncBeams(state);
     this.crashEffect?.update(dt);
     this.rejectMarks.update(dt);
+    this.trails.update(dt);
 
     for (const [id, view] of this.views) {
       if (alive.has(id)) continue;
       this.wreckIds.delete(id);
-      for (const mesh of view.aircraft.shadowCasters) this.shadows.removeShadowCaster(mesh, false);
-      this.factory.disposeAircraft(view.aircraft);
-      view.ring.dispose();
-      view.hoverRing.dispose();
-      view.anchorRing.dispose();
-      view.path?.dispose(false, true);
-      this.views.delete(id);
+      this.disposeView(id, view);
     }
     // The wrecks were cleared away (a new shift): the fire goes out with them.
     if (this.crashEffect && this.wreckIds.size === 0) {
       this.crashEffect.dispose();
       this.crashEffect = null;
     }
+  }
+
+  private disposeView(id: number, view: PlaneView): void {
+    for (const mesh of view.aircraft.shadowCasters) this.shadows.removeShadowCaster(mesh, false);
+    this.factory.disposeAircraft(view.aircraft);
+    view.ring.dispose();
+    view.hoverRing.dispose();
+    view.anchorRing.dispose();
+    view.path?.dispose(false, true);
+    this.views.delete(id);
+  }
+
+  /**
+   * Clear away every plane and the wreckage, so the next `syncPlanes` builds
+   * the scene afresh from whatever state it is given. The crash replay uses
+   * it to rewind: once to take the wrecks down, once to put them back.
+   */
+  resetPlanes(): void {
+    for (const [id, view] of [...this.views]) this.disposeView(id, view);
+    this.wreckIds.clear();
+    this.crashEffect?.dispose();
+    this.crashEffect = null;
+    this.trails.clear();
+    this.lastTime = null;
   }
 
   /**
@@ -919,7 +967,9 @@ export class SceneSync {
     }
 
     // Proximity warning ring, pulsing.
-    const warn = plane.warning && (plane.phase === "flying" || plane.phase === "climbout");
+    const warn =
+      plane.warning &&
+      (plane.phase === "flying" || plane.phase === "climbout" || plane.phase === "overflight");
     if (warn && !view.warned) this.cues.push({ type: "warning", planeId: plane.id, pan: view.pan });
     view.warned = warn;
     view.ring.setEnabled(warn);

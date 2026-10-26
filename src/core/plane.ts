@@ -36,12 +36,14 @@ export function createPlane(id: number, color: PlaneColor, pos: Vec2, heading: n
     pathAnchored: false,
     canDepart: true,
     inbound: false,
+    highlightUntil: 0,
     entry: null,
     avoidTurn: 0,
     windStreamId: null,
     wind: { x: 0, y: 0 },
     windTurn: 0,
     departure: null,
+    overflight: null,
   };
 }
 
@@ -60,6 +62,9 @@ export function updatePlane(plane: Plane, dt: number, world: WorldSize): void {
       return;
     case "climbout":
       updateClimbout(plane, dt, world);
+      return;
+    case "overflight":
+      updateOverflight(plane, dt, world);
       return;
     default:
       return;
@@ -148,6 +153,25 @@ function updateDeparting(plane: Plane, dt: number, world: WorldSize): void {
     moveForward(plane, PLANE_SPEED * h);
   }
   if (isOffMap(plane, world)) plane.phase = "departed";
+}
+
+/**
+ * Fly an overflight (see core/overflights.ts): dead straight at cruise
+ * speed, with no steering, avoidance or wind (the game is at the controls,
+ * and its track is fixed so the player can plan round it). It starts off
+ * the map, so it is only `departed` once it has been in the airspace and
+ * left the map again.
+ */
+function updateOverflight(plane: Plane, dt: number, world: WorldSize): void {
+  moveForward(plane, PLANE_SPEED * dt);
+  if (plane.inbound) {
+    if (isInAirspace(plane.pos, world)) {
+      plane.inbound = false;
+      plane.entry = null;
+    }
+  } else if (isOffMap(plane, world)) {
+    plane.phase = "departed";
+  }
 }
 
 /** True once `plane` has cleared the scenery map (and so the view). */

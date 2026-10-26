@@ -3,6 +3,7 @@
  */
 import {
   ARRIVAL_WARNING,
+  NEW_PLANE_HIGHLIGHT,
   PLANE_RADIUS,
   PLANE_SPEED,
   SPAWN_HEADING_JITTER,
@@ -257,6 +258,7 @@ export function spawnPlane(state: GameState, rng: Rng, aimAtRunway = false): Pla
 
   const plane = createPlane(state.nextPlaneId++, spec.color, spec.pos, spec.heading);
   plane.inbound = true;
+  plane.highlightUntil = state.elapsed + NEW_PLANE_HIGHLIGHT;
   plane.entry = { ...spec.entry };
   state.planes.push(plane);
   return plane;

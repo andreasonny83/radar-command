@@ -18,7 +18,7 @@
  * course on the ground stays straight on screen, and working in screen
  * space keeps the arrows right at any zoom, pan or rotation. Once the
  * plane itself is on screen the arrow goes, since the plane now speaks for
- * itself.
+ * itself, apart from a ring for as long as it is new (`highlightUntil`).
  */
 import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Scene } from "@babylonjs/core/scene";
@@ -39,7 +39,12 @@ const VISIBLE_INSET = 12;
 const DIRECTION_PROBE = 5;
 
 /** Phases in which a plane is in the air (the rest are on the ground or gone). */
-const AIRBORNE: ReadonlySet<PlanePhase> = new Set(["flying", "departing", "climbout"]);
+const AIRBORNE: ReadonlySet<PlanePhase> = new Set([
+  "flying",
+  "departing",
+  "climbout",
+  "overflight",
+]);
 
 const scratchWorld = new Vector3();
 const scratchA = new Vector3();
@@ -107,7 +112,21 @@ export function arrivalMarkers(
     const at = project(plane.pos, scratchA);
     const onScreen =
       at.x >= visible.minX && at.x <= visible.maxX && at.y >= visible.minY && at.y <= visible.maxY;
-    if (onScreen) continue;
+    if (onScreen) {
+      // No arrow needed, but a plane still in its highlight window gets a
+      // ring right on it, so newcomers stand out even on a big screen.
+      if (plane.highlightUntil > state.elapsed) {
+        markers.push({
+          id: plane.id,
+          kind: "ring",
+          color: COLOR_HEX[plane.color],
+          x: at.x,
+          y: at.y,
+          angle: 0,
+        });
+      }
+      continue;
+    }
 
     // The course on screen: straight ahead, or towards the entry point
     // while that is still ahead (the plane steers for it, see
@@ -139,6 +158,7 @@ export function arrivalMarkers(
     const hit = rayEntry(at.x, at.y, dx, dy, inner);
     markers.push({
       id: plane.id,
+      kind: "arrow",
       color: COLOR_HEX[plane.color],
       x: hit ? hit.x : clamp(at.x, inner.minX, inner.maxX),
       y: hit ? hit.y : clamp(at.y, inner.minY, inner.maxY),

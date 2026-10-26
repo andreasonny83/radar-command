@@ -22,7 +22,8 @@ import { GITHUB_REPO_URL } from "./links";
  * Score, top-left: the total (core/scoring.ts `scoreOf`), a small
  * "landed · departed" line under it, then the time of day (a sun or a moon
  * and the 24 h clock, both `flex` so no line box pads them and the icon
- * sits level with the middle of the digits). `hud.setScore` and `hud.setClock` fill them in.
+ * sits level with the middle of the digits, then the season's name). `hud.setScore`, `hud.setClock`
+ * and `hud.setSeason` fill them in.
  */
 export function scorePanelMarkup(): string {
   return `
@@ -39,6 +40,7 @@ export function scorePanelMarkup(): string {
         <div class="mt-1 flex items-center gap-1.5 text-sm font-bold text-slate-300 tabular-nums">
           <span id="clockIcon" class="flex text-amber-300" title="Day">${CLOCK_ICONS.sun}</span>
           <span id="clockTime" class="flex">08:00</span>
+          <span id="clockSeason" class="text-xs font-bold tracking-wider text-slate-400 uppercase">Summer</span>
         </div>
       </div>
     </div>`;
@@ -402,29 +404,21 @@ export function trackingIndicatorMarkup(): string {
 }
 
 /**
- * "Demo" badge with the EXIT DEMO button, bottom-centre while a demo plays,
- * above the row of camera buttons so no screen width puts them on top of it
- * (shown by `Hud.setDemo`). The arrows slide clear of it, like the tracking
- * badge. The button is the only way out of a demo.
+ * Banner shown while the crash replay plays (`Hud.setReplay`): says it's a
+ * replay and how to skip it. Bottom centre, clear of the corner panels.
  */
-export function demoIndicatorMarkup(): string {
+export function replayBannerMarkup(): string {
   return `
     <div
-      id="demoIndicator"
-      data-arrow-avoid
+      id="replayBanner"
       role="status"
-      class="hud-chrome safe-b absolute bottom-20 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm max-sm:bottom-32"
+      class="hud-chrome pointer-events-none safe-b absolute bottom-6 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
     >
-      <span class="tracking-dot h-3 w-3 shrink-0 rounded-full bg-sky-400"></span>
-      <div class="text-sm font-bold tracking-wider text-sky-300 uppercase">Demo</div>
-      <button
-        id="exitDemoBtn"
-        type="button"
-        class="hud-button h-8 w-auto px-3 text-xs tracking-wider whitespace-nowrap"
-        title="Leave the demo"
-      >
-        EXIT DEMO
-      </button>
+      <span class="tracking-dot h-3 w-3 shrink-0 rounded-full bg-red-500"></span>
+      <div class="text-center">
+        <div class="text-sm font-bold tracking-wider text-red-400 uppercase">Crash replay</div>
+        <div class="text-xs text-slate-300">Click or tap to skip</div>
+      </div>
     </div>`;
 }
 
@@ -461,6 +455,21 @@ export function arrivalArrowMarkup(): string {
           stroke-width="1.8"
           stroke-linejoin="round"
         />
+      </svg>
+    </div>`;
+}
+
+/**
+ * Ring drawn round a new plane that is already on screen (the arrow's
+ * counterpart for planes that need no pointer). Same arrival-ring pulse,
+ * larger, so it clears the plane model.
+ */
+export function newPlaneRingMarkup(): string {
+  return `
+    <div class="arrival-arrow absolute top-0 left-0 -mt-10 -ml-10 h-20 w-20 drop-shadow-lg">
+      <svg viewBox="-40 -40 80 80" class="h-full w-full overflow-visible">
+        <circle class="arrival-ring" r="30" fill="none" stroke="currentColor" stroke-width="3" />
+        <circle r="24" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="6 5" opacity="0.8" />
       </svg>
     </div>`;
 }
@@ -523,9 +532,13 @@ export function scoreSummaryMarkup(): string {
 }
 
 /**
- * Start / game-over overlay. The game-over variant (text, the leaderboard
+ * Start / game-over overlay. The start screen is a modal card over a
+ * barely dimmed, unblurred backdrop, so the demo that plays behind it
+ * (main.ts `titleDemo`) stays sharp; HIDE WELCOME (`#welcomeToggleBtn`, start screen only) folds the
+ * semi-transparent card away and back.
+ * The game-over variant (text, the leaderboard
  * form, a see-through backdrop so the crash stays visible, and the content
- * boxed in a card: `#overlayCard` is a plain column on the start screen) is
+ * boxed in the same card, moved low) is
  * patched in by `showGameOver`; keep the backdrop classes here in sync with
  * `START_BACKDROP` in hud.ts.
  */
@@ -533,49 +546,53 @@ export function overlayMarkup(): string {
   return `
     <div
       id="overlay"
-      class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-md transition-opacity duration-300"
+      class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/20 max-sm:pb-36 short:pt-14 short:pb-3 transition-opacity duration-300"
     >
-      <div id="overlayCard" class="flex flex-col items-center">
-        <h1 id="overlayTitle" class="glow-text mb-4 text-5xl font-black text-sky-400 md:text-6xl">
+      <div
+        id="overlayCard"
+        class="mx-4 flex max-h-full max-w-[calc(100vw-2rem)] flex-col items-center overflow-y-auto rounded-3xl border border-slate-700/80 bg-slate-900/85 px-4 py-5 shadow-2xl shadow-black/40 sm:px-6 sm:py-8 md:px-10 short:py-4"
+      >
+        <h1 id="overlayTitle" class="glow-text mb-3 text-center text-4xl font-black text-sky-400 sm:mb-4 sm:text-5xl md:text-6xl short:mb-2 short:text-4xl">
           RADAR COMMAND
         </h1>
-        <p id="overlayMessage" class="mb-8 max-w-md px-4 text-center text-lg text-slate-300">
+        <p id="overlayMessage" class="mb-5 max-w-md px-2 text-center text-base text-slate-300 sm:mb-8 sm:px-4 sm:text-lg short:mb-3 short:text-base">
           Drag a path from the airplanes to their matching colored runways. Land them over the colored
           threshold, following the arrow. Don't let them crash!
         </p>
-        <p class="-mt-4 mb-8 text-sm text-slate-400">
+        <p class="-mt-1 mb-5 text-sm text-slate-400 max-sm:hidden sm:-mt-4 sm:mb-8 short:hidden">
           Press <kbd class="kbd">H</kbd> or <span class="font-bold text-slate-300">?</span> for
           controls &amp; shortcuts
         </p>
         ${scoreSummaryMarkup()}
         ${submitFormMarkup()}
-        <div class="flex flex-wrap items-center justify-center gap-3">
+        <div class="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
           <button
             id="startBtn"
-            class="transform rounded-full bg-sky-500 px-8 py-4 text-xl font-bold text-slate-950 shadow-[0_0_20px_rgba(14,165,233,0.5)] transition-all hover:scale-105 hover:bg-sky-400 active:scale-95"
+            class="transform rounded-full bg-sky-500 px-8 py-3 text-lg font-bold sm:py-4 sm:text-xl text-slate-950 shadow-[0_0_20px_rgba(14,165,233,0.5)] transition-all hover:scale-105 hover:bg-sky-400 active:scale-95"
           >
             START SHIFT
           </button>
           <button
             id="leaderboardBtn"
-            class="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-900/70 px-6 py-4 text-lg font-bold text-slate-200 transition-all hover:scale-105 hover:border-amber-300 hover:text-amber-300 active:scale-95"
+            class="flex items-center gap-2 rounded-full border border-slate-600 bg-slate-900/70 px-5 py-3 text-base font-bold sm:px-6 sm:py-4 sm:text-lg text-slate-200 transition-all hover:scale-105 hover:border-amber-300 hover:text-amber-300 active:scale-95"
             title="Leaderboard (${shortcutHint("toggleLeaderboard")})"
             aria-haspopup="dialog"
             aria-controls="leaderboardPanel"
           >
             ${TROPHY_ICON}LEADERBOARD
           </button>
-          <button
-            id="demoBtn"
-            class="rounded-full border border-slate-600 bg-slate-900/70 px-6 py-4 text-lg font-bold text-slate-200 transition-all hover:scale-105 hover:border-sky-300 hover:text-sky-300 active:scale-95"
-            title="Watch the game play itself"
-          >
-            WATCH DEMO
-          </button>
         </div>
-        <div class="mt-8">${projectLinksMarkup()}</div>
+        <div class="mt-5 sm:mt-8 short:mt-3">${projectLinksMarkup()}</div>
       </div>
-    </div>`;
+    </div>
+    <button
+      id="welcomeToggleBtn"
+      type="button"
+      class="hud-button safe-b absolute bottom-20 left-1/2 z-30 h-9 w-auto -translate-x-1/2 px-4 text-xs tracking-wider whitespace-nowrap max-sm:bottom-32 short:top-3 short:bottom-auto"
+      aria-pressed="false"
+    >
+      HIDE WELCOME
+    </button>`;
 }
 
 /** GitHub's "mark" logo (Octicons), painted in currentColor. */
@@ -607,7 +624,7 @@ const LICENSE_ICON = `
  */
 export function projectLinksMarkup(): string {
   return `
-    <nav class="flex items-center justify-center gap-2 text-slate-600" aria-label="Project links">
+    <nav class="flex items-center justify-center gap-2 text-slate-600 max-sm:gap-1 [&_span]:whitespace-nowrap" aria-label="Project links">
       <a
         class="hud-link"
         href="${GITHUB_REPO_URL}"
@@ -665,12 +682,12 @@ export const EYE_OFF_ICON = `
  * players without the U shortcut. Always present, in one place. While the
  * interface is hidden `hud.setUiHidden` dims it so it doesn't spoil a clean
  * screenshot (full opacity on hover or focus) and swaps the icon. Not
- * `.hud-chrome` (style.css), so hiding doesn't touch it; z-30 keeps it above
- * the start / game-over overlay like the "?" button beside it.
+ * `.hud-chrome` (style.css), so hiding doesn't touch it. Below the start /
+ * game-over overlay (z-20), like the "?" button beside it: the modal covers both.
  */
 export function uiToggleButtonMarkup(): string {
   return `
-    <div class="safe-t safe-r absolute top-4 right-4 z-30">
+    <div class="safe-t safe-r absolute top-4 right-4 z-10">
       <button
         id="uiToggleBtn"
         data-arrow-avoid
@@ -685,13 +702,12 @@ export function uiToggleButtonMarkup(): string {
 }
 
 /**
- * "?" button, top-right, left of the interface toggle: opens the help panel. Stacks above the start /
- * game-over overlay (z-30), so the controls are one click away on every
- * screen.
+ * "?" button, top-right, left of the interface toggle: opens the help panel. Sits below the start /
+ * game-over overlay (z-20), which covers it; the H shortcut still opens help.
  */
 export function helpButtonMarkup(): string {
   return `
-    <div class="hud-chrome safe-t safe-r absolute top-4 right-18 max-sm:top-17 max-sm:right-4 z-30">
+    <div class="hud-chrome safe-t safe-r absolute top-4 right-18 max-sm:top-17 max-sm:right-4 z-10">
       <button
         id="helpBtn"
         data-arrow-avoid
@@ -794,6 +810,11 @@ export function helpPanelMarkup(): string {
               Later on, <span class="font-bold text-violet-400">violet</span> planes take off from
               the airports, following a dotted route you can't change. While one uses a runway,
               arrivals there go around; once airborne, keep your planes clear of it.
+            </li>
+            <li>
+              From the second day, light grey planes of other airlines cross the map on a
+              straight track you can't change. Keep your planes clear of them: they crash like any
+              other. They never touch each other or the violet departures.
             </li>
             <li>
               Score: ${LANDING_POINTS} points a landing, ${DEPARTURE_POINTS} a departure that clears
@@ -1045,7 +1066,7 @@ export function hudMarkup(): string {
     pausedBannerMarkup(),
     noticesMarkup(),
     trackingIndicatorMarkup(),
-    demoIndicatorMarkup(),
+    replayBannerMarkup(),
     statsPanelMarkup(),
     cameraControlsMarkup(),
     uiToggleButtonMarkup(),

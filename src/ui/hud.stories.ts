@@ -7,15 +7,14 @@
  * cap/link styles in style.css, the shortcut table in input/shortcuts.ts,
  * `TOAST_MS` in hud.ts, `AVOID_RADIUS` in arrivalArrows.ts or the GitHub /
  * feedback URLs in links.ts, and the story hot-reloads. The leaderboard
- * panel and game-over form have their own stories (HUD/Leaderboard). The start
- * screen carries the WATCH DEMO button; the `Demo` story shows the badge with
- * EXIT DEMO that replaces it while a demo plays.
+ * panel and game-over form have their own stories (HUD/Leaderboard).
  */
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { fn } from "storybook/test";
 import { COLOR_HEX, GAME_SPEEDS } from "../config";
 import { nightFactor } from "../core/daytime";
 import type { GamePhase, PlaneColor, RunwayColor, WarningLevel } from "../core/types";
+import { SEASONS, type Season } from "../core/seasons";
 import { createHud, type Hud, type HudCallbacks } from "./hud";
 import { windAlert } from "./weatherAlerts";
 
@@ -51,8 +50,8 @@ interface HudArgs extends HudCallbacks {
   arrivals: boolean;
   /** Show the "track plane active" badge, as while following a plane. */
   tracking: boolean;
-  /** Show the "Demo" badge with EXIT DEMO, as while a demo plays (WATCH DEMO is on the start screen). */
-  demo: boolean;
+  /** Show the "crash replay" banner, as while the replay plays after a crash. */
+  replay: boolean;
   /** Game speed multiplier on the speed button (see `GAME_SPEEDS` in config.ts). */
   speed: (typeof GAME_SPEEDS)[number];
   /** Open the help panel (the "?" button, or H / ? in the game). */
@@ -65,6 +64,8 @@ interface HudArgs extends HudCallbacks {
   licenses: boolean;
   /** Time of day on the HUD clock (hours; night from ~21:00). */
   hours: number;
+  /** Season named beside the HUD clock (core/seasons.ts). */
+  season: Season;
 }
 
 /**
@@ -96,11 +97,12 @@ function applyArgs(hud: Hud, args: HudArgs): void {
   const breakdown = { landed: args.landed, departed: args.departed, seconds: args.seconds };
   hud.setScore(breakdown);
   hud.setClock(args.hours, nightFactor(args.hours));
+  hud.setSeason(args.season);
   if (args.phase === "gameover") hud.showGameOver(breakdown);
   else if (args.phase !== "start") hud.hideOverlay();
   hud.setPhase(args.phase);
   hud.setTracking(args.tracking);
-  hud.setDemo(args.demo);
+  hud.setReplay(args.replay);
   hud.setSpeed(args.speed);
   hud.setMuted(args.muted);
   hud.setMusicOn(args.musicOn);
@@ -145,6 +147,7 @@ function showSampleArrivals(hud: Hud, root: HTMLElement): void {
     hud.setArrivals(
       SAMPLE_ARRIVALS.map((a, i) => ({
         id: i,
+        kind: "arrow" as const,
         color: COLOR_HEX[a.color],
         x: pin(a.fx * w, w),
         y: pin(a.fy * h, h),
@@ -172,6 +175,7 @@ const meta: Meta<HudArgs> = {
     departed: { control: { type: "number", min: 0, step: 1 } },
     seconds: { control: { type: "number", min: 0, step: 1 } },
     hours: { control: { type: "range", min: 0, max: 23.99, step: 0.25 } },
+    season: { control: "inline-radio", options: SEASONS },
     toastColor: {
       control: "inline-radio",
       options: ["none", "red", "blue", "yellow", "violet"],
@@ -179,8 +183,6 @@ const meta: Meta<HudArgs> = {
     weather: { control: "inline-radio", options: ["none", "yellow", "amber", "red"] },
     // Callbacks are wired to the Actions panel; no control needed.
     onStart: { table: { disable: true } },
-    onDemo: { table: { disable: true } },
-    onExitDemo: { table: { disable: true } },
     onTogglePause: { table: { disable: true } },
     onSpeedChange: { table: { disable: true } },
     onRotate: { table: { disable: true } },
@@ -200,7 +202,7 @@ const meta: Meta<HudArgs> = {
     weather: "none",
     arrivals: false,
     tracking: false,
-    demo: false,
+    replay: false,
     speed: 1,
     muted: false,
     musicOn: true,
@@ -211,9 +213,8 @@ const meta: Meta<HudArgs> = {
     stats: false,
     uiHidden: false,
     hours: 8,
+    season: "summer",
     onStart: fn(),
-    onDemo: fn(),
-    onExitDemo: fn(),
     onTogglePause: fn(),
     onSpeedChange: fn(),
     onRotate: fn(),
@@ -254,8 +255,13 @@ export const Tracking: Story = {
   args: { phase: "playing", landed: 5, arrivals: true, tracking: true },
 };
 
-/** A demo playing: the "Demo" badge and EXIT DEMO button, bottom-centre. */
-export const Demo: Story = { args: { phase: "playing", landed: 9, demo: true } };
+/**
+ * The crash replay (`REPLAY_SECONDS` of footage after a crash, see
+ * core/replay.ts): the banner bottom-centre says so and how to skip it.
+ */
+export const CrashReplay: Story = {
+  args: { phase: "gameover", landed: 7, replay: true },
+};
 
 /**
  * Game speed button (top-right, left of pause), set to 3×. Click it, or press
@@ -394,7 +400,7 @@ export const GameOver: Story = {
  */
 export const Help: Story = { args: { phase: "playing", landed: 9, help: true } };
 
-/** Help opened from the title screen: the "?" button sits above the overlay. */
+/** Help opened from the title screen (its "?" button is under the overlay; H opens it). */
 export const HelpFromStart: Story = { args: { phase: "start", help: true } };
 
 /**

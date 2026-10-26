@@ -36,6 +36,7 @@ import {
   type Tree,
   type TreeKind,
 } from "../core/scenery";
+import type { SeasonPhase } from "../core/seasons";
 import type { Runway, RunwayColor, Vec2, WorldSize } from "../core/types";
 import { AirportGroundsFactory, type AirportView } from "./airportGrounds";
 import { BoatFleet } from "./boats";
@@ -44,6 +45,7 @@ import { CarFleet } from "./cars";
 import { CountrysideFactory, type CountrysideView } from "./countryside";
 import { fromScene, toScene } from "./coords";
 import { CLEAR_COLOR } from "./scene";
+import { SeasonalColors } from "./seasonColors";
 
 /** Grid resolution of the grass mesh (per side). Each cell = 2 facets. */
 const GRASS_SUBDIVISIONS = 40;
@@ -112,6 +114,10 @@ export class Landscape {
   private readonly waterMat: StandardMaterial;
   private readonly trunkMat: StandardMaterial;
   private readonly foliageMat: StandardMaterial;
+  /** Season shown (see `setSeason`) and the key of the last one applied. */
+  private season: SeasonPhase = { season: "summer", next: "autumn", blend: 0, count: 0 };
+  /** The grass's and the trees' colour buffers, rebuilt with the scenery. */
+  private seasonal: SeasonalColors[] = [];
 
   constructor(
     private readonly scene: Scene,
@@ -144,12 +150,14 @@ export class Landscape {
     this.meshes = [];
 
     const scenery = buildScenery(world, runways);
+    this.seasonal = [];
     this.meshes.push(
       this.buildGrass(scenery, world),
       ...this.buildStream(scenery.stream, world),
       ...this.buildTrees(scenery.trees, world),
     );
     for (const mesh of this.meshes) mesh.isPickable = false;
+    this.applySeason();
 
     this.countryside?.dispose();
     this.countryside = this.countrysideFactory.create(scenery.countryside, world, scenery.bounds);
@@ -195,6 +203,23 @@ export class Landscape {
     this.countryside?.setNight(n);
     this.carFleet.setNight(n);
     this.fleet.setNight(n);
+  }
+
+  /**
+   * Recolour the ground, trees and fields for the season (core/seasons.ts,
+   * palette in seasonTuning.ts). Cheap to call every frame: nothing happens
+   * unless the season or its blend moved.
+   */
+  setSeason(phase: SeasonPhase): void {
+    this.season = phase;
+    this.applySeason();
+  }
+
+  /** Recolour the grass and trees for `this.season` (they skip an unchanged one). */
+  private applySeason(): void {
+    for (const colors of this.seasonal) colors.apply(this.season);
+    this.airportFactory.setSeason(this.season);
+    this.countrysideFactory.setSeason(this.season);
   }
 
   /**
@@ -251,6 +276,8 @@ export class Landscape {
     const positions = grass.getVerticesData(VertexBuffer.PositionKind);
     if (!positions) throw new Error("Grass mesh has no positions");
     const colors = new Float32Array((positions.length / 3) * 4);
+    // How much of a season's lift each vertex takes: none at the horizon.
+    const weights = new Float32Array(positions.length / 3);
     const tmp = new Color3();
     const scenePoint = new Vector3();
 
@@ -260,9 +287,11 @@ export class Landscape {
       const lz = (positions[v * 3 + 2]! + positions[v * 3 + 5]! + positions[v * 3 + 8]!) / 3;
       scenePoint.set(lx + center.x, 0, lz + center.z);
       const p = fromScene(scenePoint, world);
-      grassColor(p, horizonFade(p, bounds), tmp);
+      const fade = horizonFade(p, bounds);
+      grassColor(p, fade, tmp);
 
       for (let k = 0; k < 3; k++) {
+        weights[v + k] = 1 - fade;
         const o = (v + k) * 4;
         colors[o] = tmp.r;
         colors[o + 1] = tmp.g;
@@ -270,7 +299,15 @@ export class Landscape {
         colors[o + 3] = 1;
       }
     }
-    grass.setVerticesData(VertexBuffer.ColorKind, colors);
+    grass.setVerticesData(VertexBuffer.ColorKind, colors, true);
+    this.seasonal.push(
+      new SeasonalColors(
+        colors,
+        weights,
+        (look) => look.grass,
+        (c) => grass.updateVerticesData(VertexBuffer.ColorKind, c),
+      ),
+    );
     grass.material = this.grassMat;
     grass.receiveShadows = true;
     return grass;
@@ -342,7 +379,7 @@ export class Landscape {
       const group = trees.filter((t) => t.kind === kind);
       if (group.length === 0) continue;
       const model = kind === "conifer" ? this.coniferModel() : this.broadleafModel();
-      this.instanceTrees(model, group, world, CANOPY_PALETTES[kind]);
+      this.instanceTrees(model, group, world, CANOPY_PALETTES[kind], kind);
       meshes.push(model.trunk, model.canopy);
     }
     return meshes;
@@ -448,6 +485,7 @@ export class Landscape {
     trees: readonly Tree[],
     world: WorldSize,
     palette: readonly [Color3, Color3],
+    kind: TreeKind,
   ): void {
     const matrices = new Float32Array(trees.length * 16);
     const colors = new Float32Array(trees.length * 4);
@@ -476,7 +514,18 @@ export class Landscape {
       mesh.thinInstanceRefreshBoundingInfo(false);
       this.shadows.addShadowCaster(mesh);
     }
-    model.canopy.thinInstanceSetBuffer("color", colors, 4, true);
+    // Not static: a season recolours the canopies (see `SeasonalColors`).
+    model.canopy.thinInstanceSetBuffer("color", colors, 4, false);
+    this.seasonal.push(
+      new SeasonalColors(
+        colors,
+        null,
+        (look) => look[kind],
+        (c) => {
+          model.canopy.thinInstanceSetBuffer("color", c, 4, false);
+        },
+      ),
+    );
   }
 }
 

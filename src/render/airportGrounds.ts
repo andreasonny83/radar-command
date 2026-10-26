@@ -25,6 +25,7 @@ import { CreateRibbon } from "@babylonjs/core/Meshes/Builders/ribbonBuilder";
 import { CreateSphere } from "@babylonjs/core/Meshes/Builders/sphereBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import "@babylonjs/core/Meshes/thinInstanceMesh"; // side effect: mesh.thinInstance* API
 import type { Scene } from "@babylonjs/core/scene";
@@ -32,9 +33,11 @@ import { CAR_BAY_DEPTH, CAR_BAY_WIDTH } from "../config";
 import type { Airport, Landside } from "../core/airports";
 import { clipHalfPlane } from "../core/geometry";
 import { headingVector } from "../core/math";
+import type { SeasonPhase } from "../core/seasons";
 import type { OrientedRect, RunwayColor, Vec2, WorldSize } from "../core/types";
 import { headingToRotationY, toScene } from "./coords";
 import { SceneGlow } from "./glow";
+import { SeasonalColors } from "./seasonColors";
 
 // Layer heights (scene y): mown grass just over the grass (0), under the
 // stream bank (0.02) and all the paving (0.05+).
@@ -126,6 +129,9 @@ export class AirportView {
 
 export class AirportGroundsFactory {
   private readonly mown: StandardMaterial;
+  /** Season shown, and the mown lawns built so far (see `setSeason`). */
+  private season: SeasonPhase = { season: "summer", next: "autumn", blend: 0, count: 0 };
+  private lawns: { mesh: Mesh; colors: SeasonalColors }[] = [];
   private readonly fence: StandardMaterial;
   private readonly post: StandardMaterial;
   private readonly concrete: StandardMaterial;
@@ -172,6 +178,16 @@ export class AirportGroundsFactory {
   /** 0 day … 1 night: the tower cab and terminal light up from inside. */
   setNight(n: number): void {
     Color3.LerpToRef(GLASS_DAY, GLASS_NIGHT, n, this.glass.emissiveColor);
+  }
+
+  /**
+   * Dress the lawns for the season (render/seasonColors.ts). The phase is
+   * kept, so airports built later come out in the same season.
+   */
+  setSeason(phase: SeasonPhase): void {
+    this.season = phase;
+    this.lawns = this.lawns.filter(({ mesh }) => !mesh.isDisposed());
+    for (const { colors } of this.lawns) colors.apply(phase);
   }
 
   create(airport: Airport, world: WorldSize, index: number): AirportView {
@@ -272,7 +288,16 @@ export class AirportGroundsFactory {
     data.indices = indices;
     data.normals = normals;
     data.colors = colors;
-    data.applyToMesh(mesh);
+    // Updatable: the lawn's colours follow the season.
+    data.applyToMesh(mesh, true);
+    const seasonal = new SeasonalColors(
+      new Float32Array(colors),
+      null,
+      (look) => look.grass,
+      (c) => mesh.updateVerticesData(VertexBuffer.ColorKind, c),
+    );
+    seasonal.apply(this.season);
+    this.lawns.push({ mesh, colors: seasonal });
     mesh.material = this.mown;
     mesh.receiveShadows = true;
     return mesh;

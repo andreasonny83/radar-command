@@ -15,6 +15,7 @@ import { CreateTorus } from "@babylonjs/core/Meshes/Builders/torusBuilder";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import type { Scene } from "@babylonjs/core/scene";
 import { ANCHOR_RADIUS, COLOR_HEX, PLANE_RADIUS } from "../config";
+import type { Airline } from "../core/overflights";
 import type { PlaneColor } from "../core/types";
 import {
   buildAircraftTemplate,
@@ -110,10 +111,18 @@ export class MeshFactory {
 
   /**
    * New aircraft of `kind` in `color` (nose along +x, centred on the
-   * origin), with its animated parts sorted into a rig.
+   * origin), with its animated parts sorted into a rig. `airline` is an
+   * overflight's (see `AIRLINES` in core/overflights.ts): its colours and
+   * emblem go on the plane.
    */
-  createAircraft(kind: AircraftKind, color: PlaneColor, id: number, name: string): AircraftRig {
-    const key = `${kind}-${color}`;
+  createAircraft(
+    kind: AircraftKind,
+    color: PlaneColor,
+    id: number,
+    name: string,
+    airline?: Airline,
+  ): AircraftRig {
+    const key = airline ? `${kind}-${color}-${airline.name}` : `${kind}-${color}`;
     let template = this.aircraftTemplates.get(key);
     if (!template) {
       const team = Color3.FromHexString(COLOR_HEX[color]);
@@ -123,6 +132,7 @@ export class MeshFactory {
         team,
         this.aircraftMaterials,
         `tpl-${key}`,
+        airline ? { band: Color3.FromHexString(airline.band), logo: airline.logo } : undefined,
       );
       this.aircraftTemplates.set(key, template);
     }

@@ -13,6 +13,7 @@
 import { COLLISION_DISTANCE, WARNING_DISTANCE } from "../config";
 import { isPlayerRouted } from "./avoidance";
 import { isInAirspace } from "./layout";
+import { canCollide } from "./overflights";
 import { distance } from "./math";
 import type { Plane, WorldSize } from "./types";
 
@@ -35,6 +36,9 @@ export interface CollisionResult {
  *   Departures climbing out from the field (`climbout`) are not: they're
  *   airborne in the airspace, and the player has to keep arrivals clear of
  *   them (see core/departures.ts).
+ * - Overflights (outside airlines' planes crossing the map) are in play
+ *   inside the airspace, and only against arrivals (see `canCollide` in
+ *   core/overflights.ts).
  * - Planes outside the airspace are ignored unless the player has routed
  *   them: that covers inbound planes still flying in (they only stop being
  *   inbound once they cross the edge, see core/plane.ts) and planes the
@@ -46,6 +50,7 @@ export interface CollisionResult {
  * round routed traffic instead, see core/avoidance.ts).
  */
 function isInPlay(plane: Plane, world: WorldSize): boolean {
+  if (plane.phase === "overflight") return isInAirspace(plane.pos, world);
   if (plane.phase !== "flying" && plane.phase !== "climbout") return false;
   return isInAirspace(plane.pos, world) || isPlayerRouted(plane);
 }
@@ -63,6 +68,7 @@ export function detectCollisions(planes: readonly Plane[], world: WorldSize): Co
     const a = inPlay[i]!;
     for (let j = i + 1; j < inPlay.length; j++) {
       const b = inPlay[j]!;
+      if (!canCollide(a, b)) continue;
       const d = distance(a.pos, b.pos);
       if (d < COLLISION_DISTANCE) {
         crash ??= [a, b];

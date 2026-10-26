@@ -11,6 +11,7 @@
  * - Headings are radians measured with `Math.atan2(dy, dx)`, so `0` points
  *   along +x and `Math.PI / 2` points along +y.
  */
+import type { Season } from "./seasons";
 
 /** A point or vector on the ground plane, in world units. */
 export interface Vec2 {
@@ -23,10 +24,11 @@ export type RunwayColor = "red" | "blue" | "yellow";
 
 /**
  * A plane's livery: a runway colour for arrivals, or violet for departures
- * taking off from the field (see core/departures.ts). Violet matches no
- * runway, so a departure can never land.
+ * taking off from the field (see core/departures.ts), or grey for an
+ * overflight (see core/overflights.ts). Violet and grey match no runway, so
+ * neither can ever land.
  */
-export type PlaneColor = RunwayColor | "violet";
+export type PlaneColor = RunwayColor | "violet" | "grey";
 
 /**
  * Lifecycle of a single plane:
@@ -56,6 +58,12 @@ export type PlaneColor = RunwayColor | "violet";
  *                collides like a `flying` plane inside the airspace. Ends
  *                as `departed` past the map edge.
  *
+ * - `overflight`: an outside airline's plane crossing the map (see
+ *                core/overflights.ts). Flies one straight track at cruise
+ *                speed, can't be steered, collides with arrivals (not with
+ *                other overflights or departures) inside the airspace.
+ *                Ends as `departed` past the map edge.
+ *
  * Every phase from `landing` to `landed` is "on the ground" (see
  * `isOnGround`): no collisions, no player control, and movement is driven
  * by `Plane.ground` instead of the drawn path.
@@ -70,7 +78,8 @@ export type PlanePhase =
   | "departed"
   | "outbound"
   | "takeoff"
-  | "climbout";
+  | "climbout"
+  | "overflight";
 
 /**
  * Top-level game phase, drives which overlay the UI shows. `step` only
@@ -137,6 +146,12 @@ export interface Plane {
    */
   inbound: boolean;
   /**
+   * `GameState.elapsed` until which the HUD keeps this plane highlighted
+   * (`NEW_PLANE_HIGHLIGHT` seconds from its spawn), so a newcomer is easy to
+   * spot even when it spawns on screen. 0 for planes that were never new.
+   */
+  highlightUntil: number;
+  /**
    * Where an inbound plane's track crosses into the airspace. It steers
    * back towards it after swerving round other traffic (see `avoidTurn`),
    * so it still arrives where its arrow promised. Null for planes that
@@ -165,6 +180,14 @@ export interface Plane {
   windTurn: number;
   /** Take-off state for departures (see core/departures.ts); null for arrivals. */
   departure: DepartureState | null;
+  /** Livery of an overflight (see core/overflights.ts); null for everyone else. */
+  overflight: OverflightState | null;
+}
+
+/** What marks a plane as an overflight: which airline's colours it wears. */
+export interface OverflightState {
+  /** Index into `AIRLINES` (core/overflights.ts). */
+  airline: number;
 }
 
 /**
@@ -335,6 +358,11 @@ export interface GameState {
   /** Seconds since the current shift started. */
   elapsed: number;
   /**
+   * Season the current shift opened in; the season shown follows `elapsed`
+   * from here (see core/seasons.ts). Always `FIRST_SEASON` (summer).
+   */
+  startSeason: Season;
+  /**
    * Sim seconds flown since the second runway opened; the only time that
    * scores. Kept apart from `elapsed`, which also drives the clock and the
    * spawn pacing, so circling the opening plane can't farm time points.
@@ -366,6 +394,10 @@ export interface GameState {
   departureTimer: number;
   /** Seconds until the next departure is due, once departures have begun. */
   departureInterval: number;
+  /** Seconds accumulated towards the next overflight (see core/overflights.ts). */
+  overflightTimer: number;
+  /** Seconds until the next overflight is due. */
+  overflightInterval: number;
   /** Next id handed out by `createPlane`. */
   nextPlaneId: number;
   /** Next touchdown sequence number (see `GroundState.seq`). */

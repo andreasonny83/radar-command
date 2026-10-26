@@ -24,9 +24,9 @@ export const TRACK_SAMPLES = Math.floor(DEMO_TRACK_HORIZON / DEMO_TRACK_STEP) + 
  */
 export type Track = (Vec2 | null)[];
 
-/** Flying or climbing out: the planes that can collide. */
+/** Flying, climbing out or crossing the map: the planes that can collide. */
 export function isAirborne(plane: Plane): boolean {
-  return plane.phase === "flying" || plane.phase === "climbout";
+  return plane.phase === "flying" || plane.phase === "climbout" || plane.phase === "overflight";
 }
 
 /**

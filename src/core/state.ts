@@ -7,12 +7,14 @@ import {
   DEPARTURE_INTERVAL_MIN,
   DEPARTURE_START_LANDINGS,
   SPAWN_INTERVAL_START,
+  OVERFLIGHT_INTERVAL_MIN,
   WIND_FIRST_DELAY,
   WORLD_ASPECT,
 } from "../config";
 import { DAY_SECONDS } from "./daytime";
 import { computeWorldSize, layoutRunways, safeViewAspect } from "./layout";
 import { isAirspaceCompact } from "./progression";
+import { FIRST_SEASON } from "./seasons";
 import type { GameState, OrientedRect } from "./types";
 
 /**
@@ -26,6 +28,7 @@ export function createGameState(viewAspect = WORLD_ASPECT): GameState {
     landed: 0,
     departed: 0,
     elapsed: 0,
+    startSeason: FIRST_SEASON,
     scoredSeconds: 0,
     unlockedAt: {},
     spawnTimer: 0,
@@ -36,6 +39,8 @@ export function createGameState(viewAspect = WORLD_ASPECT): GameState {
     nextStreamId: 1,
     departureTimer: 0,
     departureInterval: DEPARTURE_INTERVAL_MIN,
+    overflightTimer: 0,
+    overflightInterval: OVERFLIGHT_INTERVAL_MIN,
     nextPlaneId: 1,
     nextGroundSeq: 0,
     world,
@@ -52,6 +57,7 @@ export function resetGameState(state: GameState): void {
   state.landed = 0;
   state.departed = 0;
   state.elapsed = 0;
+  state.startSeason = FIRST_SEASON;
   state.scoredSeconds = 0;
   state.unlockedAt = {};
   state.spawnTimer = 0;
@@ -61,6 +67,8 @@ export function resetGameState(state: GameState): void {
   state.nextStreamId = 1;
   state.departureTimer = 0;
   state.departureInterval = DEPARTURE_INTERVAL_MIN;
+  state.overflightTimer = 0;
+  state.overflightInterval = OVERFLIGHT_INTERVAL_MIN;
   state.nextGroundSeq = 0;
   state.planes = [];
   // Only the first runway is open again: the airspace shrinks back round it.

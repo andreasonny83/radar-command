@@ -428,6 +428,15 @@ export const SPAWN_HEADING_JITTER = 0.5;
  */
 export const ARRIVAL_WARNING = 2.5;
 
+/**
+ * Seconds a new arrival or overflight stays highlighted, counted from its
+ * spawn. Off-screen the edge arrow already points it out; this also rings
+ * the plane itself once it is on screen, which is what spots it on a big
+ * window that shows the whole map (nothing is off-screen there, or only for
+ * a moment) and keeps the ring up a little after the plane flies in.
+ */
+export const NEW_PLANE_HIGHLIGHT = 5;
+
 // ---------------------------------------------------------------------------
 // Departures (planes taking off from the field — see core/departures.ts)
 // ---------------------------------------------------------------------------
@@ -449,6 +458,22 @@ export const DEPARTURE_START_LANDINGS = 4;
  */
 export const DEPARTURE_INTERVAL_MIN = 22;
 export const DEPARTURE_INTERVAL_MAX = 38;
+
+// ---------------------------------------------------------------------------
+// Overflights (core/overflights.ts)
+// ---------------------------------------------------------------------------
+//
+// Light grey planes of outside airlines crossing the map on one straight
+// track. The player can't steer them, but arrivals can collide with them.
+// They start on the second game day and keep a steady, low pace from then
+// on: unlike arrivals, the rate never ramps up.
+
+/** Seconds between overflights (a random pick in this range each time). */
+export const OVERFLIGHT_INTERVAL_MIN = 45;
+export const OVERFLIGHT_INTERVAL_MAX = 75;
+
+/** Most overflights on the map at once; a new one waits for a slot. */
+export const OVERFLIGHT_MAX_AT_ONCE = 2;
 
 /**
  * `u` (runway frame, see the airfield diagram above) of the connector
@@ -886,6 +911,13 @@ export const CRASH_ORBIT_RAMP = 2.5;
  */
 export const CRASH_OVERLAY_DELAY = 2.4;
 
+/**
+ * Seconds of footage before the impact that the crash replay shows. It
+ * plays once the crash cinematic has run its `CRASH_OVERLAY_DELAY`, runs
+ * into the impact again, and a click or tap skips it (see core/replay.ts).
+ */
+export const REPLAY_SECONDS = 5;
+
 // ---------------------------------------------------------------------------
 // Loop
 // ---------------------------------------------------------------------------
@@ -913,6 +945,8 @@ export const COLOR_HEX: Record<PlaneColor, string> = {
   yellow: "#eab308",
   // Departures: matches no runway, and stays clear of the green anchor ring.
   violet: "#a855f7",
+  // Overflights: light grey airliners of outside airlines (core/overflights.ts).
+  grey: "#cbd5e1",
 };
 
 // ---------------------------------------------------------------------------

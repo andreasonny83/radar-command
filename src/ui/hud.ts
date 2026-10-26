@@ -22,6 +22,7 @@ import { shortcutHint } from "../input/shortcuts";
 import type { Result } from "../net/leaderboardApi";
 import { createArrivalArrows, type ArrivalMarker } from "./arrivalArrows";
 import { EYE_ICON, EYE_OFF_ICON, FULLSCREEN_ICONS, formatDuration, hudMarkup } from "./hudMarkup";
+import type { Season } from "../core/seasons";
 import { createClockDisplay, createClockIcon } from "./clockDisplay";
 import { createScoreRoll } from "./scoreRoll";
 import { createLeaderboardPanel, formatRanks, type SubmitState } from "./leaderboard";
@@ -32,10 +33,6 @@ import { createWeatherStrip, type WeatherAlert } from "./weatherAlerts";
 
 export interface HudCallbacks {
   onStart: () => void;
-  /** WATCH DEMO pressed on the start screen. Optional: stories without a game leave it out. */
-  onDemo?: () => void;
-  /** EXIT DEMO pressed while a demo plays. */
-  onExitDemo?: () => void;
   /** Pause button pressed (pause while playing, continue while paused). */
   onTogglePause: () => void;
   /** Set the simulation speed multiplier. */
@@ -99,15 +96,9 @@ export interface Hud {
    * touched.
    */
   setClock(hours: number, night: number): void;
+  /** Name of the season, beside the clock (core/seasons.ts). Touches the DOM only when it changes. */
+  setSeason(season: Season): void;
   hideOverlay(): void;
-  /**
-   * Show the title screen again (leaving a demo): the overlay back, with
-   * its WATCH DEMO button. Only meaningful after `hideOverlay` from the
-   * title: a game-over screen never goes back to the title.
-   */
-  showStart(): void;
-  /** Show or hide the "Demo" badge and its EXIT DEMO button. */
-  setDemo(on: boolean): void;
   /** Hide the toast now, if one is showing. */
   hideToast(): void;
   /**
@@ -145,6 +136,8 @@ export interface Hud {
    * plane). Cheap to call every frame: the DOM is only touched on change.
    */
   setTracking(active: boolean): void;
+  /** Show or hide the "crash replay" banner (the replay is playing). */
+  setReplay(active: boolean): void;
   /** Show the sound button as muted (dimmed, struck through) or on. */
   setMuted(muted: boolean): void;
   /** Show the music button as on (lit) or off (dimmed). */
@@ -205,8 +198,14 @@ const SUBMIT_TONES: Record<SubmitState["kind"], string> = {
 /** How long a toast stays fully visible before fading out (ms). */
 const TOAST_MS = 2500;
 
-/** The start screen's backdrop (as in hudMarkup.ts): dim and blur the map. */
-const START_BACKDROP = ["justify-center", "bg-slate-950/80", "backdrop-blur-md"];
+/** The start screen's backdrop (as in hudMarkup.ts): a light dim, no blur, so the demo stays sharp. */
+const START_BACKDROP = [
+  "justify-center",
+  "bg-slate-950/20",
+  "max-sm:pb-36",
+  "short:pt-14",
+  "short:pb-3",
+];
 /**
  * Game-over backdrop: the crash cinematic keeps orbiting behind it (see
  * render/camera.ts `focusOn`), so leave the centre of the screen clear and
@@ -262,14 +261,30 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   const clockIcon = createClockIcon(byId("clockIcon"));
   // HH:MM as a neon display (ui/clockDisplay.ts).
   const clockTime = createClockDisplay(byId("clockTime"));
+  const clockSeason = byId("clockSeason");
+  let shownSeason: Season | null = null;
   const overlay = byId("overlay");
   const overlayCard = byId("overlayCard");
   const title = byId("overlayTitle");
   const message = byId("overlayMessage");
   const startBtn = byId<HTMLButtonElement>("startBtn");
-  const demoBtn = byId<HTMLButtonElement>("demoBtn");
-  const demoIndicator = byId("demoIndicator");
-  const exitDemoBtn = byId<HTMLButtonElement>("exitDemoBtn");
+  const welcomeToggle = byId<HTMLButtonElement>("welcomeToggleBtn");
+  /** The start card folded away by HIDE WELCOME (the map stays clickable). */
+  let welcomeFolded = false;
+  const setWelcomeFolded = (folded: boolean) => {
+    welcomeFolded = folded;
+    overlayCard.classList.toggle("opacity-0", folded);
+    overlayCard.classList.toggle("pointer-events-none", folded);
+    overlay.classList.toggle("pointer-events-none", folded);
+    welcomeToggle.textContent = folded ? "SHOW WELCOME" : "HIDE WELCOME";
+    welcomeToggle.setAttribute("aria-pressed", String(folded));
+    // Folded, nothing in the card keeps focus (Space/Enter would press it).
+    if (folded) (document.activeElement as HTMLElement | null)?.blur();
+  };
+  welcomeToggle.addEventListener("click", () => {
+    setWelcomeFolded(!welcomeFolded);
+    welcomeToggle.blur();
+  });
   const submitForm = byId<HTMLFormElement>("submitForm");
   const nameInput = byId<HTMLInputElement>("playerName");
   const submitBtn = byId<HTMLButtonElement>("submitBtn");
@@ -281,6 +296,8 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
   const weatherStrip = createWeatherStrip(byId("weatherAlerts"));
   const tracking = byId("trackingIndicator");
   let trackingShown = false;
+  const replayBanner = byId("replayBanner");
+  let replayShown = false;
   const helpBtn = byId<HTMLButtonElement>("helpBtn");
   const helpPanel = byId("helpPanel");
   const helpCloseBtn = byId<HTMLButtonElement>("helpCloseBtn");
@@ -302,15 +319,6 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     // The overlay fades out but keeps focus: drop it, or Space/Enter would
     // press the invisible button again.
     startBtn.blur();
-  });
-  demoBtn.addEventListener("click", () => {
-    callbacks.onDemo?.();
-    // The overlay fades out but keeps focus: drop it (see startBtn).
-    demoBtn.blur();
-  });
-  exitDemoBtn.addEventListener("click", () => {
-    callbacks.onExitDemo?.();
-    exitDemoBtn.blur();
   });
   pauseBtn.addEventListener("click", () => {
     callbacks.onTogglePause();
@@ -527,23 +535,23 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       clockTime.setNight(night);
       clockIcon.set(night >= 0.5);
     },
+    setSeason(season) {
+      if (season === shownSeason) return;
+      shownSeason = season;
+      clockSeason.textContent = season;
+    },
     hideOverlay() {
+      // Reset the fold first: it toggles `pointer-events-none` on the
+      // overlay, which would undo the hiding below.
+      setWelcomeFolded(false);
       overlay.classList.add("opacity-0", "pointer-events-none");
+      welcomeToggle.classList.add("hidden");
       // Nothing on the hidden overlay keeps focus (keys would type into it).
       nameInput.blur();
     },
     hideToast() {
       clearTimeout(toastTimer);
       toast.classList.add("opacity-0");
-    },
-    showStart() {
-      demoBtn.classList.remove("hidden");
-      overlay.classList.remove("opacity-0", "pointer-events-none");
-    },
-    setDemo(on) {
-      // `hidden` and `flex` both set `display`, so swap them rather than stack.
-      demoIndicator.classList.toggle("hidden", !on);
-      demoIndicator.classList.toggle("flex", on);
     },
     showGameOver(b, name = "", cause = "collision") {
       title.textContent = cause === "wind" ? "WIND SHEAR!" : "CRASH!";
@@ -569,8 +577,9 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       overlay.classList.remove(...START_BACKDROP);
       overlay.classList.add(...CRASH_BACKDROP);
       overlayCard.classList.add(...CRASH_CARD);
-      // A finished shift can't start a demo: the title is gone for good.
-      demoBtn.classList.add("hidden");
+      // The title is gone for good.
+      welcomeToggle.classList.add("hidden");
+      setWelcomeFolded(false);
       overlay.classList.remove("opacity-0", "pointer-events-none");
     },
     setPhase(phase) {
@@ -632,6 +641,12 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
       // `hidden` and `flex` both set `display`, so swap them rather than stack.
       tracking.classList.toggle("hidden", !active);
       tracking.classList.toggle("flex", active);
+    },
+    setReplay(active) {
+      if (active === replayShown) return;
+      replayShown = active;
+      replayBanner.classList.toggle("hidden", !active);
+      replayBanner.classList.toggle("flex", active);
     },
     get helpOpen() {
       return helpShown;

@@ -5,7 +5,9 @@
  *   1. spawn   – new planes appear at the edges, but only while fewer are
  *                flying than the progression cap allows (core/progression.ts);
  *                later in the shift, departures roll out of the hangars
- *                (core/departures.ts)
+ *                (core/departures.ts); from the second game day, outside
+ *                airlines' planes cross the map at a steady low rate
+ *                (core/overflights.ts)
  *   2. wind    – wind streams age and form (from the second game day on); a
  *                plane that flew into an active one loses its path and is
  *                pushed along (core/windStreams.ts). A flying plane caught in
@@ -27,6 +29,7 @@
  */
 import { resolveOuterTraffic } from "./avoidance";
 import { advanceDepartures, isRunwayClosed, scheduleDepartures } from "./departures";
+import { scheduleOverflights } from "./overflights";
 import { checkLanding } from "./landing";
 import { detectCollisions } from "./collision";
 import { isInAirspace } from "./layout";
@@ -100,6 +103,7 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
     }
   }
   scheduleDepartures(state, dt, rng, events);
+  scheduleOverflights(state, dt, rng);
 
   // 2. Wind. Before anyone moves, so a plane that just flew into a stream
   // loses its path before it is steered along it.

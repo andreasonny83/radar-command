@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* `short:` = a landscape phone (little height): tighten what would not fit. */
+@custom-variant short (@media (max-height: 32rem));
+
 @layer base {
   html,
   body {

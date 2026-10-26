@@ -24,7 +24,12 @@ import type { Plane, WorldSize } from "./types";
 
 /** Flying, departing or climbing out: the planes that take part in avoidance at all. */
 function isAirborne(plane: Plane): boolean {
-  return plane.phase === "flying" || plane.phase === "departing" || plane.phase === "climbout";
+  return (
+    plane.phase === "flying" ||
+    plane.phase === "departing" ||
+    plane.phase === "climbout" ||
+    plane.phase === "overflight"
+  );
 }
 
 /**
@@ -39,6 +44,8 @@ export function isPlayerRouted(plane: Plane): boolean {
  * True if the avoidance system may steer `plane`: airborne and outside the
  * airspace. Two kinds of plane are left alone:
  *
+ * - Overflights: they hold their track, other traffic gives way to them
+ *   (an overflight never swerves, so what it will do is predictable).
  * - Planes the player has given a path (see `isPlayerRouted`): they fly
  *   exactly what was drawn, and the automatic pilot takes over again only
  *   once the path is used up. Other traffic still swerves round them.
@@ -50,6 +57,7 @@ export function isPlayerRouted(plane: Plane): boolean {
 function isManaged(plane: Plane, world: WorldSize): boolean {
   return (
     isAirborne(plane) &&
+    plane.phase !== "overflight" &&
     !plane.pathAnchored &&
     !isPlayerRouted(plane) &&
     !isInAirspace(plane.pos, world)

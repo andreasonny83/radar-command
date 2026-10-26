@@ -1052,16 +1052,12 @@ export const DemoGame: StoryObj<DemoArgs> = {
         hud.setScore(breakdownOf(state));
         hud.hideOverlay();
         hud.setPhase(state.phase);
-        hud.setDemo(true);
       };
       const hud = createHud(stage.root, {
         onStart: begin,
-        onDemo: begin,
         onTogglePause: () => togglePause(state) && hud.setPhase(state.phase),
         onRotate: (dir) => cam.controller.rotateBy(dir * ROTATE_STEP),
         onZoom: (dir) => cam.controller.zoomBy(dir > 0 ? ZOOM_STEP : 1 / ZOOM_STEP),
-        // Nothing to go back to in a story: the demo just restarts.
-        onExitDemo: begin,
       });
       const audio = storyAudio(stage, args.sound, true);
       begin();

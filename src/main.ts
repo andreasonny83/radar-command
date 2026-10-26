@@ -23,8 +23,10 @@ import { autopilotStep, createAutopilot, type Autopilot } from "./core/autopilot
 import { NAME_HINT, normalizeName } from "./core/leaderboard";
 import { unlockedColors } from "./core/progression";
 import { breakdownOf } from "./core/scoring";
+import { seasonAt } from "./core/seasons";
+import { ReplayBuffer, replayView } from "./core/replay";
 import { startGame, step, togglePause } from "./core/simulation";
-import { createGameState, resetToTitle, setLiveView, setViewAspect } from "./core/state";
+import { createGameState, setLiveView, setViewAspect } from "./core/state";
 import type { CrashCause, SimEvent } from "./core/types";
 import { attachPanKeys } from "./input/keyboard";
 import { attachPointerInput } from "./input/pointer";
@@ -137,6 +139,22 @@ function frameOpenAirports(): void {
  */
 let gameOverIn: number | null = null;
 
+/** Footage of the last seconds of a real shift, for the crash replay (core/replay.ts). */
+const replayBuffer = new ReplayBuffer();
+
+/** The crash that ended the shift (set by the `crash` event), for the replay to end on. */
+let crashEvent: Extract<SimEvent, { type: "crash" }> | null = null;
+
+/**
+ * The crash replay while it plays: `clock` is the `GameState.elapsed` moment
+ * being shown, running from the start of the footage to `end`. Null when no
+ * replay is playing.
+ */
+let replay: { clock: number; end: number } | null = null;
+
+/** Has this shift's crash replay already run (or been skipped)? */
+let replayed = false;
+
 /** What ended the shift, for the game-over headline (set by the `crash` event). */
 let crashCause: CrashCause = "collision";
 
@@ -153,6 +171,15 @@ let autopilot: Autopilot | null = null;
 
 /** Seconds until a crashed demo restarts (after its cinematic), or null. */
 let demoRestartIn: number | null = null;
+
+/**
+ * True while the demo plays behind the welcome screen (the app opens this
+ * way; HIDE WELCOME only folds the card away, the demo is unchanged). The
+ * title overlay stays up over it, so it stays quiet: no toasts, no pausing
+ * for panels or a hidden tab, and START SHIFT may take over from it at any
+ * moment.
+ */
+let titleDemo = false;
 
 // --- Leaderboard ---------------------------------------------------------------
 /**
@@ -244,9 +271,25 @@ function startShift(): boolean {
  * `startShift`; in a demo only another demo may start while a crashed one
  * waits to restart, so Enter/Space can't turn it into a real shift.
  */
-function beginShift(isDemo: boolean): boolean {
-  if (state.phase === "playing" || state.phase === "paused" || gameOverIn !== null) return false;
-  if (demo && !isDemo) return false;
+function beginShift(isDemo: boolean, behindTitle = false): boolean {
+  // The demo behind the welcome screen gives way to a real shift whatever
+  // it is doing (flying, or in its crash cinematic).
+  const takeOver = titleDemo && !isDemo;
+  if (
+    !takeOver &&
+    (state.phase === "playing" || state.phase === "paused" || gameOverIn !== null || replay)
+  ) {
+    return false;
+  }
+  if (demo && !isDemo && !takeOver) return false;
+  titleDemo = behindTitle;
+  gameOverIn = null;
+  replay = null;
+  replayed = false;
+  crashEvent = null;
+  replayBuffer.clear();
+  hud.setReplay(false);
+  hud.hideToast();
   // Leave the crash site: the camera glides back to the default view.
   cameraController.release();
   demo = isDemo;
@@ -262,29 +305,10 @@ function beginShift(isDemo: boolean): boolean {
   framedAirports = 0;
   frameOpenAirports();
   hud.setScore(breakdownOf(state));
-  hud.hideOverlay();
+  // Behind the welcome screen the overlay stays up.
+  if (!behindTitle) hud.hideOverlay();
   hud.setPhase(state.phase);
-  hud.setDemo(isDemo);
   return true;
-}
-
-/** EXIT DEMO: back to the title screen with a clean field. */
-function exitDemo(): void {
-  if (!demo) return;
-  demo = false;
-  autopilot = null;
-  demoRestartIn = null;
-  gameOverIn = null;
-  resetToTitle(state);
-  cameraController.release();
-  framedAirports = 0;
-  setGameSpeed(GAME_SPEEDS[0]);
-  hud.setScore(breakdownOf(state));
-  hud.setDemo(false);
-  // "Demo crashed, restarting…" must not outlive the demo.
-  hud.hideToast();
-  hud.setPhase(state.phase);
-  hud.showStart();
 }
 
 /** Pause / continue, mid-shift only. */
@@ -306,7 +330,7 @@ let panelPaused = false;
 function onPanel(panel: string, open: boolean): void {
   if (open) openPanels.add(panel);
   else openPanels.delete(panel);
-  if (openPanels.size > 0 && state.phase === "playing") {
+  if (openPanels.size > 0 && state.phase === "playing" && !titleDemo) {
     setPaused(true);
     panelPaused = true;
   } else if (openPanels.size === 0 && panelPaused) {
@@ -330,8 +354,6 @@ let simSteps = 0;
 
 const hud = createHud(document.body, {
   onStart: () => void startShift(),
-  onDemo: () => void beginShift(true),
-  onExitDemo: exitDemo,
   onTogglePause: togglePaused,
   onSpeedChange: setGameSpeed,
   onRotate: rotate,
@@ -451,7 +473,7 @@ attachShortcuts(
   {
     start: startShift,
     togglePause: () => {
-      if (state.phase !== "playing" && state.phase !== "paused") return false;
+      if (titleDemo || (state.phase !== "playing" && state.phase !== "paused")) return false;
       togglePaused();
     },
     toggleHelp: () => hud.setHelpOpen(!hud.helpOpen),
@@ -480,7 +502,7 @@ attachShortcuts(
 // Auto-pause when the tab is hidden, so switching away never costs a crash.
 // Stays paused on return: the player continues when they're ready.
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) setPaused(true);
+  if (document.hidden && !titleDemo) setPaused(true);
   audio.setHidden(document.hidden);
 });
 
@@ -496,7 +518,7 @@ const panFor = (planeId: number) => sceneSync.panFor(planeId);
 function handleEvent(event: SimEvent): void {
   // Notices (runway open / busy / closed, departures): wording in ui/eventToasts.ts.
   const toast = toastFor(event);
-  if (toast) hud.showToast(toast.text, toast.color);
+  if (toast && !titleDemo) hud.showToast(toast.text, toast.color);
   // Sounds for moments: the departure chime, a go-around's engines.
   audio.onSimEvent(event, panFor);
   switch (event.type) {
@@ -515,6 +537,7 @@ function handleEvent(event: SimEvent): void {
       // Wreck the planes, fly the camera over and start the slow orbit. The
       // game-over panel waits, so nothing covers the fireball.
       crashCause = event.cause;
+      crashEvent = event;
       const site = sceneSync.crash(event.planeIds);
       if (site) cameraController.focusOn(site);
       gameOverIn = CRASH_OVERLAY_DELAY;
@@ -526,6 +549,43 @@ function handleEvent(event: SimEvent): void {
       break;
   }
 }
+
+// --- Crash replay ----------------------------------------------------------------
+/**
+ * Rewind: clear the wreckage away, pull the camera back and play the last `REPLAY_SECONDS` of the
+ * shift back from the recorded frames, up to the impact. A click or tap skips it.
+ */
+function startReplay(): void {
+  replayed = true;
+  sceneSync.resetPlanes();
+  // Back out to the whole field: the planes come from afar, not from the crash site.
+  cameraController.release();
+  replay = { clock: replayBuffer.start, end: replayBuffer.start + replayBuffer.length };
+  hud.setReplay(true);
+}
+
+/**
+ * End the replay (it ran out, or `skipped`): put the crash back as it was,
+ * run the cinematic from the impact, and bring up the game-over panel
+ * straight away if skipped, or once the fireball has shown if not.
+ */
+function finishReplay(skipped: boolean): void {
+  if (!replay) return;
+  replay = null;
+  hud.setReplay(false);
+  // Planes in their real final places, then wrecked again.
+  sceneSync.resetPlanes();
+  sceneSync.syncPlanes(state, time);
+  if (crashEvent) {
+    audio.onSimEvent(crashEvent, panFor);
+    const site = sceneSync.crash(crashEvent.planeIds);
+    if (site) cameraController.focusOn(site);
+  }
+  gameOverIn = skipped ? 0 : CRASH_OVERLAY_DELAY;
+}
+
+// Any click or tap skips the replay (capture: before the canvas or a button sees it).
+window.addEventListener("pointerdown", () => finishReplay(true), { capture: true });
 
 // --- Game loop -------------------------------------------------------------------
 let time = 0;
@@ -549,20 +609,25 @@ engine.runRenderLoop(() => {
     if (autopilot) autopilotStep(autopilot, state, h);
     for (const event of step(state, h)) handleEvent(event);
   }
+  // Footage for the crash replay, up to and including the crash frame.
+  if (simSteps > 0 && !demo) replayBuffer.record(state);
+  if (replay && (replay.clock += dt) >= replay.end) finishReplay(false);
   if (gameOverIn !== null && (gameOverIn -= dt) <= 0) {
     gameOverIn = null;
     if (demo) {
       // A crashed demo has no game-over panel and no score form: it
       // announces itself and starts over.
-      hud.showToast("Demo crashed, restarting…");
+      if (!titleDemo) hud.showToast("Demo crashed, restarting…");
       demoRestartIn = DEMO_RESTART_DELAY;
+    } else if (!replayed && replayBuffer.length > 0) {
+      startReplay();
     } else {
       void offerSubmit();
     }
   }
   if (demoRestartIn !== null && (demoRestartIn -= dt) <= 0) {
     demoRestartIn = null;
-    beginShift(true);
+    beginShift(true, titleDemo);
   }
 
   // No panning behind the help panel (the keys still track, for release).
@@ -587,6 +652,10 @@ engine.runRenderLoop(() => {
   sceneSync.setNight(dayCycle.night);
   audio.setNight(dayCycle.night);
   hud.setClock(dayCycle.hours, dayCycle.night);
+  // The season follows the same clock, from the one the shift opened in.
+  const season = seasonAt(state.elapsed, state.startSeason);
+  sceneSync.setSeason(season);
+  hud.setSeason(season.season);
   // Every frame, not on events: time survived adds to the score as it goes
   // (and a departure leaving the map raises no event of its own).
   hud.setScore(breakdownOf(state));
@@ -595,14 +664,17 @@ engine.runRenderLoop(() => {
   const inShift = state.phase === "playing" || state.phase === "paused";
   hud.setWeatherAlerts(inShift ? weatherAlerts(state) : []);
   sceneSync.setHighlighted(pointer.refreshHover());
-  sceneSync.syncPlanes(state, time);
+  // The replay draws recorded frames in place of the (crashed) live state.
+  const frame = replay ? replayBuffer.at(replay.clock) : null;
+  sceneSync.syncPlanes(frame ? replayView(state, frame) : state, time);
   // Sound: animation-timed cues from this frame's sync (gear, touchdown,
   // whoosh, warnings), engines and rollouts from state, ambience and music
   // on their own clocks (softer while paused).
   // Following a plane, its sounds lead and the rest recede (audio/sfx.ts).
   audio.setFocus(cameraController.following ? followedId : null);
-  for (const cue of sceneSync.takeAudioCues()) audio.cue(cue);
-  audio.setScene(AUDIO_SCENES[state.phase]);
+  // (A replay is silent: its gear and touchdown sounds would be out of place.)
+  for (const cue of sceneSync.takeAudioCues()) if (!replay) audio.cue(cue);
+  audio.setScene(titleDemo ? "title" : AUDIO_SCENES[state.phase]);
   audio.update(state, panFor);
   scene.render();
   // Only a running shift counts: the title screen and pause are cheap and
@@ -633,6 +705,9 @@ engine.runRenderLoop(() => {
   // None once the shift has ended: nothing is coming in any more.
   hud.setArrivals(state.phase === "gameover" ? [] : arrivalMarkers(state, scene, canvas));
 });
+
+// Open with the demo playing behind the welcome screen.
+beginShift(true, true);
 
 // Expose state for debugging / automated browser checks in dev builds only.
 if (import.meta.env.DEV) {

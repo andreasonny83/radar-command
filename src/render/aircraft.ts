@@ -36,6 +36,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import type { Material } from "@babylonjs/core/Materials/material";
+import type { LogoShape } from "../core/overflights";
 import type { Scene } from "@babylonjs/core/scene";
 import { PLANE_RADIUS } from "../config";
 import type { AircraftKind } from "../core/fleet";
@@ -573,6 +574,9 @@ export function wheelDepth(kind: AircraftKind): number {
 /**
  * Build the hidden template for one kind + team colour. Clones share its
  * geometry; call `rigFromClone` on each clone to find the animated parts.
+ * `livery` is an overflight's airline: its colour replaces the white or team
+ * accents (cheatline, fin, stripe, cowling) of a plane whose `team` is grey,
+ * and its emblem goes on the fin and fuselage sides.
  */
 export function buildAircraftTemplate(
   scene: Scene,
@@ -580,6 +584,7 @@ export function buildAircraftTemplate(
   team: Color3,
   mats: AircraftMaterials,
   name: string,
+  livery?: Livery,
 ): Mesh {
   const r = PLANE_RADIUS * KIND_SIZE[kind];
   // A slightly darker team shade for wings/tail, so surfaces separate.
@@ -588,7 +593,7 @@ export function buildAircraftTemplate(
 
   const root = new Mesh(name, scene);
   root.isPickable = false;
-  build(scene, root, r, team, teamDark, mats);
+  build(scene, root, r, team, teamDark, mats, livery);
   root.setEnabled(false);
   return root;
 }
@@ -600,6 +605,7 @@ type Builder = (
   team: Color3,
   teamDark: Color3,
   mats: AircraftMaterials,
+  livery?: Livery,
 ) => void;
 
 /**
@@ -615,8 +621,112 @@ function setBody(root: Mesh, parts: Mesh[], mats: AircraftMaterials): void {
   root.material = mats.paint;
 }
 
+/** An overflight's airline paint: its band colour and emblem. */
+export interface Livery {
+  band: Color3;
+  logo: LogoShape;
+}
+
+/**
+ * Emblems as convex pieces (a slab is fan-triangulated) in a -1..1 square,
+ * x along the plane, y up. A shape of several pieces is drawn piece by piece.
+ */
+const LOGO_PIECES: Record<LogoShape, ReadonlyArray<ReadonlyArray<readonly [number, number]>>> = {
+  disc: [
+    [
+      [1, 0],
+      [0.7, 0.7],
+      [0, 1],
+      [-0.7, 0.7],
+      [-1, 0],
+      [-0.7, -0.7],
+      [0, -1],
+      [0.7, -0.7],
+    ],
+  ],
+  diamond: [
+    [
+      [0, 1],
+      [1, 0],
+      [0, -1],
+      [-1, 0],
+    ],
+  ],
+  triangle: [
+    [
+      [0, 1],
+      [1, -0.8],
+      [-1, -0.8],
+    ],
+  ],
+  // A ">" made of two arms, pointing forward.
+  chevron: [
+    [
+      [-1, 1],
+      [-0.4, 1],
+      [1, 0],
+      [0.4, 0],
+    ],
+    [
+      [0.4, 0],
+      [1, 0],
+      [-0.4, -1],
+      [-1, -1],
+    ],
+  ],
+  cross: [
+    [
+      [-0.3, 1],
+      [0.3, 1],
+      [0.3, -1],
+      [-0.3, -1],
+    ],
+    [
+      [-1, 0.3],
+      [1, 0.3],
+      [1, -0.3],
+      [-1, -0.3],
+    ],
+  ],
+  // Three slanted bars.
+  stripes: [-0.7, -0.05, 0.6].map(
+    (o) =>
+      [
+        [o - 0.2, -1],
+        [o + 0.1, -1],
+        [o + 0.4, 1],
+        [o + 0.1, 1],
+      ] as const,
+  ),
+};
+
+/**
+ * An emblem of `shape` centred on (`cx`, `cy`) of the side view, `size` the
+ * half-width, as paper-thin slabs on both sides of the plane at `z` out from
+ * the centreline: set just outside the skin, so it reads as paint and doesn't
+ * z-fight with it. Each call's size and spot keep it inside the surface it
+ * sits on (the fin outline, the fuselage side).
+ */
+function logoParts(
+  scene: Scene,
+  shape: LogoShape,
+  cx: number,
+  cy: number,
+  size: number,
+  z: number,
+  color: Color3,
+): Mesh[] {
+  // Paper-thin: a decal painted on, not a part stuck on.
+  const thickness = size * 0.03;
+  return LOGO_PIECES[shape].flatMap((piece) => {
+    const outline = piece.map(([u, v]) => [cx + u * size, cy + v * size] as const);
+    return [z, -z].map((side) => slab(scene, outline, thickness, "vertical", side, color));
+  });
+}
+
 /** Twin-jet airliner: team-coloured fuselage, white cheatline, swept wings. */
-const buildAirliner: Builder = (scene, root, r, team, teamDark, mats) => {
+const buildAirliner: Builder = (scene, root, r, team, teamDark, mats, livery) => {
+  const band = livery?.band;
   const s = (v: number) => v * r;
   const O = Vector3.Zero();
   const f = s(0.3); // fuselage diameter
@@ -627,7 +737,7 @@ const buildAirliner: Builder = (scene, root, r, team, teamDark, mats) => {
     tailCone(scene, s(-1.08), s(-0.7), s(0.08), f, s(0.04), team, 12),
     // White cheatline down each side, just proud of the skin. It spans the
     // straight fuselage only: a box would poke out of the tapering cones.
-    block(scene, s(1.5), s(0.05), f * 1.03, s(0.05), s(0.01), 0, WHITE),
+    block(scene, s(1.5), s(0.05), f * 1.03, s(0.05), s(0.01), 0, band ?? WHITE),
     // Windscreen: a dark band wrapped round the nose cone.
     noseBand(scene, s(0.8), s(1.02), f, s(0.07), s(0.84), s(0.91), GLASS),
     // Swept fin (team colour) with a white tip band. Its root sits a little
@@ -644,7 +754,7 @@ const buildAirliner: Builder = (scene, root, r, team, teamDark, mats) => {
       s(0.04),
       "vertical",
       0,
-      teamDark,
+      band ?? teamDark,
     ),
     slab(
       scene,
@@ -669,6 +779,11 @@ const buildAirliner: Builder = (scene, root, r, team, teamDark, mats) => {
   ]);
   body.push(slab(scene, stab, s(0.035), "horizontal", s(0.03), teamDark));
   body.push(slab(scene, mirrorZ(stab), s(0.035), "horizontal", s(0.03), teamDark));
+  if (livery) {
+    // White on the band-coloured fin and cheatline.
+    body.push(...logoParts(scene, livery.logo, s(-0.95), s(0.27), s(0.085), s(0.0225), WHITE));
+    body.push(...logoParts(scene, livery.logo, s(0.5), s(0.05), s(0.04), s(0.1575), WHITE));
+  }
   setBody(root, body, mats);
 
   // Beacon on the spine, strobe at the back of the fin tip.
@@ -740,7 +855,8 @@ const buildAirliner: Builder = (scene, root, r, team, teamDark, mats) => {
 };
 
 /** Regional turboprop: white fuselage, team high wing, T-tail, twin props. */
-const buildTurboprop: Builder = (scene, root, r, team, teamDark, mats) => {
+const buildTurboprop: Builder = (scene, root, r, team, teamDark, mats, livery) => {
+  const band = livery?.band;
   const s = (v: number) => v * r;
   const O = Vector3.Zero();
   const f = s(0.27);
@@ -750,7 +866,7 @@ const buildTurboprop: Builder = (scene, root, r, team, teamDark, mats) => {
     tube(scene, s(0.78), s(0.98), f, s(0.08), 0, 0, WHITE, 12), // nose
     tailCone(scene, s(-1.08), s(-0.6), s(0.07), f, s(0.05), WHITE, 12),
     // Team cheatline along the windows, on the straight fuselage only.
-    block(scene, s(1.38), s(0.06), f * 1.03, s(0.09), s(0.02), 0, team),
+    block(scene, s(1.38), s(0.06), f * 1.03, s(0.09), s(0.02), 0, band ?? team),
     noseBand(scene, s(0.78), s(0.98), f, s(0.08), s(0.82), s(0.89), GLASS),
     // Fin (root sunk into the cone's skin), then the tailplane perched on top
     // of it (T-tail).
@@ -765,7 +881,7 @@ const buildTurboprop: Builder = (scene, root, r, team, teamDark, mats) => {
       s(0.04),
       "vertical",
       0,
-      team,
+      band ?? team,
     ),
   ];
   const stab = pts(s, s, [
@@ -776,6 +892,10 @@ const buildTurboprop: Builder = (scene, root, r, team, teamDark, mats) => {
   ]);
   body.push(slab(scene, stab, s(0.035), "horizontal", s(0.53), teamDark));
   body.push(slab(scene, mirrorZ(stab), s(0.035), "horizontal", s(0.53), teamDark));
+  if (livery) {
+    body.push(...logoParts(scene, livery.logo, s(-0.95), s(0.3), s(0.07), s(0.0225), WHITE));
+    body.push(...logoParts(scene, livery.logo, s(0.4), s(0.09), s(0.035), s(0.1415), WHITE));
+  }
   setBody(root, body, mats);
 
   light(scene, root, O, new Vector3(s(-1.14), s(0.57), 0), s(0.08), "strobe", mats.strobe);
@@ -829,7 +949,8 @@ const buildTurboprop: Builder = (scene, root, r, team, teamDark, mats) => {
 };
 
 /** Single-engine trainer: white fuselage, team cowling, wing and tail. */
-const buildLight: Builder = (scene, root, r, team, teamDark, mats) => {
+const buildLight: Builder = (scene, root, r, team, teamDark, mats, livery) => {
+  const band = livery?.band;
   const s = (v: number) => v * r;
   const O = Vector3.Zero();
   const f = s(0.3);
@@ -842,7 +963,7 @@ const buildLight: Builder = (scene, root, r, team, teamDark, mats) => {
   const body = [
     tube(scene, s(-0.15), s(0.55), f, f, 0, 0, WHITE, 8), // cabin
     tailCone(scene, boom.x0, boom.x1, boom.dRear, f, boom.rise, WHITE, 8), // tail boom
-    tube(scene, s(0.55), s(0.76), f, s(0.2), 0, 0, team, 8), // cowling
+    tube(scene, s(0.55), s(0.76), f, s(0.2), 0, 0, band ?? team, 8), // cowling
     // Wraparound cabin glazing.
     block(scene, s(0.45), s(0.1), f * 1.04, s(0.22), s(0.07), 0, GLASS),
     // Team stripe down the boom: a band just proud of the skin that narrows
@@ -859,7 +980,7 @@ const buildLight: Builder = (scene, root, r, team, teamDark, mats) => {
         s(0.04),
         "horizontal",
         s(0.02),
-        team,
+        band ?? team,
       ),
       boom.x0,
       boom.x1,
@@ -887,6 +1008,12 @@ const buildLight: Builder = (scene, root, r, team, teamDark, mats) => {
   ]);
   body.push(slab(scene, stab, s(0.035), "horizontal", s(0.04), teamDark));
   body.push(slab(scene, mirrorZ(stab), s(0.035), "horizontal", s(0.04), teamDark));
+  // The fin is plain grey: the emblem takes the airline's colour.
+  if (livery) {
+    body.push(
+      ...logoParts(scene, livery.logo, s(-0.878), s(0.22), s(0.06), s(0.0225), livery.band),
+    );
+  }
   setBody(root, body, mats);
 
   light(scene, root, O, new Vector3(s(-0.97), s(0.49), 0), s(0.09), "strobe", mats.strobe);

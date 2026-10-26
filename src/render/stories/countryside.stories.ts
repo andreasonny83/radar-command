@@ -37,6 +37,7 @@ import { AirfieldFactory } from "../airfield";
 import { BoatFleet } from "../boats";
 import { DrawbridgeFactory } from "../bridges";
 import { toScene } from "../coords";
+import { nextSeason, SEASONS, type Season } from "../../core/seasons";
 import { Landscape } from "../landscape";
 import { MeshFactory } from "../meshes";
 import { RunwayFactory } from "../runway";
@@ -47,7 +48,11 @@ const meta: Meta = { title: "Scene/Countryside" };
 export default meta;
 
 /** The game's (fixed-size) world, with everything on it. */
-function buildWorld(stage: Stage): { world: WorldSize; update: (time: number) => void } {
+function buildWorld(stage: Stage): {
+  world: WorldSize;
+  landscape: Landscape;
+  update: (time: number) => void;
+} {
   const world = computeWorldSize();
   const runways = layoutRunways(world);
   const factory = new MeshFactory(stage.scene);
@@ -60,6 +65,7 @@ function buildWorld(stage: Stage): { world: WorldSize; update: (time: number) =>
   for (const r of runways) airfields.create(r, world);
   return {
     world,
+    landscape,
     update: (time) => {
       landscape.update(time);
       for (const view of views) view.update(time);
@@ -180,3 +186,43 @@ function riverStrip(stage: Stage): void {
   water.material = mat;
   water.isPickable = false;
 }
+
+// ---------------------------------------------------------------------------
+// Seasons
+// ---------------------------------------------------------------------------
+
+interface SeasonArgs {
+  season: Season;
+  /** 0 = fully `season` … 1 = fully the next one (the slide at the end of a season). */
+  blend: number;
+  /** 0 day … 1 night: the snow's glow is dimmed after dark. */
+  night: number;
+}
+
+/**
+ * Grass, trees and fields in each season (core/seasons.ts, palette in
+ * render/seasonTuning.ts). In the game the season follows the shift clock
+ * (a new one every `SEASON_DAYS` game days, always opening in summer);
+ * here the controls pick it, and `blend` scrubs the slide into the next.
+ */
+export const Seasons: StoryObj<SeasonArgs> = {
+  argTypes: {
+    season: { control: "inline-radio", options: SEASONS },
+    blend: { control: { type: "range", min: 0, max: 1, step: 0.05 } },
+    night: { control: { type: "range", min: 0, max: 1, step: 0.05 } },
+  },
+  args: { season: "autumn", blend: 0, night: 0 },
+  render: (args) =>
+    mountStage((stage) => {
+      const { world, landscape, update } = buildWorld(stage);
+      orbitCamera(stage, toScene({ x: world.width / 2, y: world.height / 2 }, world), 110);
+      landscape.setNight(args.night);
+      landscape.setSeason({
+        season: args.season,
+        next: nextSeason(args.season),
+        blend: args.blend,
+        count: 0,
+      });
+      return (_dt, time) => update(time);
+    }),
+};

@@ -42,6 +42,8 @@ import { headingVector, mulberry32 } from "../core/math";
 import type { Vec2, WorldSize } from "../core/types";
 import { headingToRotationY, toScene } from "./coords";
 import { SceneGlow } from "./glow";
+import { SeasonalColors } from "./seasonColors";
+import type { SeasonPhase } from "../core/seasons";
 import { createPoolMesh, lampMaterial, litNow, poolMaterial, setNightLevel } from "./nightLights";
 import { CLEAR_COLOR } from "./scene";
 
@@ -148,6 +150,9 @@ export class CountrysideView {
 export class CountrysideFactory {
   private readonly vertexColored: StandardMaterial;
   private readonly fieldMat: StandardMaterial;
+  /** Season shown, and the colours of the fields built last (see `setSeason`). */
+  private season: SeasonPhase = { season: "summer", next: "autumn", blend: 0, count: 0 };
+  private fieldColors: SeasonalColors | null = null;
   private readonly road: StandardMaterial;
   private readonly roadPaint: StandardMaterial;
   private readonly stone: StandardMaterial;
@@ -248,6 +253,13 @@ export class CountrysideFactory {
       }
     }
     const mesh = flatMesh("fields", positions, colors, this.scene);
+    this.fieldColors = new SeasonalColors(
+      new Float32Array(colors),
+      null,
+      (look) => look.fields,
+      (c) => mesh.updateVerticesData(VertexBuffer.ColorKind, c),
+    );
+    this.fieldColors.apply(this.season);
     mesh.material = this.fieldMat;
     mesh.receiveShadows = true;
     return mesh;
@@ -540,6 +552,15 @@ export class CountrysideFactory {
     return [bulb, pool];
   }
 
+  /**
+   * Recolour the fields for the season (render/seasonColors.ts). The phase
+   * is kept, so fields built later come out in the same season.
+   */
+  setSeason(phase: SeasonPhase): void {
+    this.season = phase;
+    this.fieldColors?.apply(phase);
+  }
+
   /** 0 day … 1 night: lamps fade in (windows are per view, see CountrysideView). */
   setNight(n: number): void {
     this.night = n;
@@ -639,7 +660,8 @@ function flatMesh(name: string, positions: number[], colors: number[], scene: Sc
   data.indices = indices;
   data.normals = normals;
   data.colors = colors;
-  data.applyToMesh(mesh);
+  // Updatable: the fields' colours follow the season (see `SeasonalColors`).
+  data.applyToMesh(mesh, true);
   return mesh;
 }
 

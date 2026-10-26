@@ -15,6 +15,7 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { Meta, StoryObj } from "@storybook/html-vite";
 import { FLIGHT_ALTITUDE, PLANE_RADIUS } from "../../config";
+import { AIRLINES } from "../../core/overflights";
 import type { PlaneColor } from "../../core/types";
 import { animateAircraft, setHeadlights, type AircraftKind, type AircraftRig } from "../aircraft";
 import { DayCycle } from "../dayCycle";
@@ -227,4 +228,47 @@ export const Fleet: Story = {
 export const Headlights: Story = {
   ...Fleet,
   args: { ...Fleet.args, hour: 23, view: "game" },
+};
+
+/**
+ * Overflights (core/overflights.ts): light grey planes of outside airlines,
+ * one column per airline in `AIRLINES`. Only the accents (cheatline, fin,
+ * stripe, cowling) and the emblem on the fin and fuselage differ; the game picks the airline at random per plane.
+ */
+export const Overflights: Story = {
+  args: { turntable: 0, windExposure: 0.5 },
+  argTypes: { kind: { table: { disable: true } }, color: { table: { disable: true } } },
+  render: (args) =>
+    mountStage((stage) => {
+      const factory = new MeshFactory(stage.scene);
+      lightForHour(stage, factory, args);
+      groundPad(stage, 240);
+      const spacing = PLANE_RADIUS * 3.5;
+      const planes = KINDS.flatMap((kind, row) =>
+        AIRLINES.map((airline, col) => {
+          const id = row * AIRLINES.length + col + 1;
+          const rig = factory.createAircraft(kind, "grey", id, `plane-${id}`, airline);
+          setHeadlights(rig, args.headlights);
+          for (const mesh of rig.shadowCasters) stage.shadows.addShadowCaster(mesh, false);
+          const pos = new Vector3(
+            (col - (AIRLINES.length - 1) / 2) * spacing,
+            FLIGHT_ALTITUDE,
+            (1 - row) * spacing,
+          );
+          return { rig, id, pos };
+        }),
+      );
+      const updateCamera = setupView(stage, args.view, new Vector3(0, 0, 0), spacing * 5);
+
+      return (dt, time) => {
+        updateCamera?.(dt, time);
+        const heading = Math.PI / 2 + time * args.turntable * DEG;
+        const bank = args.bankDeg * DEG;
+        const { windExposure: exposure, chop, rollout } = args;
+        const gear = gearAt(args, time);
+        for (const { rig, id, pos } of planes) {
+          posePlane(rig, id, pos, { heading, bank, exposure, chop, rollout, gear }, time, dt);
+        }
+      };
+    }, args.timeScale),
 };

@@ -35,6 +35,7 @@ import {
   submitFormMarkup,
   noticesMarkup,
   toastMarkup,
+  replayBannerMarkup,
   trackingIndicatorMarkup,
   uiToggleButtonMarkup,
 } from "./hudMarkup";
@@ -241,6 +242,18 @@ export const WeatherAlerts: StoryObj<{ level: WarningLevel; stacked: boolean; to
 };
 
 /**
+ * "Crash replay" banner, bottom centre, shown while the replay after a crash
+ * plays (`Hud.setReplay`). The dot blinks like the tracking badge's.
+ */
+export const ReplayBanner: Story = {
+  render: () => {
+    const root = stage(replayBannerMarkup());
+    part(root, "replayBanner").classList.replace("hidden", "flex");
+    return root;
+  },
+};
+
+/**
  * "Track plane active" badge, bottom-left, shown while the camera follows a
  * plane (right-click one in the game). The dot blinks via `.tracking-dot` /
  * `tracking-blink` in style.css.
@@ -435,10 +448,38 @@ export const ArrivalArrow: StoryObj<{ color: string; angleDeg: number }> = {
       createArrivalArrows(layer).update([
         {
           id: 1,
+          kind: "arrow",
           color,
           x: layer.clientWidth / 2,
           y: layer.clientHeight / 2,
           angle: (angleDeg * Math.PI) / 180,
+        },
+      ]);
+    });
+    return root;
+  },
+};
+
+/**
+ * The ring (`newPlaneRingMarkup`) a new plane wears for `NEW_PLANE_HIGHLIGHT`
+ * seconds once it is on screen, so it can be picked out even on a window
+ * that shows the whole map. Drawn by the real arrivalArrows.ts.
+ */
+export const NewPlaneRing: StoryObj<{ color: string }> = {
+  args: { color: "#3b82f6" },
+  argTypes: { color: { control: "color" } },
+  render: ({ color }) => {
+    const root = stage(arrivalLayerMarkup());
+    requestAnimationFrame(() => {
+      const layer = part(root, "arrivals");
+      createArrivalArrows(layer).update([
+        {
+          id: 1,
+          kind: "ring",
+          color,
+          x: layer.clientWidth / 2,
+          y: layer.clientHeight / 2,
+          angle: 0,
         },
       ]);
     });

@@ -7,12 +7,14 @@
  * (render/arrivals.ts projects approaching planes onto the screen), so the
  * UI stays free of Babylon. Markup lives in hudMarkup.ts (`arrivalArrowMarkup`).
  */
-import { arrivalArrowMarkup } from "./hudMarkup";
+import { arrivalArrowMarkup, newPlaneRingMarkup } from "./hudMarkup";
 
 /** One arrow to draw, in CSS pixels relative to the arrivals layer. */
 export interface ArrivalMarker {
   /** Plane id: keeps each arrow's element (and its pulse) stable across frames. */
   id: number;
+  /** An edge arrow for a plane off-screen, or a ring on a new plane that is on screen. */
+  kind: "arrow" | "ring";
   /** CSS colour, the plane's runway colour. */
   color: string;
   /** Arrow centre, already pinned inside the screen edge. */
@@ -46,7 +48,10 @@ export function createArrivalArrows(
   layer: HTMLElement,
   obstacles: readonly HTMLElement[] = [],
 ): ArrivalArrows {
-  const arrows = new Map<number, { el: HTMLElement; svg: SVGElement }>();
+  const arrows = new Map<
+    number,
+    { kind: ArrivalMarker["kind"]; el: HTMLElement; svg: SVGElement }
+  >();
 
   return {
     update(markers) {
@@ -56,17 +61,26 @@ export function createArrivalArrows(
       for (const m of markers) {
         seen.add(m.id);
         let arrow = arrows.get(m.id);
+        // A plane flying in switches from arrow to ring: swap the element.
+        if (arrow && arrow.kind !== m.kind) {
+          arrow.el.remove();
+          arrow = undefined;
+        }
         if (!arrow) {
-          layer.insertAdjacentHTML("beforeend", arrivalArrowMarkup());
+          layer.insertAdjacentHTML(
+            "beforeend",
+            m.kind === "ring" ? newPlaneRingMarkup() : arrivalArrowMarkup(),
+          );
           const el = layer.lastElementChild as HTMLElement;
-          arrow = { el, svg: el.querySelector("svg")! };
+          arrow = { kind: m.kind, el, svg: el.querySelector("svg")! };
           arrows.set(m.id, arrow);
         }
-        const at = avoid(m.x, m.y, blocked, bounds!);
+        // The ring sits on the plane itself: it must not slide away from it.
+        const at = m.kind === "ring" ? { x: m.x, y: m.y } : avoid(m.x, m.y, blocked, bounds!);
         // translate (not left/top) so moving an arrow never triggers layout.
         arrow.el.style.transform = `translate(${at.x}px, ${at.y}px)`;
         arrow.el.style.color = m.color;
-        arrow.svg.style.transform = `rotate(${m.angle}rad)`;
+        if (m.kind === "arrow") arrow.svg.style.transform = `rotate(${m.angle}rad)`;
       }
       for (const [id, arrow] of arrows) {
         if (seen.has(id)) continue;
