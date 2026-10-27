@@ -83,12 +83,63 @@
   }
   /* The "chrome" of the HUD (score, buttons, toasts, arrows, badges, stats
      panel, paused banner): invisible and untouchable while the interface is
-     hidden (hud.ts `setUiHidden`, U in the game). Not the start / game-over
+     hidden (hud.ts `setUiHidden`, U in the game), except the toasts and weather
+     warnings, which stay (T switches them off). Not the start / game-over
      overlay or the dialogs. `!important` beats the toast's own fade. */
-  .hud-hidden .hud-chrome {
+  .hud-hidden .hud-chrome:not([data-panel="notices"]) {
     visibility: hidden !important;
     opacity: 0 !important;
     pointer-events: none !important;
+  }
+  /* Switchable panels (ui/panels.ts): switched off with their shortcut, and
+     a tiny key cap on the corner while the pointer rests on one. */
+  [data-panel][data-off] {
+    display: none !important;
+  }
+  [data-panel][data-key]:not([data-key=""]):hover::after {
+    content: attr(data-key);
+    @apply pointer-events-none absolute -top-2 -right-2 z-40 rounded border border-slate-500
+      bg-slate-900 px-1.5 text-[10px] leading-4 font-bold text-slate-200 shadow;
+  }
+  /* Customisation (ui/customise.ts): radar size and panel opacity come from
+     variables on the HUD root; dragged panels move by `translate`. */
+  #radar {
+    width: var(--radar-size, 10rem);
+  }
+  @media (max-width: 639px) {
+    #radar {
+      width: calc(var(--radar-size, 10rem) * 0.8);
+    }
+  }
+  [data-move] {
+    opacity: var(--hud-opacity, 1);
+  }
+  [data-move]:hover {
+    opacity: 1;
+  }
+  /* Layout mode: panels outlined and draggable, shown even when the game
+     phase would hide them; their contents ignore the pointer. */
+  .layout-edit [data-move] {
+    pointer-events: auto !important;
+    cursor: grab;
+    outline: 2px dashed rgb(56 189 248);
+    outline-offset: 3px;
+    touch-action: none;
+    opacity: 1;
+  }
+  .layout-edit [data-move] * {
+    pointer-events: none !important;
+  }
+  .layout-edit [data-move]:not([data-off]).hidden,
+  .layout-edit [data-move]:not([data-off]) > .hidden {
+    display: flex !important;
+  }
+  .layout-edit [data-move="radar"]:not([data-off]) {
+    display: block !important;
+    background: rgb(2 6 23 / 0.7);
+  }
+  .layout-edit #pausedBanner {
+    display: none !important;
   }
   .hud-button {
     @apply flex h-11 w-11 items-center justify-center rounded-xl border border-slate-700

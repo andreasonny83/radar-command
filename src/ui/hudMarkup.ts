@@ -14,9 +14,18 @@ import { DAY_SECONDS } from "../core/daytime";
 import { ALL_TIME_MAX, BOARD_LABELS, BOARDS, NAME_MAX } from "../core/leaderboard";
 import { DEPARTURE_POINTS, LANDING_POINTS, SECONDS_PER_TIME_POINT } from "../core/scoring";
 import { POINTER_CONTROLS, SHORTCUT_GROUPS, shortcutHint } from "../input/shortcuts";
+import { PANEL_ACTIONS, PANEL_IDS, PANEL_LABELS, type PanelId } from "./panels";
 import { STAT_SECTIONS } from "./stats";
 import { CC0_TEXT, GPL_TEXT, RECORDINGS, SOURCE_URL, THIRD_PARTY } from "./licenses";
 import { GITHUB_REPO_URL } from "./links";
+
+/**
+ * Attributes that make an element a switchable panel (see panels.ts): the
+ * id `hud.setPanelOn` finds it by, and the key shown when the pointer rests on it.
+ */
+function panelAttrs(id: PanelId): string {
+  return `data-panel="${id}" data-key="${shortcutHint(PANEL_ACTIONS[id])}"`;
+}
 
 /**
  * Score, top-left: the total (core/scoring.ts `scoreOf`), a small
@@ -27,7 +36,7 @@ import { GITHUB_REPO_URL } from "./links";
  */
 export function scorePanelMarkup(): string {
   return `
-    <div class="hud-chrome pointer-events-none safe-t safe-l absolute top-4 left-4 z-10">
+    <div ${panelAttrs("score")} data-move="score" class="hud-chrome safe-t safe-l absolute top-4 left-4 z-10">
       <div
         data-arrow-avoid
         class="rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
@@ -48,13 +57,13 @@ export function scorePanelMarkup(): string {
 
 /**
  * Pause / continue, top-right, left of the help button. On a phone-width
- * screen the four top-right buttons (speed, pause, help, eye) stack in a
+ * screen the five top-right buttons (speed, pause, help, gear, eye) stack in a
  * column down the right edge instead, which keeps them off the score panel at
  * full touch size. Hidden until a shift starts (see `setPhase`).
  */
 export function pauseButtonMarkup(): string {
   return `
-    <div class="hud-chrome safe-t safe-r absolute top-4 right-32 max-sm:top-30 max-sm:right-4 z-10">
+    <div ${panelAttrs("controls")} data-move="pause" class="hud-chrome safe-t safe-r absolute top-4 right-46 max-sm:top-43 max-sm:right-4 z-10">
       <button
         id="pauseBtn"
         data-arrow-avoid
@@ -75,7 +84,7 @@ export function pauseButtonMarkup(): string {
  */
 export function speedButtonMarkup(): string {
   return `
-    <div class="hud-chrome safe-t safe-r absolute top-4 right-46 max-sm:top-43 max-sm:right-4 z-10">
+    <div ${panelAttrs("controls")} data-move="speed" class="hud-chrome safe-t safe-r absolute top-4 right-60 max-sm:top-56 max-sm:right-4 z-10">
       <button
         id="speedBtn"
         data-arrow-avoid
@@ -115,7 +124,7 @@ export function pausedBannerMarkup(): string {
  */
 function noticesFrame(inner: string): string {
   return `
-    <div class="hud-chrome pointer-events-none safe-t absolute inset-x-0 top-4 z-10 flex flex-col items-center gap-2 px-4 max-sm:top-36 max-sm:pr-18">${inner}
+    <div ${panelAttrs("notices")} class="hud-chrome pointer-events-none safe-t absolute inset-x-0 top-4 z-10 flex flex-col items-center gap-2 px-4 max-sm:top-36 max-sm:pr-18">${inner}
     </div>`;
 }
 
@@ -317,7 +326,9 @@ export function statsPanelMarkup(): string {
       data-arrow-avoid
       role="status"
       aria-label="Stats for nerds"
-      class="hud-chrome pointer-events-none safe-b safe-l absolute bottom-20 left-4 z-10 hidden w-56 max-w-[calc(100%-2rem)] flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 font-mono text-[11px] leading-4 shadow-lg backdrop-blur-sm max-sm:bottom-32"
+      ${panelAttrs("stats")}
+      data-move="stats"
+      class="hud-chrome safe-b safe-l absolute bottom-[calc(var(--radar-size,10rem)+2rem)] left-4 z-10 hidden w-56 max-w-[calc(100%-2rem)] flex-col gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2 font-mono text-[11px] leading-4 shadow-lg backdrop-blur-sm max-sm:bottom-[calc(9rem+var(--radar-size,10rem)*0.8)]"
     >${sections}
     </div>`;
 }
@@ -333,6 +344,8 @@ export function cameraControlsMarkup(): string {
   return `
     <div
       data-arrow-avoid
+      ${panelAttrs("controls")}
+      data-move="controls"
       class="hud-chrome safe-b safe-r hud-row-compact absolute right-4 bottom-4 z-10 flex gap-2 max-sm:gap-1.5"
       aria-label="Sound, music, camera and full screen controls"
     >
@@ -389,7 +402,7 @@ export function trackingIndicatorMarkup(): string {
       id="trackingIndicator"
       data-arrow-avoid
       role="status"
-      class="hud-chrome pointer-events-none safe-b safe-l absolute bottom-4 left-4 z-10 hidden max-w-[calc(100%-2rem)] items-center max-sm:bottom-18 gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
+      class="hud-chrome pointer-events-none safe-b safe-l absolute bottom-4 left-[calc(var(--radar-size,10rem)+2rem)] z-10 hidden max-w-[calc(100%-var(--radar-size,10rem)-3rem)] items-center max-sm:bottom-[calc(5rem+var(--radar-size,10rem)*0.8)] max-sm:left-4 max-sm:max-w-[calc(100%-2rem)] gap-3 rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 shadow-lg backdrop-blur-sm"
     >
       <span class="tracking-dot h-3 w-3 shrink-0 rounded-full bg-red-500"></span>
       <div>
@@ -423,6 +436,28 @@ export function replayBannerMarkup(): string {
 }
 
 /**
+ * Radar, bottom-left: every plane in the air, including the ground past the
+ * map edge, so arrivals show before they fly into view (ui/radar.ts draws
+ * it; its width is `--radar-size`, set from the player's choice in
+ * ui/customise.ts). Hidden outside a shift. On phones it shrinks and sits
+ * above the bottom button row.
+ */
+export function radarMarkup(): string {
+  return `
+    <div
+      id="radarPanel"
+      ${panelAttrs("radar")}
+      data-move="radar"
+      data-arrow-avoid
+      class="hud-chrome safe-b safe-l absolute bottom-4 left-4 z-10 hidden rounded-full border border-slate-700 bg-slate-950/70 shadow-lg backdrop-blur-sm max-sm:bottom-18"
+      role="img"
+      aria-label="Radar: planes in the air, including those beyond the map edge"
+    >
+      <canvas id="radar" class="block aspect-square"></canvas>
+    </div>`;
+}
+
+/**
  * Layer for arrival arrows (see arrivalArrows.ts). Below the other HUD
  * panels; arrows slide out from under any element marked
  * `data-arrow-avoid` (score, pause, camera buttons, tracking badge), so neither hides the other.
@@ -431,6 +466,7 @@ export function arrivalLayerMarkup(): string {
   return `
     <div
       id="arrivals"
+      ${panelAttrs("arrows")}
       class="hud-chrome pointer-events-none absolute inset-0 z-[5] overflow-hidden"
       aria-hidden="true"
     ></div>`;
@@ -702,12 +738,12 @@ export function uiToggleButtonMarkup(): string {
 }
 
 /**
- * "?" button, top-right, left of the interface toggle: opens the help panel. Sits below the start /
+ * "?" button, top-right, left of the gear: opens the help panel. Sits below the start /
  * game-over overlay (z-20), which covers it; the H shortcut still opens help.
  */
 export function helpButtonMarkup(): string {
   return `
-    <div class="hud-chrome safe-t safe-r absolute top-4 right-18 max-sm:top-17 max-sm:right-4 z-10">
+    <div class="hud-chrome safe-t safe-r absolute top-4 right-32 max-sm:top-30 max-sm:right-4 z-10">
       <button
         id="helpBtn"
         data-arrow-avoid
@@ -720,6 +756,108 @@ export function helpButtonMarkup(): string {
       >
         ?
       </button>
+    </div>`;
+}
+
+/**
+ * Gear button, top-right, left of the interface toggle: opens the customise card (see
+ * settingsPanelMarkup). Always there, like the help button.
+ */
+export function settingsButtonMarkup(): string {
+  return `
+    <div class="hud-chrome safe-t safe-r absolute top-4 right-18 max-sm:top-17 max-sm:right-4 z-10">
+      <button
+        id="settingsBtn"
+        data-arrow-avoid
+        class="hud-button"
+        title="Customise the interface (${shortcutHint("toggleSettings")})"
+        aria-label="Customise the interface"
+        aria-haspopup="dialog"
+        aria-controls="settingsPanel"
+        aria-expanded="false"
+      >
+        ⚙
+      </button>
+    </div>`;
+}
+
+/**
+ * Customise card (ui/customise.ts): which panels show, radar size, panel
+ * opacity, and a button into layout mode. Opening it pauses the game, like
+ * help. The banner is layout mode's own: drag any outlined panel, then Done.
+ */
+export function settingsPanelMarkup(): string {
+  const switches = PANEL_IDS.filter((id) => id !== "stats")
+    .map(
+      (id) => `
+        <li>
+          <label class="flex cursor-pointer items-center justify-between gap-4 py-1.5">
+            <span class="text-slate-300">${PANEL_LABELS[id]}</span>
+            <span class="flex items-center gap-3">
+              <kbd class="kbd">${shortcutHint(PANEL_ACTIONS[id])}</kbd>
+              <input type="checkbox" data-panel-switch="${id}" checked class="h-4 w-4 accent-sky-400" />
+            </span>
+          </label>
+        </li>`,
+    )
+    .join("");
+  const sizes = (["s", "m", "l"] as const)
+    .map(
+      (size) => `
+        <button type="button" data-radar-size="${size}" aria-pressed="false"
+          class="hud-button h-9 w-12 text-sm aria-pressed:border-sky-400 aria-pressed:text-sky-300">
+          ${size.toUpperCase()}
+        </button>`,
+    )
+    .join("");
+  return `
+    <div
+      id="settingsPanel"
+      class="absolute inset-0 z-40 hidden items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settingsTitle"
+        class="relative flex max-h-full w-full max-w-md flex-col rounded-2xl border border-slate-700 bg-slate-900/95 shadow-2xl"
+      >
+        <header class="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+          <h2 id="settingsTitle" class="glow-text text-2xl font-black tracking-wider text-sky-400">
+            CUSTOMISE
+          </h2>
+          <button id="settingsCloseBtn" class="hud-button h-9 w-9 text-base" title="Close (Esc)" aria-label="Close settings">
+            ✕
+          </button>
+        </header>
+        <div class="space-y-5 overflow-y-auto px-6 py-4">
+          <section>
+            ${helpHeadingMarkup("Show")}
+            <ul class="divide-y divide-slate-800">${switches}</ul>
+          </section>
+          <section class="flex items-center justify-between gap-4">
+            ${helpHeadingMarkup("Radar size")}
+            <div class="flex gap-2">${sizes}</div>
+          </section>
+          <section class="flex items-center justify-between gap-4">
+            ${helpHeadingMarkup("Panel opacity")}
+            <input id="settingsOpacity" type="range" min="35" max="100" step="5" value="100"
+              class="w-40 accent-sky-400" aria-label="Panel opacity" />
+          </section>
+          <section class="flex flex-wrap gap-2">
+            <button id="layoutBtn" type="button" class="hud-button h-10 w-auto px-4 text-sm">Move panels</button>
+            <button id="layoutResetBtn" type="button" class="hud-button h-10 w-auto px-4 text-sm">Reset layout</button>
+          </section>
+          <p class="text-xs text-slate-500">Your choices are saved on this device.</p>
+        </div>
+      </div>
+    </div>
+    <div
+      id="layoutBanner"
+      class="safe-b absolute bottom-6 left-1/2 z-40 hidden -translate-x-1/2 items-center gap-3 rounded-xl border border-sky-400 bg-slate-900/90 px-4 py-2 shadow-lg backdrop-blur-sm"
+    >
+      <span class="text-sm text-slate-200">Drag the outlined panels where you want them</span>
+      <button id="layoutResetBtn2" type="button" class="hud-button h-9 w-auto px-3 text-xs">Reset</button>
+      <button id="layoutDoneBtn" type="button" class="hud-button h-9 w-auto px-3 text-xs">Done</button>
     </div>`;
 }
 
@@ -1066,13 +1204,16 @@ export function hudMarkup(): string {
     pausedBannerMarkup(),
     noticesMarkup(),
     trackingIndicatorMarkup(),
+    radarMarkup(),
     replayBannerMarkup(),
     statsPanelMarkup(),
     cameraControlsMarkup(),
     uiToggleButtonMarkup(),
     overlayMarkup(),
     helpButtonMarkup(),
+    settingsButtonMarkup(),
     helpPanelMarkup(),
+    settingsPanelMarkup(),
     leaderboardPanelMarkup(),
     licensesPanelMarkup(),
   ].join("");

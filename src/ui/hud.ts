@@ -21,6 +21,9 @@ import { GAME_SPEEDS } from "../config";
 import { shortcutHint } from "../input/shortcuts";
 import type { Result } from "../net/leaderboardApi";
 import { createArrivalArrows, type ArrivalMarker } from "./arrivalArrows";
+import { createCustomiser, type Customiser } from "./customise";
+import { PANEL_IDS, type PanelId } from "./panels";
+import { createRadar, type RadarSnapshot } from "./radar";
 import { EYE_ICON, EYE_OFF_ICON, FULLSCREEN_ICONS, formatDuration, hudMarkup } from "./hudMarkup";
 import type { Season } from "../core/seasons";
 import { createClockDisplay, createClockIcon } from "./clockDisplay";
@@ -64,6 +67,12 @@ export interface HudCallbacks {
    * e.g. to remember the choice.
    */
   onUiHidden?: (hidden: boolean) => void;
+  /** The customise card or layout mode opened or closed (to pause the game, like help). */
+  onSettings?: (open: boolean) => void;
+  /** A panel was switched on or off (R, C, T, B, I): the ones now off, e.g. to remember them. */
+  onPanelsChanged?: (hidden: readonly PanelId[]) => void;
+  /** Panels to start switched off (the remembered choice). */
+  initialHiddenPanels?: readonly PanelId[];
   /** Start with the interface hidden (the remembered choice). */
   initialUiHidden?: boolean;
   /**
@@ -132,6 +141,19 @@ export interface Hud {
   /** Arrows on the screen edge for planes about to fly in (call every frame). */
   setArrivals(markers: readonly ArrivalMarker[]): void;
   /**
+   * Redraw the radar (call every frame), or pass null to hide it. `now` is
+   * a millisecond clock for the sweep.
+   */
+  setRadar(snapshot: RadarSnapshot | null, now: number): void;
+  /** Is the customise card (or layout mode) showing? */
+  readonly settingsOpen: boolean;
+  /** Open the customise card, or close it and layout mode (fires `onSettings` on change). */
+  setSettingsOpen(open: boolean): void;
+  /** Is this panel switched on? (It may still be hidden by the game phase.) */
+  panelOn(id: PanelId): boolean;
+  /** Switch a panel on or off (see panels.ts). Fires `onPanelsChanged` on change. */
+  setPanelOn(id: PanelId, on: boolean): void;
+  /**
    * Show or hide the "track plane active" badge (the camera is following a
    * plane). Cheap to call every frame: the DOM is only touched on change.
    */
@@ -158,7 +180,8 @@ export interface Hud {
   readonly uiHidden: boolean;
   /**
    * Hide or show the whole interface for a clean view (U): score, buttons,
-   * toasts, arrows, badges, the stats panel and the paused banner. The
+   * arrows, badges, the stats panel and the paused banner. Toasts and
+   * weather warnings stay (T switches them off). The
    * start / game-over overlay and the dialogs stay, so a shift can still
    * be started and the help opened; keyboard shortcuts keep working. The
    * eye button in the top-right corner does the same as U for touch screens: it stays
@@ -306,6 +329,26 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     byId("arrivals"),
     Array.from(root.querySelectorAll<HTMLElement>("[data-arrow-avoid]")),
   );
+  const radarPanel = byId("radarPanel");
+  const radar = createRadar(byId<HTMLCanvasElement>("radar"));
+  let radarShown = false;
+  const panelsOff = new Set<PanelId>();
+  function setPanelOn(id: PanelId, on: boolean): void {
+    if (on === !panelsOff.has(id)) return;
+    if (on) panelsOff.delete(id);
+    else panelsOff.add(id);
+    for (const el of root.querySelectorAll<HTMLElement>(`[data-panel="${id}"]`)) {
+      el.toggleAttribute("data-off", !on);
+    }
+    customiser.syncPanels();
+    callbacks.onPanelsChanged?.(PANEL_IDS.filter((p) => panelsOff.has(p)));
+  }
+  const customiser: Customiser = createCustomiser(root, {
+    panelOn: (id) => !panelsOff.has(id),
+    setPanelOn,
+    onActiveChange: (active) => callbacks.onSettings?.(active),
+  });
+  for (const id of callbacks.initialHiddenPanels ?? []) setPanelOn(id, false);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   const updateSpeed = (speed: (typeof GAME_SPEEDS)[number]) => {
     speedBtn.dataset.speed = String(speed);
@@ -613,6 +656,20 @@ export function createHud(root: HTMLElement, callbacks: HudCallbacks): Hud {
     setArrivals(markers) {
       arrivals.update(markers);
     },
+    setRadar(snapshot, now) {
+      const show = snapshot !== null && !panelsOff.has("radar");
+      if (show !== radarShown) {
+        radarShown = show;
+        radarPanel.classList.toggle("hidden", !show);
+      }
+      if (show) radar.update(snapshot, now);
+    },
+    get settingsOpen() {
+      return customiser.active;
+    },
+    setSettingsOpen: (open) => customiser.setOpen(open),
+    panelOn: (id) => !panelsOff.has(id),
+    setPanelOn,
     setMuted(muted) {
       soundBtn.classList.toggle("hud-button-off", muted);
       const keys = shortcutHint("toggleSound");

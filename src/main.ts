@@ -57,6 +57,7 @@ import { FrameStats } from "./ui/frameStats";
 import { createFullscreen } from "./ui/fullscreen";
 import { createScreenWake } from "./ui/wakeLock";
 import { createHud } from "./ui/hud";
+import { type PanelId, saveHiddenPanels, savedHiddenPanels } from "./ui/panels";
 import { savedUiHidden, saveUiHidden } from "./ui/preferences";
 import { weatherAlerts } from "./ui/weatherAlerts";
 
@@ -362,12 +363,15 @@ const hud = createHud(document.body, {
   onToggleMusic: toggleMusic,
   onToggleFullscreen: toggleFullscreen,
   onHelp: (open) => onPanel("help", open),
+  onSettings: (open) => onPanel("settings", open),
   onLeaderboard: (open) => onPanel("leaderboard", open),
   onStats: (open) => {
     sceneStats.setEnabled(open);
     if (open) frameStats.reset();
   },
   onUiHidden: saveUiHidden,
+  onPanelsChanged: saveHiddenPanels,
+  initialHiddenPanels: savedHiddenPanels(),
   initialUiHidden: savedUiHidden(),
   onSubmitScore: (name) => void submitRun(name),
   loadBoard: (board) => fetchBoard(board, playerId(), savedName() || undefined),
@@ -384,6 +388,10 @@ hud.setSpeed(gameSpeed);
 function toggleSound(): void {
   audio.setMuted(!audio.muted);
   hud.setMuted(audio.muted);
+}
+
+function togglePanel(id: PanelId): void {
+  hud.setPanelOn(id, !hud.panelOn(id));
 }
 
 function toggleMusic(): void {
@@ -480,6 +488,12 @@ attachShortcuts(
     // Closing is the panel's own key handler (ui/leaderboard.ts).
     toggleLeaderboard: () => hud.setLeaderboardOpen(true),
     toggleStats: () => hud.setStatsOpen(!hud.statsOpen),
+    toggleSettings: () => hud.setSettingsOpen(!hud.settingsOpen),
+    toggleScore: () => togglePanel("score"),
+    toggleRadar: () => togglePanel("radar"),
+    toggleNotices: () => togglePanel("notices"),
+    toggleControls: () => togglePanel("controls"),
+    toggleArrows: () => togglePanel("arrows"),
     toggleUi: () => hud.setUiHidden(!hud.uiHidden),
     toggleSound,
     toggleMusic,
@@ -496,7 +510,7 @@ attachShortcuts(
     followPrevious: () => cycleFollow(-1),
     stopFollow: () => cameraController.returnFromFollow(),
   },
-  { helpOpen: () => hud.helpOpen },
+  { helpOpen: () => hud.helpOpen, settingsOpen: () => hud.settingsOpen },
 );
 
 // Auto-pause when the tab is hidden, so switching away never costs a crash.
@@ -704,6 +718,11 @@ engine.runRenderLoop(() => {
   // After render, so the arrows use this frame's camera matrices.
   // None once the shift has ended: nothing is coming in any more.
   hud.setArrivals(state.phase === "gameover" ? [] : arrivalMarkers(state, scene, canvas));
+  // Only while a shift is on (the welcome screen's demo included): nothing to watch otherwise.
+  hud.setRadar(
+    state.phase === "playing" || state.phase === "paused" ? state : null,
+    performance.now(),
+  );
 });
 
 // Open with the demo playing behind the welcome screen.

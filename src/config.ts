@@ -437,6 +437,14 @@ export const ARRIVAL_WARNING = 2.5;
  */
 export const NEW_PLANE_HIGHLIGHT = 5;
 
+/**
+ * How far past each edge of the map (world units) the radar looks
+ * (see ui/radar.ts). About 5 s of flight at `PLANE_SPEED`: enough to see an
+ * arrival coming before it reaches the screen edge. Planes further out are
+ * pinned to the scope's rim.
+ */
+export const RADAR_MARGIN = 35;
+
 // ---------------------------------------------------------------------------
 // Departures (planes taking off from the field — see core/departures.ts)
 // ---------------------------------------------------------------------------

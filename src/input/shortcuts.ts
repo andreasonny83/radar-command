@@ -17,6 +17,12 @@ export type ShortcutAction =
   | "toggleHelp"
   | "toggleLeaderboard"
   | "toggleStats"
+  | "toggleSettings"
+  | "toggleScore"
+  | "toggleRadar"
+  | "toggleNotices"
+  | "toggleControls"
+  | "toggleArrows"
   | "toggleUi"
   | "toggleSound"
   | "toggleMusic"
@@ -95,6 +101,42 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         keys: ["g"],
         caps: ["G"],
         description: "Stats for nerds",
+      },
+      {
+        action: "toggleSettings",
+        keys: ["o"],
+        caps: ["O"],
+        description: "Customise the interface: move panels, radar size, opacity (Esc closes it)",
+      },
+      {
+        action: "toggleScore",
+        keys: ["c"],
+        caps: ["C"],
+        description: "Score and clock on / off",
+      },
+      {
+        action: "toggleRadar",
+        keys: ["r"],
+        caps: ["R"],
+        description: "Radar on / off",
+      },
+      {
+        action: "toggleNotices",
+        keys: ["t"],
+        caps: ["T"],
+        description: "Toasts and weather warnings on / off",
+      },
+      {
+        action: "toggleControls",
+        keys: ["b"],
+        caps: ["B"],
+        description: "Buttons (speed, pause, sound, camera) on / off",
+      },
+      {
+        action: "toggleArrows",
+        keys: ["i"],
+        caps: ["I"],
+        description: "Incoming-plane arrows on / off",
       },
       {
         action: "toggleUi",
@@ -264,6 +306,11 @@ export interface ShortcutOptions {
    * Esc) does anything, so a stray key can't change the game behind it.
    */
   helpOpen: () => boolean;
+  /**
+   * True while the customise card or layout mode is up: like the help
+   * panel, only closing it (its key or Esc) does anything.
+   */
+  settingsOpen: () => boolean;
 }
 
 /**
@@ -297,6 +344,15 @@ export function attachShortcuts(
       const help = ALL_SHORTCUTS.find((s) => s.action === "toggleHelp");
       if (e.key === "Escape" || (help && matches(help, e))) {
         if (!e.repeat) handlers.toggleHelp();
+        e.preventDefault();
+      }
+      return;
+    }
+
+    if (options.settingsOpen()) {
+      const settings = ALL_SHORTCUTS.find((s) => s.action === "toggleSettings");
+      if (e.key === "Escape" || (settings && matches(settings, e))) {
+        if (!e.repeat) handlers.toggleSettings();
         e.preventDefault();
       }
       return;
