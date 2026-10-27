@@ -11,6 +11,10 @@
  * `REJECT_HOLD` seconds, then fades out over `REJECT_FADE`. Several can
  * show at once (two planes refused in quick succession); meshes are pooled
  * and reused once faded.
+ *
+ * A held mark (`setHeld`) is the fixed X on a closed runway's landing
+ * point: it pops in, then stays until released, when it fades out like any
+ * other.
  */
 import type { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { lerp } from "../core/math";
@@ -35,6 +39,8 @@ interface Mark {
   parts: Mesh[];
   /** Seconds since shown, or null while free in the pool. */
   age: number | null;
+  /** Set while the mark is held in place (see `setHeld`): it doesn't fade. */
+  key?: string;
 }
 
 export class RejectMarks {
@@ -42,8 +48,11 @@ export class RejectMarks {
 
   constructor(private readonly factory: MeshFactory) {}
 
-  /** Show a mark at `at` (sim coordinates), from the start of its pop-in. */
-  show(at: Vec2, world: WorldSize): void {
+  /**
+   * Show a mark at `at` (sim coordinates), from the start of its pop-in.
+   * With a `key` it is held in place instead of fading (see `setHeld`).
+   */
+  show(at: Vec2, world: WorldSize, key?: string): void {
     let mark = this.marks.find((m) => m.age === null);
     if (!mark) {
       const mesh = this.factory.createRejectMark(`reject-${this.marks.length}`);
@@ -51,9 +60,25 @@ export class RejectMarks {
       this.marks.push(mark);
     }
     mark.age = 0;
+    mark.key = key;
     toScene(at, world, REJECT_ALTITUDE, mark.mesh.position);
     this.pose(mark);
     mark.mesh.setEnabled(true);
+  }
+
+  /**
+   * Keep a fixed mark on each of `held` (key → sim position): new keys pop
+   * in and stay, keys no longer listed fade out. Call every frame with the
+   * full set.
+   */
+  setHeld(held: ReadonlyMap<string, Vec2>, world: WorldSize): void {
+    for (const mark of this.marks) {
+      if (mark.key !== undefined && !held.has(mark.key)) mark.key = undefined;
+    }
+    for (const [key, at] of held) {
+      if (this.marks.some((m) => m.key === key)) continue;
+      this.show(at, world, key);
+    }
   }
 
   /** Advance every visible mark by `dt` seconds (0 while paused: they freeze). */
@@ -61,6 +86,8 @@ export class RejectMarks {
     for (const mark of this.marks) {
       if (mark.age === null) continue;
       mark.age += dt;
+      // Held: stays fully visible, however long it has been up.
+      if (mark.key !== undefined) mark.age = Math.min(mark.age, REJECT_POP + REJECT_HOLD);
       if (mark.age >= REJECT_POP + REJECT_HOLD + REJECT_FADE) {
         mark.age = null;
         mark.mesh.setEnabled(false);
@@ -74,6 +101,7 @@ export class RejectMarks {
   clear(): void {
     for (const mark of this.marks) {
       mark.age = null;
+      mark.key = undefined;
       mark.mesh.setEnabled(false);
     }
   }

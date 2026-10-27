@@ -65,6 +65,38 @@ export function appendPathPoint(
 }
 
 /**
+ * True if extending `plane`'s path to `point` would run into the landing
+ * area (the `ANCHOR_RADIUS` circle round the threshold) of its runway while
+ * a departure has it closed: no landing path may be drawn there. The
+ * renderer holds a red X on that spot (render/rejectMarks.ts `setHeld`).
+ *
+ * The whole segment from the path's last point counts, so a quick flick
+ * can't cut through the circle. A path already inside it (the runway
+ * closed after it was drawn there) may still be drawn out.
+ */
+export function entersClosedRunway(
+  plane: Plane,
+  point: Vec2,
+  runways: readonly Runway[],
+  planes: readonly Plane[],
+): boolean {
+  const runway = runways.find((r) => r.color === plane.color);
+  if (!runway || !isRunwayClosed(runway, planes)) return false;
+  const from = plane.path[plane.path.length - 1] ?? plane.pos;
+  if (distance(from, runway.threshold) <= ANCHOR_RADIUS) return false;
+  return distanceToSegment(runway.threshold, from, point) <= ANCHOR_RADIUS;
+}
+
+/** Shortest distance from `p` to the segment `a`–`b`. */
+function distanceToSegment(p: Vec2, a: Vec2, b: Vec2): number {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const lenSq = abx * abx + aby * aby;
+  const t = lenSq === 0 ? 0 : clamp(((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq, 0, 1);
+  return distance(p, { x: a.x + abx * t, y: a.y + aby * t });
+}
+
+/**
  * Keep a drawn path point on the map (see `mapBounds`). Paths may run
  * anywhere the player can see, past the airspace edge included: out there
  * planes can't collide (see core/collision.ts), and the automatic avoidance

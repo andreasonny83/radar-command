@@ -32,6 +32,7 @@ import {
   THRESHOLD_ALTITUDE,
 } from "../config";
 import { allStands } from "../core/airfield";
+import { isRunwayClosed } from "../core/departures";
 import { isInHangar } from "../core/ground";
 import { cruiseAltitude } from "../core/layout";
 import { AIRLINES } from "../core/overflights";
@@ -469,6 +470,18 @@ export class SceneSync {
   }
 
   /**
+   * A fixed red X on the landing point of every runway a departure has
+   * closed (see `isRunwayClosed`), for as long as it stays closed.
+   */
+  private syncClosedRunways(state: GameState): void {
+    const closed = new Map<string, Vec2>();
+    for (const runway of state.runways) {
+      if (isRunwayClosed(runway, state.planes)) closed.set(runway.color, runway.threshold);
+    }
+    this.rejectMarks.setHeld(closed, state.world);
+  }
+
+  /**
    * Show or hide the airspace edge (a development aid; see
    * `DEBUG_SHOW_AIRSPACE`, which sets the starting state).
    */
@@ -736,6 +749,7 @@ export class SceneSync {
 
     this.syncBeams(state);
     this.crashEffect?.update(dt);
+    this.syncClosedRunways(state);
     this.rejectMarks.update(dt);
     this.trails.update(dt);
 

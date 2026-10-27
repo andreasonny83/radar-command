@@ -32,6 +32,7 @@ import {
   anchorPath,
   appendPathPoint,
   clampPathPoint,
+  entersClosedRunway,
   isSteerable,
   rejectedLanding,
   startPath,
@@ -297,6 +298,9 @@ export function attachPointerInput(
 
       // Anywhere on the map is fair game; only the map's own edge clamps.
       const point = clampPathPoint(hit, state.world);
+      // A runway a departure has closed takes no landing path: the path
+      // stops at the red X (held by the renderer) until it reopens.
+      if (entersClosedRunway(plane, point, state.runways, state.planes)) continue;
       if (!appendPathPoint(plane, point)) continue;
       // Reached the runway from the right direction: the path snaps onto the
       // threshold and is finished, so this pointer stops routing the plane.

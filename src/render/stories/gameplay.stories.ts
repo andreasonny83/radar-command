@@ -82,7 +82,10 @@
  * Invalid approach: REJECT_POP / REJECT_POP_SCALE / REJECT_HOLD /
  * REJECT_FADE in rejectMarks.ts, the ring and X (MARK_STROKE, REJECT_X_SPAN)
  * in meshes.ts, the buzz (`reject`, REJECT_*) in audio/sfx.ts; what counts as a
- * refused landing in core/path.ts `rejectedLanding`.
+ * refused landing in core/path.ts `rejectedLanding`. The fixed X held on a
+ * runway a departure has closed is `RejectMarks.setHeld` (fed by
+ * `SceneSync.syncClosedRunways`: see the Departure story); a path can't be
+ * drawn into its ring (`entersClosedRunway` in core/path.ts).
  * Landing: FLIGHT_ALTITUDE / OUTER_FLIGHT_ALTITUDE / ALTITUDE_TRANSITION /
  * APPROACH_DISTANCE / THRESHOLD_ALTITUDE / ALTITUDE_SCALE_PER_UNIT and
  * FLARE_DISTANCE in config.ts, MAX_VERTICAL_SPEED in sceneSync.ts.
