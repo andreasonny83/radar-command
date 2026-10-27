@@ -29,7 +29,6 @@
  */
 import { resolveOuterTraffic } from "./avoidance";
 import { advanceDepartures, isRunwayClosed, scheduleDepartures } from "./departures";
-import { isOnRunway } from "./path";
 import { scheduleOverflights } from "./overflights";
 import { checkLanding } from "./landing";
 import { detectCollisions } from "./collision";
@@ -129,19 +128,17 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
   advanceDepartures(state, dt, events);
 
   // 4. Land (or go around, if the touchdown zone is blocked or the runway
-  // is closed for a departure). A path leading to a runway that has just
-  // closed (locked on, or just ending on it) is wiped at once, not at the
-  // threshold: the plane flies on and the player can route it again.
+  // is closed for a departure). A locked approach to a runway that has just
+  // closed is cancelled at once, not at the threshold: the plane flies on
+  // straight and the player can route it again.
   for (const plane of state.planes) {
-    if (plane.phase !== "flying" || plane.path.length === 0) continue;
+    if (!plane.pathAnchored || plane.phase !== "flying") continue;
     const runway = state.runways.find((r) => r.color === plane.color);
     if (!runway || !isRunwayClosed(runway, state.planes)) continue;
-    const onApproach = plane.pathAnchored;
-    if (!onApproach && !isOnRunway(plane.path[plane.path.length - 1]!, runway)) continue;
     plane.path = [];
     plane.pathAnchored = false;
     plane.pathVersion++;
-    if (onApproach) events.push({ type: "goAround", planeId: plane.id, color: runway.color });
+    events.push({ type: "goAround", planeId: plane.id, color: runway.color });
   }
   const isClear = (r: Runway) =>
     isTouchdownZoneClear(r, state.planes) && !isRunwayClosed(r, state.planes);

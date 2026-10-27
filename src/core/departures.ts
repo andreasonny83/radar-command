@@ -21,10 +21,8 @@
  *   approach. That last condition lapses after `MAX_ARRIVAL_WAIT`, so a
  *   steady stream of arrivals can't hold a departure forever: they go
  *   around instead.
- * - From the moment it is ready at its hold point until lift-off, the runway
- *   is closed to arrivals (see `isRunwayClosed`): no path may lead there and
- *   locked approaches are wiped, so the wait for arrivals on short final
- *   below rarely applies.
+ * - Once cleared, the runway is closed to arrivals until lift-off (see
+ *   `isRunwayClosed`): they go around, like a runway blocked by a queue.
  * - Airborne, it follows a planned route (`planDepartureRoute`), drawn as a
  *   dotted line from the moment it's announced, so the player can plan
  *   round it. Inside the airspace it collides like any flying plane.
@@ -106,18 +104,13 @@ function isDepartureOnGround(plane: Plane): boolean {
 }
 
 /**
- * True while a departure is about to use `runway`, from the moment it is
- * ready at its hold point (waiting for the runway to be free, see
- * `advanceDepartures`) until it lifts off: the runway is closed to arrivals
- * (no path may lead there, a locked approach is wiped, and a plane that
- * arrives anyway goes around, see core/simulation.ts).
+ * True while a departure cleared onto `runway` hasn't lifted off yet: the
+ * runway is closed to arrivals (they go around, see core/simulation.ts).
  */
 export function isRunwayClosed(runway: Runway, planes: readonly Plane[]): boolean {
-  return planes.some((p) => {
-    const dep = p.departure;
-    if (dep?.runway !== runway.color || !isDepartureOnGround(p)) return false;
-    return dep.cleared || (p.ground !== null && p.ground.s >= dep.holdS - 0.05);
-  });
+  return planes.some(
+    (p) => p.departure?.runway === runway.color && p.departure.cleared && isDepartureOnGround(p),
+  );
 }
 
 /** Runways that cross `runway` (same centre, see `RUNWAY_LAYOUT`), itself included. */

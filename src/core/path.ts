@@ -65,45 +65,35 @@ export function appendPathPoint(
 }
 
 /**
- * True if `p` is on `runway`: its landing area (the `ANCHOR_RADIUS` circle
- * round the threshold, where the X goes) or its strip.
- */
-export function isOnRunway(p: Vec2, runway: Runway): boolean {
-  return distance(p, runway.threshold) <= ANCHOR_RADIUS || isOnStrip(p, runway);
-}
-
-/** Spacing of the samples that test a path segment against a runway. */
-const SEGMENT_SAMPLE = 0.5;
-
-/**
- * The runway `plane`'s path would run onto if extended to `point` (see
- * `isOnRunway`) while a departure has it closed: no path may lead there. The renderer holds a red X on the landing point (render/rejectMarks.ts
- * `setHeld`).
+ * True if extending `plane`'s path to `point` would run into the landing
+ * area (the `ANCHOR_RADIUS` circle round the threshold) of its runway while
+ * a departure has it closed: no landing path may be drawn there. The
+ * renderer holds a red X on that spot (render/rejectMarks.ts `setHeld`).
  *
  * The whole segment from the path's last point counts, so a quick flick
- * can't cut across the runway. A path already on the runway (it closed
- * after the path was drawn) may still be drawn out.
+ * can't cut through the circle. A path already inside it (the runway
+ * closed after it was drawn there) may still be drawn out.
  */
 export function entersClosedRunway(
   plane: Plane,
   point: Vec2,
   runways: readonly Runway[],
   planes: readonly Plane[],
-): Runway | null {
+): boolean {
   const runway = runways.find((r) => r.color === plane.color);
-  if (!runway || !isRunwayClosed(runway, planes)) return null;
+  if (!runway || !isRunwayClosed(runway, planes)) return false;
   const from = plane.path[plane.path.length - 1] ?? plane.pos;
-  if (isOnRunway(from, runway)) return null;
-  const steps = Math.max(1, Math.ceil(distance(from, point) / SEGMENT_SAMPLE));
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    if (
-      isOnRunway({ x: from.x + (point.x - from.x) * t, y: from.y + (point.y - from.y) * t }, runway)
-    ) {
-      return runway;
-    }
-  }
-  return null;
+  if (distance(from, runway.threshold) <= ANCHOR_RADIUS) return false;
+  return distanceToSegment(runway.threshold, from, point) <= ANCHOR_RADIUS;
+}
+
+/** Shortest distance from `p` to the segment `a`–`b`. */
+function distanceToSegment(p: Vec2, a: Vec2, b: Vec2): number {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const lenSq = abx * abx + aby * aby;
+  const t = lenSq === 0 ? 0 : clamp(((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq, 0, 1);
+  return distance(p, { x: a.x + abx * t, y: a.y + aby * t });
 }
 
 /**
