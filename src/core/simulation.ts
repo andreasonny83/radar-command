@@ -128,7 +128,18 @@ export function step(state: GameState, dt: number, rng: Rng = Math.random): SimE
   advanceDepartures(state, dt, events);
 
   // 4. Land (or go around, if the touchdown zone is blocked or the runway
-  // is closed for a departure).
+  // is closed for a departure). A locked approach to a runway that has just
+  // closed is cancelled at once, not at the threshold: the plane flies on
+  // straight and the player can route it again.
+  for (const plane of state.planes) {
+    if (!plane.pathAnchored || plane.phase !== "flying") continue;
+    const runway = state.runways.find((r) => r.color === plane.color);
+    if (!runway || !isRunwayClosed(runway, state.planes)) continue;
+    plane.path = [];
+    plane.pathAnchored = false;
+    plane.pathVersion++;
+    events.push({ type: "goAround", planeId: plane.id, color: runway.color });
+  }
   const isClear = (r: Runway) =>
     isTouchdownZoneClear(r, state.planes) && !isRunwayClosed(r, state.planes);
   for (const plane of state.planes) {
