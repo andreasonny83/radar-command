@@ -23,7 +23,8 @@ function normalise(raw: string): string {
   return url.replace(/\/+$/, "");
 }
 
-export function seo(): Plugin {
+/** `emitFiles: false` skips robots.txt and sitemap.xml (the native app has no use for them). */
+export function seo({ emitFiles = true }: { emitFiles?: boolean } = {}): Plugin {
   let siteUrl = DEFAULT_SITE_URL;
   // Only the production deployment (or a local build) may be indexed: a
   // Preview URL would compete with the real site as a duplicate.
@@ -44,6 +45,7 @@ export function seo(): Plugin {
       return html.replaceAll("__SITE_URL__", siteUrl).replaceAll("__ROBOTS__", robots);
     },
     generateBundle() {
+      if (!emitFiles) return;
       this.emitFile({
         type: "asset",
         fileName: "robots.txt",

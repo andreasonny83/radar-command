@@ -16,6 +16,7 @@ import {
   type SubmitRequest,
   type SubmitResponse,
 } from "../core/leaderboard";
+import { apiUrl } from "./apiBase";
 
 /** Give up on a request after this long (ms): the game never waits on it. */
 const TIMEOUT_MS = 8000;
@@ -28,7 +29,7 @@ export type Result<T> = { ok: true; data: T } | { ok: false; error: LeaderboardE
 /** POST/GET `path` and parse the JSON reply into a `Result`. */
 async function call<T>(path: string, init: RequestInit = {}): Promise<Result<T>> {
   try {
-    const response = await fetch(path, {
+    const response = await fetch(apiUrl(path), {
       ...init,
       headers: { "content-type": "application/json", ...init.headers },
       signal: AbortSignal.timeout(TIMEOUT_MS),

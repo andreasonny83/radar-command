@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "android:sync": "tsc --noEmit && vite build --mode android && cap sync android",
+    "android:open": "cap open android",
     "storybook": "storybook dev -p 6006 --no-open",
     "build-storybook": "storybook build",
     "test": "vitest run",
@@ -33,6 +35,10 @@
     "obscenity": "^0.4.6"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
     "@eslint/js": "^10.0.1",
     "@storybook/html-vite": "^10.6.0",
     "@tailwindcss/vite": "^4.3.3",

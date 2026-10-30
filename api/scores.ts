@@ -35,6 +35,7 @@ import {
 import { scoreOf } from "../src/core/scoring.js";
 import { insertScore, playerRank, recentSubmits } from "./_lib/db.js";
 import { fail, ipHash, json } from "./_lib/http.js";
+import { OPTIONS, withCors } from "./_lib/cors.js";
 import { blockedByList, flaggedByJev, takeJevCheck } from "./_lib/nameFilter.js";
 import { verifyRun } from "./_lib/token.js";
 
@@ -48,7 +49,7 @@ function isCount(value: unknown): value is number {
   );
 }
 
-export async function POST(request: Request): Promise<Response> {
+async function handle(request: Request): Promise<Response> {
   let body: Record<string, unknown>;
   try {
     const parsed: unknown = await request.json();
@@ -121,3 +122,7 @@ export async function POST(request: Request): Promise<Response> {
     return fail("server");
   }
 }
+
+export const POST = withCors(handle);
+// Preflight for the native app's cross-origin calls (api/_lib/cors.ts).
+export { OPTIONS };

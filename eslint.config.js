@@ -4,7 +4,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "storybook-static", "node_modules", "sample.html", ".remember"] },
+  { ignores: ["dist", "storybook-static", "node_modules", "sample.html", ".remember", "android"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

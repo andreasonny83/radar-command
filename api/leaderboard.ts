@@ -20,8 +20,9 @@ import {
 } from "../src/core/leaderboard.js";
 import { playerRank, topEntries } from "./_lib/db.js";
 import { fail, json } from "./_lib/http.js";
+import { OPTIONS, withCors } from "./_lib/cors.js";
 
-export async function GET(request: Request): Promise<Response> {
+async function handle(request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams;
   const board = params.get("board") ?? "daily";
   const rawPlayer = params.get("playerId");
@@ -49,3 +50,7 @@ export async function GET(request: Request): Promise<Response> {
     return fail("server");
   }
 }
+
+export const GET = withCors(handle);
+// Preflight for the native app's cross-origin calls (api/_lib/cors.ts).
+export { OPTIONS };

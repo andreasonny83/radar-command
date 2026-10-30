@@ -5,9 +5,10 @@
  */
 import type { RunResponse } from "../src/core/leaderboard.js";
 import { fail, json } from "./_lib/http.js";
+import { OPTIONS, withCors } from "./_lib/cors.js";
 import { signRun } from "./_lib/token.js";
 
-export async function POST(): Promise<Response> {
+async function handle(): Promise<Response> {
   try {
     const body: RunResponse = { token: await signRun() };
     return json(body);
@@ -16,3 +17,7 @@ export async function POST(): Promise<Response> {
     return fail("server");
   }
 }
+
+export const POST = withCors(handle);
+// Preflight for the native app's cross-origin calls (api/_lib/cors.ts).
+export { OPTIONS };
