@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <!-- Source of assets/feature-graphic.png (Google Play feature graphic, 1024x500). Re-render with scripts/android/build-feature-graphic.sh -->
+  <defs>
+    <radialGradient id="bg" cx="0.74" cy="0.5" r="0.9">
+      <stop offset="0" stop-color="#16324f" />
+      <stop offset="1" stop-color="#0f172a" />
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="500" fill="url(#bg)" />
+  <g fill="none" stroke="#0ea5e9" stroke-opacity="0.35" stroke-width="3">
+    <circle cx="760" cy="250" r="230" />
+    <circle cx="760" cy="250" r="153" />
+    <circle cx="760" cy="250" r="77" />
+    <path d="M760 20V480M530 250H990" stroke-opacity="0.18" />
+  </g>
+  <!-- Runway at the end of the flight path (heading up-right, -39deg) -->
+  <g transform="translate(910 108) rotate(-39)">
+    <rect x="-90" y="-15" width="180" height="30" rx="4" fill="#334155" stroke="#64748b" stroke-width="2" />
+    <path d="M-66 0H66" stroke="#f1f5f9" stroke-width="3" stroke-dasharray="14 12" />
+    <rect x="-90" y="-15" width="14" height="30" rx="3" fill="#ef4444" />
+  </g>
+  <path d="M600 420C675 385 725 355 760 305S850 180 868 148" fill="none" stroke="#facc15" stroke-width="6" stroke-dasharray="4 14" stroke-linecap="round" />
+  <path transform="translate(760 305) rotate(35) scale(3.4) translate(-32 -32)" fill="#38bdf8"
+    d="M32 10c2 0 3 2 3 5v9l15 9v4l-15-4v9l5 4v3l-8-2-8 2v-3l5-4v-9l-15 4v-4l15-9v-9c0-3 1-5 3-5z" />
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" fill="#f1f5f9">
+    <text x="64" y="225" font-size="80" font-weight="800">Radar Command</text>
+    <text x="64" y="290" font-size="36" font-weight="500" fill="#7dd3fc">3D air traffic control</text>
+    <text x="64" y="350" font-size="28" fill="#cbd5e1">Draw flight paths. Land every plane.</text>
+  </g>
+</svg>

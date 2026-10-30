@@ -54,8 +54,8 @@ export default defineConfig(({ mode }) => {
                 globPatterns: ["**/*.{html,js,css,wasm,data,flac,mp3,svg,png,webmanifest}"],
                 // The main bundle and the speech engine are over Workbox's 2 MiB default.
                 maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-                // The leaderboard API and the licence texts always go to the network.
-                navigateFallbackDenylist: [/^\/api\//, /^\/licenses\//],
+                // The leaderboard API, the licence texts and the privacy page always go to the network.
+                navigateFallbackDenylist: [/^\/api\//, /^\/licenses\//, /^\/privacy\.html$/],
                 cleanupOutdatedCaches: true,
               },
             }),

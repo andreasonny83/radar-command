@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy – Radar Command</title>
+    <meta
+      name="description"
+      content="How Radar Command (web game and Android app) handles your data: no accounts, no ads, an optional leaderboard nickname."
+    />
+    <link rel="canonical" href="https://radar-command.vercel.app/privacy.html" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: #0f172a;
+        color: #cbd5e1;
+        font:
+          16px/1.65 "Helvetica Neue",
+          Helvetica,
+          Arial,
+          sans-serif;
+      }
+      main {
+        max-width: 44rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      h1 {
+        color: #38bdf8;
+        font-size: 2rem;
+        margin: 0 0 0.25rem;
+      }
+      h2 {
+        color: #f1f5f9;
+        font-size: 1.2rem;
+        margin: 2.2rem 0 0.5rem;
+      }
+      a {
+        color: #7dd3fc;
+      }
+      .meta {
+        color: #94a3b8;
+        margin: 0 0 1.5rem;
+      }
+      ul {
+        padding-left: 1.2rem;
+      }
+      li {
+        margin: 0.3rem 0;
+      }
+      code {
+        background: #1e293b;
+        padding: 0.1rem 0.35rem;
+        border-radius: 4px;
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Privacy Policy</h1>
+      <p class="meta">Radar Command · web game and Android app · Last updated 30 October 2026</p>
+
+      <p>
+        Radar Command is a free air traffic control game. It has no accounts, no ads and no in-app
+        purchases. This page explains what the game stores and sends, in plain terms. It applies to
+        the web game at
+        <a href="https://radar-command.vercel.app">radar-command.vercel.app</a> and to the Android
+        app, which runs the same game.
+      </p>
+
+      <h2>The short version</h2>
+      <ul>
+        <li>You can play without giving us anything. The game works offline.</li>
+        <li>
+          Only if you submit a score to the leaderboard do we receive a nickname and your run's
+          score.
+        </li>
+        <li>
+          We never ask for your name, email, location, contacts, photos, camera or microphone.
+        </li>
+        <li>We do not sell your data and do not show advertising.</li>
+      </ul>
+
+      <h2>What is stored on your device</h2>
+      <p>
+        The game keeps these small items in your browser's or app's local storage. They never leave
+        your device unless noted:
+      </p>
+      <ul>
+        <li>Your settings: sound and music on/off, hidden or moved panels.</li>
+        <li>
+          The nickname you last used for the leaderboard (sent to us only when you submit a score).
+        </li>
+        <li>
+          A random anonymous player ID, which groups your own runs on the leaderboard. It is not
+          linked to your identity or device.
+        </li>
+        <li>The last leaderboard view, so it can show something while offline.</li>
+        <li>On the web, an offline copy of the game files (a service worker cache).</li>
+      </ul>
+      <p>Clearing the site's data (or uninstalling the app) removes all of this.</p>
+
+      <h2>What we collect when you use the leaderboard</h2>
+      <p>
+        Viewing the leaderboard, or starting a shift, contacts our server. Submitting a score stores
+        one record containing:
+      </p>
+      <ul>
+        <li>
+          the nickname you chose (3–16 characters). <strong>It is shown publicly</strong> on the
+          leaderboard, so do not use your real name or anything personal;
+        </li>
+        <li>
+          your score and its breakdown (planes landed and departed, flight time, shift duration);
+        </li>
+        <li>your anonymous player ID;</li>
+        <li>the time of the submission;</li>
+        <li>
+          a keyed one-way hash of your IP address, used only to limit how fast one address can
+          submit. We do not store the IP address itself, and the hash cannot be turned back into it.
+        </li>
+      </ul>
+      <p>
+        Like any web server, our host also sees your IP address and device/browser details in the
+        normal course of delivering a request, for operating and securing the service.
+      </p>
+
+      <h2>Nickname checking</h2>
+      <p>
+        To keep the leaderboard free of offensive names, a submitted nickname is checked on our
+        server against a word list and, when enabled, by an AI model from
+        <a href="https://typesafe.ai">TypeSafe</a> to which only the nickname is sent (no player ID,
+        IP address or other data). If a name is refused you can try another.
+      </p>
+
+      <h2>Analytics</h2>
+      <p>
+        We use Vercel Web Analytics and Speed Insights to count visits and measure loading
+        performance. They are designed to work without cookies and without following you across
+        sites. They record things like the page, country, browser and device type, and performance
+        timings. This data is aggregate and we do not use it to identify you.
+      </p>
+
+      <h2>Services we rely on</h2>
+      <ul>
+        <li>
+          <a href="https://vercel.com/legal/privacy-policy">Vercel</a>: hosting, the leaderboard
+          API, analytics.
+        </li>
+        <li>
+          <a href="https://neon.com/privacy-policy">Neon</a>: the database that stores leaderboard
+          records.
+        </li>
+        <li>
+          <a href="https://typesafe.ai">TypeSafe</a>: the optional nickname check described above.
+        </li>
+        <li>
+          <a href="https://github.com/andreasonny83/radar-command">GitHub</a>: the "Send feedback"
+          link opens a pre-filled issue form on GitHub. Nothing is sent unless you submit that form
+          yourself, under GitHub's own policy.
+        </li>
+      </ul>
+      <p>These providers process data on our behalf, and may do so outside your country.</p>
+
+      <h2>Android permissions</h2>
+      <p>
+        The Android app requests only the <code>INTERNET</code> permission, to reach the leaderboard
+        and load analytics. It does not access your location, contacts, files, camera or microphone.
+      </p>
+
+      <h2>Retention and your choices</h2>
+      <p>
+        Leaderboard records are kept for as long as the leaderboard runs. You can stop sending us
+        anything by not submitting a score. To have your records removed, open an issue at
+        <a href="https://github.com/andreasonny83/radar-command/issues"
+          >github.com/andreasonny83/radar-command/issues</a
+        >
+        with your nickname and roughly when you played; because we hold no account or email, we can
+        only match records by nickname, so the more detail the better.
+      </p>
+
+      <h2>Children</h2>
+      <p>
+        The game is suitable for all ages and is not aimed at collecting data from children. We
+        knowingly collect nothing beyond the optional nickname and score described above. A parent
+        who wants a child's leaderboard entry removed can use the contact above.
+      </p>
+
+      <h2>Changes to this policy</h2>
+      <p>If this policy changes, the new version and its date will be posted on this page.</p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions or requests:
+        <a href="https://github.com/andreasonny83/radar-command/issues">open an issue on GitHub</a>.
+      </p>
+
+      <p class="meta"><a href="/">← Back to the game</a></p>
+    </main>
+  </body>
+</html>
