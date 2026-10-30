@@ -1,6 +1,6 @@
 {
   "name": "radar-command",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "3D air traffic control game (Flight Control-style) built with Babylon.js",
   "scripts": {
