@@ -56,6 +56,7 @@ import { toastFor } from "./ui/eventToasts";
 import { FrameStats } from "./ui/frameStats";
 import { createFullscreen } from "./ui/fullscreen";
 import { createScreenWake } from "./ui/wakeLock";
+import { registerOffline } from "./ui/offline";
 import { createHud } from "./ui/hud";
 import { type PanelId, saveHiddenPanels, savedHiddenPanels } from "./ui/panels";
 import { savedUiHidden, saveUiHidden } from "./ui/preferences";
@@ -66,6 +67,7 @@ import { weatherAlerts } from "./ui/weatherAlerts";
 // never reports page views. In dev it runs in debug mode (console only).
 inject({ mode: import.meta.env.DEV ? "development" : "production" });
 injectSpeedInsights();
+registerOffline();
 const canvas = document.getElementById("renderCanvas") as HTMLCanvasElement;
 const { engine, scene, shadows, fill, key, quality } = createScene(canvas);
 // Trades resolution for frame rate when the GPU struggles (render/quality.ts),

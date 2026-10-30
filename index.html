@@ -16,11 +16,113 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Radar Command" />
-    <title>Radar Command — Air Traffic Control</title>
+    <title>Radar Command — Free 3D Air Traffic Control Game | Play Online</title>
+    <meta
+      name="description"
+      content="Radar Command is a free 3D air traffic control game you play in your browser. Draw flight paths, land every plane on its colour-matched runway and never let two touch. No download, works on desktop and mobile."
+    />
+    <meta
+      name="keywords"
+      content="air traffic control game, ATC game, airport simulator, plane landing game, flight control game, free browser game, 3D airport game, radar game"
+    />
+    <meta name="robots" content="__ROBOTS__" />
+    <!-- Google Search Console ownership check. -->
+    <meta name="google-site-verification" content="4POXQCHxpcndfRnwZjEQ0saF8aergb9pA2qhbrEJw_0" />
+    <link rel="canonical" href="__SITE_URL__/" />
+
+    <!-- Open Graph (Facebook, LinkedIn, Discord, WhatsApp, Slack…) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Radar Command" />
+    <meta property="og:title" content="Radar Command — Free 3D Air Traffic Control Game" />
+    <meta
+      property="og:description"
+      content="Draw flight paths, land every plane on its runway and never let two touch. Play free in your browser, no download."
+    />
+    <meta property="og:url" content="__SITE_URL__/" />
+    <meta property="og:image" content="__SITE_URL__/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Radar Command: a plane following a dotted flight path across a radar scope toward a runway"
+    />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Radar Command — Free 3D Air Traffic Control Game" />
+    <meta
+      name="twitter:description"
+      content="Draw flight paths, land every plane on its runway and never let two touch. Play free in your browser."
+    />
+    <meta name="twitter:image" content="__SITE_URL__/og-image.png" />
+
+    <!-- Structured data: lets Google show the game as a rich result. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": ["WebApplication", "VideoGame"],
+        "name": "Radar Command",
+        "alternateName": "Radar Command — Air Traffic Control",
+        "url": "__SITE_URL__/",
+        "image": "__SITE_URL__/og-image.png",
+        "description": "A free 3D air traffic control game for the browser. Drag flight paths from incoming planes to their colour-matched runways and land as many as you can without a collision.",
+        "genre": ["Simulation", "Strategy", "Puzzle"],
+        "applicationCategory": "GameApplication",
+        "operatingSystem": "Any (web browser)",
+        "gamePlatform": ["Web browser", "Desktop", "Mobile"],
+        "playMode": "SinglePlayer",
+        "inLanguage": "en",
+        "isAccessibleForFree": true,
+        "browserRequirements": "Requires a browser with WebGL",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "codeRepository": "https://github.com/andreasonny83/radar-command"
+      }
+    </script>
   </head>
   <body class="relative text-slate-100">
     <!-- HUD markup is injected by src/ui/hud.ts (see src/ui/hudMarkup.ts). -->
     <canvas id="renderCanvas"></canvas>
+
+    <!-- Text for search engines, screen readers and visitors without
+         JavaScript or WebGL: the game itself is a canvas, which has none.
+         Visually hidden, not display:none, so it stays readable. -->
+    <main id="seo-content" class="sr-only">
+      <h1>Radar Command: free 3D air traffic control game</h1>
+      <p>
+        Radar Command is a free air traffic control simulator you play in your browser, on desktop
+        or mobile, with nothing to download. You are the controller of a busy airport: planes fly in
+        from the edges of the map and it is up to you to guide each one down safely.
+      </p>
+      <h2>How to play</h2>
+      <ul>
+        <li>Drag from a plane to draw its flight path; it follows the path at a constant speed.</li>
+        <li>
+          Land it by crossing the threshold of the runway of its colour in the direction of the
+          runway arrow. If the runway is busy the plane goes around.
+        </li>
+        <li>Watch the arrows on the screen edge: they warn where the next plane flies in.</li>
+        <li>
+          New runways open as your score grows and more planes share the sky. One collision ends the
+          shift.
+        </li>
+      </ul>
+      <h2>Features</h2>
+      <ul>
+        <li>3D airport with day and night, seasons, weather, clouds and river traffic</li>
+        <li>Departures, overflights, several aircraft types and live airport sounds</li>
+        <li>Online daily, weekly and all-time leaderboards</li>
+        <li>Mouse, touch and full keyboard controls; install it to your home screen</li>
+      </ul>
+      <p>
+        If you like Flight Control-style games, airport simulators or plane landing games, Radar
+        Command is a modern take on the idea. The source code is open on
+        <a href="https://github.com/andreasonny83/radar-command">GitHub</a>.
+      </p>
+      <noscript
+        >Radar Command needs JavaScript and WebGL to run. Please enable them to play.</noscript
+      >
+    </main>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

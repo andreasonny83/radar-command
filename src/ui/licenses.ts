@@ -77,6 +77,14 @@ export const THIRD_PARTY: readonly ThirdPartyNotice[] = [
     url: "https://github.com/tailwindlabs/tailwindcss",
     text: "licenses/tailwindcss.txt",
   },
+  {
+    name: "Workbox",
+    role: "Registers the offline service worker",
+    license: "MIT",
+    copyright: "© Google LLC",
+    url: "https://github.com/GoogleChrome/workbox",
+    text: "licenses/workbox.txt",
+  },
 ];
 
 /** A field recording the game's sounds are cut from (audio/samples.ts). */
